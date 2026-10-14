@@ -1,0 +1,26 @@
+<resources>
+    <!-- Theme.Lucifer - Lucifer Red/Black Theme -->
+    <style name="Theme.Lucifer" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <!-- Primary colors -->
+        <item name="colorPrimary">@color/lucifer_red</item>
+        <item name="colorPrimaryDark">@color/lucifer_dark_red</item>
+        <item name="colorAccent">@color/lucifer_gold</item>
+        
+        <!-- Background colors -->
+        <item name="android:colorBackground">@color/lucifer_black</item>
+        <item name="colorControlNormal">@color/lucifer_on_surface</item>
+        <item name="colorControlActivated">@color/lucifer_gold</item>
+        <item name="colorControlHighlight">@color/lucifer_gold_light</item>
+        
+        <!-- Error -->
+        <item name="colorError">@color/lucifer_error</item>
+        
+        <!-- Status bar -->
+        <item name="android:statusBarColor">@color/lucifer_obsidian</item>
+        <item name="android:navigationBarColor">@color/lucifer_obsidian</item>
+        
+        <!-- Window -->
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>

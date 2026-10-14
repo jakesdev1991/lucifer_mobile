@@ -1,0 +1,71 @@
+import Lake
+open Lake DSL
+
+require mathlib4 from git
+  "https://github.com/leanprover-community/mathlib4" @ "v4.32.0"
+
+package OmegaTheory where
+
+/-- The Omega Theory formalization in Lean 4 -/
+lean_lib ToE where
+  roots := #[
+    `OmegaAxioms,
+    `OmegaDimensionalHierarchy,
+    `OmegaProtocol,
+    `OmegaUnifiedFoundation,
+    `ToE,
+    `Vol01_ClassicalMechanics,
+    `Vol02_Electromagnetism,
+    `Vol03_Thermodynamics,
+    `Vol04_QuantumMechanics,
+    `Vol05_GeneralRelativity,
+    `Vol06_QuantumFieldTheory,
+    `Vol07_Cosmology,
+    `Vol08_BlackHoleThermodynamics,
+    `Vol09_HolographicPrinciple,
+    `Vol10_StandardModel,
+    `Vol11_CondensedMatter,
+    `Vol12_QuantumInformation,
+    `Vol13_QuantumGravity,
+    `Vol14_DarkSector,
+    `Vol15_EarlyUniverse,
+    `Vol16_NonEquilibriumThermodynamics,
+    `Vol17_FluidDynamics,
+    `Vol18_StatisticalMechanics,
+    `Vol19_ComplexSystems,
+    `Vol20_ChaosTheory,
+    `Vol21_ArrowOfTime,
+    `Vol22_EREqualsEPR,
+    `Vol23_MeasurementProblem,
+    `Vol24_NonLocality,
+    `Vol25_BlackHoleInformation,
+    `Vol26_NetworkTheory,
+    `Vol27_Consciousness,
+    `Vol28_EvolutionaryAlgorithms,
+    `Vol29_EcosystemDynamics,
+    `Vol30_PlanetarySystems,
+    `Vol31_GameTheory,
+    `Vol32_Cybernetics,
+    `Vol33_AGI,
+    `Vol34_QuantumComputing,
+    `Vol35_TheoryOfComputation,
+    `Vol36_ToposTheory,
+    `Vol37_Morphogenesis,
+    `Vol38_Economics,
+    `Vol39_SocietalNetworks,
+    `Vol40_FermiParadox,
+    `Vol41_PostBiologicalEvolution,
+    `Vol42_StellarEngineering,
+    `Vol43_GalacticEcosystems,
+    `Vol44_UniversalExpansion,
+    `Vol45_MultiverseTheory,
+    `Vol46_SimulationHypothesis,
+    `Vol47_TranscendentArchitectures,
+    `Vol48_ExtraDimensions,
+    `Vol49_QuantumReferenceFrames,
+    `Vol50_UltimateEnsemble,
+    `Vol51_ClosedTimelikeCurves,
+    `Vol52_OmegaPointTheory,
+    `Vol53_UniversalCompiler,
+    `Vol54_TheoryOfNothing
+  ]

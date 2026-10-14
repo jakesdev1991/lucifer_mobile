@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Lucifer Colors -->
+    <color name="lucifer_red">#FF0000</color>
+    <color name="lucifer_dark_red">#CC0000</color>
+    <color name="lucifer_gold">#FFD700</color>
+    <color name="lucifer_black">#0D0D0D</color>
+    <color name="lucifer_obsidian">#1A1A1A</color>
+    <color name="lucifer_surface">#1A1A1A</color>
+    <color name="lucifer_surface_variant">#2A2A2A</color>
+    <color name="lucifer_on_surface">#FFFFFF</color>
+    <color name="lucifer_on_surface_variant">#CCCCCC</color>
+    <color name="lucifer_outline">#333333</color>
+    <color name="lucifer_error">#FF4444</color>
+    <color name="lucifer_gold_light">#FFEB3B</color>
+    <color name="lucifer_gold_dark">#B8860B</color>
+    
+    <!-- Standard Android colors referenced by themes -->
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+</resources>

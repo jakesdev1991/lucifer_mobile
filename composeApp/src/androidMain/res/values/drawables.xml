@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <drawable name="ic_launcher_foreground">@drawable/ic_launcher_foreground</drawable>
+    <drawable name="ic_launcher_background">@drawable/ic_launcher_background</drawable>
+    
+    <!-- Lucifer Icons -->
+    <drawable name="ic_conquest">@drawable/ic_conquest</drawable>
+    <drawable name="ic_war">@drawable/ic_war</drawable>
+    <drawable name="ic_famine">@drawable/ic_famine</drawable>
+    <drawable name="ic_death">@drawable/ic_death</drawable>
+    <drawable name="ic_lucifer">@drawable/ic_lucifer</drawable>
+    <drawable name="ic_terminal">@drawable/ic_terminal</drawable>
+    <drawable name="ic_wallet">@drawable/ic_wallet</drawable>
+    <drawable name="ic_browser">@drawable/ic_browser</drawable>
+    <drawable name="ic_skills">@drawable/ic_skills</drawable>
+    <drawable name="ic_settings">@drawable/ic_settings</drawable>
+    <drawable name="ic_chat">@drawable/ic_chat</drawable>
+</resources>

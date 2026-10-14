@@ -1,0 +1,6 @@
+com/lucifer/mobile/launcher/LauncherActivity.class
+com/lucifer/mobile/launcher/LauncherActivity\$*.class
+com/lucifer/mobile/MainActivity.class
+com/lucifer/mobile/LuciferApplication.class
+com/lucifer/mobile/omni_bridge/heartbeat/LuciferHeartbeatService.class
+com/lucifer/mobile/services/SSHService.class

@@ -1,0 +1,275 @@
+package com.lucifer.mobile.ui.components
+
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Spring
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.graphics.drawscope.drawCircle
+import androidx.compose.ui.graphics.drawscope.drawPath
+import androidx.compose.ui.graphics.drawscope.drawRect
+import com.lucifer.mobile.ui.theme.LuciferColors
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.min
+import kotlin.math.sin
+
+@Composable
+fun LuciferIcon(
+    modifier: Modifier = Modifier,
+    tint: Color = LuciferColors.Crimson,
+    animated: Boolean = true,
+    size: androidx.compose.ui.unit.Dp = 64.dp
+) {
+    val animatedRotation by animateFloatAsState(
+        targetValue = if (animated) 360f else 0f,
+        animationSpec = tween(20000, delayMillis = 0, easing = androidx.compose.animation.core.LinearEasing)
+    )
+
+    val animatedPulse by animateFloatAsState(
+        targetValue = if (animated) 1f else 0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
+    )
+
+    val animatedGlow by animateFloatAsState(
+        targetValue = if (animated) 1f else 0f,
+        animationSpec = tween(1500, delayMillis = 0, easing = androidx.compose.animation.core.LinearEasing)
+    )
+
+    Box(modifier = modifier.size(size)) {
+        Canvas(modifier = Modifier.size(size)) {
+            drawLuciferSigil(tint, size)
+        }
+        if (animated) {
+            Canvas(modifier = Modifier.size(size)) {
+                drawParticles(animatedRotation, tint, size)
+            }
+        }
+        if (animated) {
+            Canvas(modifier = Modifier.size(size)) {
+                drawPulseGlow(animatedPulse, animatedGlow, tint, size)
+            }
+        }
+    }
+}
+
+private fun DrawScope.drawLuciferSigil(
+    tint: Color,
+    size: Dp
+) {
+    val canvasWidth = size.toPx()
+    val canvasHeight = size.toPx()
+    val center = Offset(canvasWidth / 2f, canvasHeight / 2f)
+    val radius = (min(canvasWidth, canvasHeight) / 2f * 0.85f)
+
+    // OUTER CRIMSON RING
+    drawCircle(
+        color = tint,
+        center = center,
+        radius = radius,
+        style = Stroke(width = 3.dp.toPx())
+    )
+
+    // INNER VOID CIRCLE
+    drawCircle(
+        color = LuciferColors.Obsidian,
+        center = center,
+        radius = radius - 4.dp.toPx(),
+        style = Fill
+    )
+
+    // INNER GOLD RING
+    drawCircle(
+        color = LuciferColors.Gold.copy(alpha = 0.6f),
+        center = center,
+        radius = radius - 8.dp.toPx(),
+        style = Stroke(width = 1.5.dp.toPx())
+    )
+
+    // RUNIC MARKINGS (8 SYMBOLS)
+    for (i in 0 until 8) {
+        val angle = (i * 45f - 90f) * PI / 180f
+        val runeX = (center.x + (radius - 6.dp.toPx()) * cos(angle)).toFloat()
+        val runeY = (center.y + (radius - 6.dp.toPx()) * sin(angle)).toFloat()
+        val runeSize = 3f.dp.toPx()
+        drawRect(
+            topLeft = Offset(runeX - runeSize / 2f, runeY - runeSize / 2f),
+            size = Size(runeSize, runeSize),
+            color = LuciferColors.Gold
+        )
+    }
+
+    // LUCIFER SIGIL - STYLIZED L WITH WINGS
+    val sigilSize = radius * 0.5f
+    val halfSigil = sigilSize / 2
+    val cx = center.x.toFloat()
+    val cy = center.y.toFloat()
+
+    val sigilPath = Path().apply {
+        moveTo(cx, cy - halfSigil)
+        lineTo(cx, cy + halfSigil * 0.5f)
+        moveTo(cx - halfSigil * 0.7f, cy - halfSigil * 0.7f)
+        lineTo(cx + halfSigil * 0.7f, cy - halfSigil * 0.7f)
+        moveTo(cx - halfSigil * 0.5f, cy - halfSigil * 0.1f)
+        lineTo(cx + halfSigil * 0.5f, cy - halfSigil * 0.1f)
+        moveTo(cx - halfSigil * 0.3f, cy + halfSigil * 0.4f)
+        lineTo(cx + halfSigil * 0.3f, cy + halfSigil * 0.4f)
+        moveTo(cx, cy - halfSigil * 0.7f)
+        lineTo(cx - halfSigil * 1.3f, cy - halfSigil * 0.3f)
+        moveTo(cx, cy - halfSigil * 0.1f)
+        lineTo(cx - halfSigil * 1.1f, cy + halfSigil * 0.5f)
+        moveTo(cx, cy - halfSigil * 0.7f)
+        lineTo(cx + halfSigil * 1.3f, cy - halfSigil * 0.3f)
+        moveTo(cx, cy - halfSigil * 0.1f)
+        lineTo(cx + halfSigil * 1.1f, cy + halfSigil * 0.5f)
+    }
+
+    drawPath(
+        path = sigilPath,
+        color = tint,
+        style = Stroke(width = 3.dp.toPx())
+    )
+
+    drawPath(
+        path = sigilPath,
+        color = LuciferColors.Gold,
+        style = Stroke(width = 1.5.dp.toPx())
+    )
+}
+
+private fun DrawScope.drawPulseGlow(
+    pulse: Float,
+    glow: Float,
+    tint: Color,
+    size: androidx.compose.ui.unit.Dp
+) {
+    val canvasWidth: Float = size.toPx()
+    val canvasHeight: Float = size.toPx()
+    val center = Offset(canvasWidth / 2f, canvasHeight / 2f)
+    val radius = (min(canvasWidth, canvasHeight) / 2f * 0.85f)
+
+    val glowRadius = radius + 8.dp.toPx() + pulse * 4.dp.toPx()
+    drawCircle(
+        color = tint.copy(alpha = (0.15f + glow * 0.1f)),
+        center = center,
+        radius = glowRadius,
+        style = Stroke(width = (4f + pulse * 3f).dp.toPx())
+    )
+}
+
+private fun DrawScope.drawParticles(
+    rotation: Float,
+    tint: Color,
+    size: androidx.compose.ui.unit.Dp
+) {
+    val canvasWidth: Float = size.toPx()
+    val canvasHeight: Float = size.toPx()
+    val center = Offset(canvasWidth / 2f, canvasHeight / 2f)
+    val radius = (min(canvasWidth, canvasHeight) / 2f * 0.85f)
+
+    // Gold particles
+    for (i in 0 until 6) {
+        val particleAngle = (rotation + i * 60f) * PI / 180f
+        val particleRadius = radius + 12.dp.toPx() + (sin(rotation * PI / 180f * 3f + i.toFloat()) * 4.dp.toPx()).toFloat()
+        val particleX = center.x + particleRadius * cos(particleAngle)
+        val particleY = center.y + particleRadius * sin(particleAngle)
+        val particleSize = (1.5f + sin(rotation * PI / 180f * 3f + i.toFloat()) * 0.5f).toFloat().dp.toPx()
+
+        drawCircle(
+            center = Offset(particleX, particleY),
+            radius = particleSize,
+            color = LuciferColors.Gold,
+            style = Fill
+        )
+    }
+
+    // Aether particles (cyan)
+    for (i in 0 until 4) {
+        val particleAngle = (rotation * 1.5f + i * 90f + 45f) * PI / 180f
+        val particleRadius = radius + 20.dp.toPx() + (cos(rotation * PI / 180f * 2f + (i * 2).toFloat()) * 6.dp.toPx()).toFloat()
+        val particleX = center.x + particleRadius * cos(particleAngle)
+        val particleY = center.y + particleRadius * sin(particleAngle)
+        val particleSize = (1f + cos(rotation * PI / 180f * 4f + i.toFloat()) * 0.3f).toFloat().dp.toPx()
+
+        drawCircle(
+            center = Offset(particleX, particleY),
+            radius = particleSize,
+            color = LuciferColors.Aether,
+            style = Fill
+        )
+    }
+}
+
+@Composable
+fun LuciferIconSmall(
+    modifier: Modifier = Modifier,
+    tint: Color = LuciferColors.Crimson,
+    animated: Boolean = false
+) {
+    LuciferIcon(
+        modifier = modifier.size(24.dp),
+        tint = tint,
+        animated = animated,
+        size = 24.dp
+    )
+}
+
+@Composable
+fun HeartbeatIndicator(
+    modifier: Modifier = Modifier,
+    isActive: Boolean,
+    phase: String
+) {
+    val phaseColor = if (phase == "IDEATION") LuciferColors.Aether else LuciferColors.Gold
+    val pulse by animateFloatAsState(
+        targetValue = if (isActive) 1f else 0f,
+        animationSpec = tween(1000, delayMillis = 0, easing = androidx.compose.animation.core.LinearEasing)
+    )
+
+    Box(modifier = modifier.size(12.dp)) {
+        Canvas(modifier = Modifier.size(12.dp)) {
+            val center = Offset(6.dp.toPx(), 6.dp.toPx())
+            val baseRadius = 4.dp.toPx()
+
+            drawCircle(
+                color = phaseColor.copy(alpha = 0.3f * pulse),
+                center = center,
+                radius = baseRadius + pulse * 6.dp.toPx(),
+                style = Stroke(width = 2.dp.toPx())
+            )
+
+            drawCircle(
+                color = if (isActive) phaseColor else LuciferColors.TextMuted,
+                center = center,
+                radius = baseRadius * 0.6f,
+                style = Fill
+            )
+
+            if (isActive) {
+                drawCircle(
+                    color = phaseColor.copy(alpha = 0.5f),
+                    center = center,
+                    radius = baseRadius * 0.8f + pulse * 2.dp.toPx(),
+                    style = Fill
+                )
+            }
+        }
+    }
+}

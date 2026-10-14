@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="theme_modes">
+        <item>Dark</item>
+        <item>Light</item>
+        <item>System</item>
+    </string-array>
+    
+    <string-array name="chains">
+        <item>arbitrum</item>
+        <item>ethereum</item>
+        <item>optimism</item>
+        <item>base</item>
+        <item>polygon</item>
+    </string-array>
+    
+    <string-array name="llm_providers">
+        <item>nvidia</item>
+        <item>anthropic</item>
+        <item>openai</item>
+    </string-array>
+    
+    <string-array name="nvidia_models">
+        <item>nvidia/llama-3.1-nemotron-70b-instruct</item>
+        <item>nvidia/nemotron-3-ultra-550b-a55b</item>
+        <item>nvidia/nemotron-3.5-lightning-30b-a3b</item>
+        <item>meta/llama-3.1-70b-instruct</item>
+        <item>meta/llama-3.1-405b-instruct</item>
+    </string-array>
+</resources>

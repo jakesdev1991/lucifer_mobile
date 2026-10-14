@@ -1,0 +1,206 @@
+package com.lucifer.mobile
+
+import android.content.Context
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import com.lucifer.mobile.omni_bridge.atoms.AtomsProfile
+import com.lucifer.mobile.omni_bridge.atoms.TheoryOfMindAgent
+import com.lucifer.mobile.omni_bridge.compression.ContextCompressor
+import com.lucifer.mobile.omni_bridge.equirouter.EquiRouter
+import com.lucifer.mobile.omni_bridge.equirouter.Horseman
+import com.lucifer.mobile.omni_bridge.gepa.GepaOrchestrator
+import com.lucifer.mobile.omni_bridge.kai_bridge.KaiBridge
+import com.lucifer.mobile.omni_bridge.kai_bridge.WalletInfo
+import com.lucifer.mobile.omni_bridge.meta_cognitive.MetaCognitiveRouter
+import com.lucifer.mobile.omni_bridge.qstar.QstarConfig
+import com.lucifer.mobile.omni_bridge.qstar.QstarRouter
+import com.lucifer.mobile.omni_bridge.rcod.RcodTelemetry
+import com.lucifer.mobile.omni_bridge.ring_buffer.MirroredRingBuffer
+import com.lucifer.mobile.omni_bridge.evidence_ledger.EvidenceLedger
+import com.lucifer.mobile.omni_bridge.evidence_ledger.EvidenceRecord
+import com.lucifer.mobile.omni_bridge.appa.AppaPolicyEngine
+import com.lucifer.mobile.omni_bridge.appa.LuciferToolRegistry
+import com.lucifer.mobile.omni_bridge.taro.TaroEngine
+import com.lucifer.mobile.omni_bridge.four_horsemen.FourHorsemenOrchestrator
+import com.lucifer.mobile.services.cluster.ClusterManager
+import com.lucifer.mobile.omni_bridge.heartbeat.HeartbeatService
+import com.lucifer.mobile.ui.components.AnimatedTabBar
+import com.lucifer.mobile.ui.components.TabItem
+import com.lucifer.mobile.ui.components.AnimatedTerminal
+import com.lucifer.mobile.ui.components.AnimatedMemoryPanel
+import com.lucifer.mobile.ui.components.AnimatedSkillsPanel
+import com.lucifer.mobile.ui.components.AnimatedSettingsPanel
+import com.lucifer.mobile.ui.components.LuciferIcon
+import com.lucifer.mobile.ui.components.LuciferIconSmall
+import com.lucifer.mobile.ui.theme.LuciferColors
+import com.lucifer.mobile.ui.theme.LuciferTheme
+import com.lucifer.mobile.ui.theme.Shapes
+import com.lucifer.mobile.ui.theme.Typography
+import java.io.File
+import java.io.FileOutputStream
+import java.io.FileInputStream
+import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Settings
+
+@OptIn(ExperimentalMaterial3Api::class)
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent {
+            LuciferTheme {
+                val scope = remember { CoroutineScope(Dispatchers.Main) }
+
+                // Initialize services
+                val metaRouter = remember { MetaCognitiveRouter() }
+                val kaiBridge = remember { KaiBridge(this@MainActivity) }
+                val contextCompressor = remember { ContextCompressor() }
+                val evidenceLedger = remember { EvidenceLedger() }
+                val fourHorsemen = remember { FourHorsemenOrchestrator() }
+                val clusterManager = remember { ClusterManager() }
+
+                val heartbeatService = remember {
+                    HeartbeatService.create(
+                        metaRouter = metaRouter,
+                        kaiBridge = kaiBridge,
+                        contextCompressor = contextCompressor,
+                        evidenceLedger = evidenceLedger,
+                        fourHorsemen = fourHorsemen,
+                        clusterManager = clusterManager,
+                        scope = scope
+                    )
+                }
+
+                // Start heartbeat on app launch
+                scope.launch {
+                    heartbeatService.start()
+                }
+
+                // Connect to Kai sandbox on start
+                var kaiConnected by remember { mutableStateOf(false) }
+                var connectionError by remember { mutableStateOf<String?>(null) }
+
+                scope.launch {
+                    try {
+                        KaiBridge(this@MainActivity).connect().await()
+                        kaiConnected = true
+                    } catch (e: Exception) {
+                        connectionError = e.message
+                    }
+                }
+
+                var selectedTab by remember { mutableStateOf(0) }
+
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = LuciferColors.Obsidian
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(0.dp)
+                        ) {
+                            // Animated Tab Row
+                            AnimatedTabBar(
+                                selectedTab = selectedTab,
+                                onTabSelected = { selectedTab = it },
+                                tabs = listOf(
+                                    TabItem("Terminal", Terminal),
+                                    TabItem("Memory", Memory),
+                                    TabItem("Skills", Psychology),
+                                    TabItem("Settings", Settings)
+                                )
+                            )
+
+                            // Tab Content
+                            when (selectedTab) {
+                                0 -> AnimatedTerminal(
+                                    modifier = Modifier.fillMaxSize(),
+                                    outputLines = listOf("🫀 Heartbeat service started", "🔗 Kai Bridge: Connecting...", "💰 Wallet: Ready"),
+                                    isProcessing = false,
+                                    onCommand = { }
+                                )
+                                1 -> AnimatedMemoryPanel(
+                                    modifier = Modifier.fillMaxSize(),
+                                    memories = listOf(),
+                                    onSearch = { },
+                                    isSearching = false
+                                )
+                                2 -> AnimatedSkillsPanel(
+                                    modifier = Modifier.fillMaxSize(),
+                                    skills = listOf(),
+                                    onToggle = { _, _ -> }
+                                )
+                                3 -> AnimatedSettingsPanel(
+                                    modifier = Modifier.fillMaxSize(),
+                                    soulMdText = "",
+                                    heartbeatPromptText = "",
+                                    onSoulMdEdit = { },
+                                    onHeartbeatEdit = { },
+                                    onWalletConnect = { },
+                                    onDeployKaiBridge = { }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+suspend fun executeCommand(
+    command: String,
+    scope: CoroutineScope,
+    heartbeatService: HeartbeatService,
+    kaiConnected: Boolean
+) {
+    // Execute via KaiBridge or local
+}
+
+fun saveSoulPrompt(prompt: String) {
+    // Save to files/soul.md
+}
+
+fun saveHeartbeatPrompt(prompt: String) {
+    // Save to files/heartbeat_prompt.md
+}
