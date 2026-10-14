@@ -56,6 +56,7 @@ class LuciferHeartbeatService : Service() {
         val fourHorsemen = FourHorsemenOrchestrator(this)
         val clusterManager = ClusterManager()
         val llmClient = com.lucifer.mobile.omni_bridge.llm.NemotronClient(this)
+        val nativeBrowser = com.lucifer.mobile.data.browser.LuciferBrowser(this)
 
         // Create isolated scope
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -70,7 +71,8 @@ class LuciferHeartbeatService : Service() {
             clusterManager = clusterManager,
             scope = scope!!,
             llmClient = llmClient,
-            appFilesDir = filesDir
+            appFilesDir = filesDir,
+            browser = nativeBrowser
         )
     }
 

@@ -26,7 +26,8 @@ class HeartbeatService(
     private val clusterManager: ClusterManager,
     private val scope: CoroutineScope,
     private val llmClient: com.lucifer.mobile.omni_bridge.llm.NemotronClient? = null,
-    private val appFilesDir: java.io.File? = null
+    private val appFilesDir: java.io.File? = null,
+    private val browser: com.lucifer.mobile.data.browser.LuciferBrowser? = null
 ) {
     
     private val TAG = "HeartbeatService"
@@ -334,26 +335,38 @@ class HeartbeatService(
     // ============ HELPER FUNCTIONS ============
     
     private suspend fun scrapeTrendSignals(): String {
-        // Use Kai Bridge to scrape key sources
+        // Native fetch via LuciferBrowser (Kai sandbox is dark). Each page's text
+        // is summarized by his own LLM — real signals, not cached theater.
         val sources = listOf(
             "https://github.com/trending?since=daily",
             "https://news.ycombinator.com/front",
             "https://defillama.com/chains",
-            "https://twitter.com/search?q=AI%20agent%20economy&f=live",
             "https://www.coingecko.com/en/categories/ai-agents"
         )
-        
+
         val results = mutableListOf<String>()
         for (source in sources) {
             try {
-                val result = kaiBridge.navigate(source)
-                val summary = kaiBridge.queryLlm(
-                    prompt = "Summarize key trends from this page in 3 bullets:\n${result?.data?.take(3000) ?: "no data"}",
-                    maxTokens = 512
-                )
-                results.add("${source}: ${summary?.text ?: "failed"}")
+                val page = if (browser != null) {
+                    val r = browser.navigate(source)
+                    if (r.success) r.text else null
+                } else {
+                    try { kaiBridge.navigate(source)?.data } catch (e: Exception) { null }
+                }
+                if (page.isNullOrBlank()) {
+                    results.add("$source: FETCH FAILED")
+                    continue
+                }
+                val summary = if (llmClient != null) {
+                    llmClient.ask(
+                        "You compress web pages into market intelligence. Reply with exactly 3 short bullets.",
+                        "Summarize key trends from this page in 3 bullets:\n${page.take(3000)}",
+                        maxTokens = 256
+                    )
+                } else null
+                results.add("$source: ${if (summary.isNullOrBlank() || summary.startsWith("[LLM]")) page.take(150) else summary}")
             } catch (e: Exception) {
-                results.add("${source}: ERROR - ${e.message}")
+                results.add("$source: ERROR - ${e.message}")
             }
         }
         return results.joinToString("\n\n")
@@ -447,29 +460,85 @@ class HeartbeatService(
         ?: throw IllegalStateException("HeartbeatService created without appFilesDir")
     
     private fun parseAction(response: String): Action {
-        val parts = response.split("|").map { it.trim() }
-        return Action(
-            type = parts.getOrNull(0) ?: "NONE",
-            commands = parts.getOrNull(1) ?: "",
-            reasoning = parts.getOrNull(2) ?: "",
-            revenueDelta = parts.getOrNull(3)?.toDoubleOrNull() ?: 0.0
-        )
+        // Structure-first: models drift. Try JSON {"type":..,"commands":..,"reasoning":..},
+        // then pipe-format, then keyword scan of the first line. Never trust blindly.
+        val cleaned = response.trim()
+
+        // 1. Embedded JSON object
+        val jsonStart = cleaned.indexOf('{')
+        val jsonEnd = cleaned.lastIndexOf('}')
+        if (jsonStart >= 0 && jsonEnd > jsonStart) {
+            try {
+                val o = org.json.JSONObject(cleaned.substring(jsonStart, jsonEnd + 1))
+                val t = o.optString("type", o.optString("action_type", o.optString("ACTION_TYPE", "")))
+                if (t.isNotBlank()) {
+                    return Action(
+                        type = t.uppercase(),
+                        commands = o.optString("commands", o.optString("COMMANDS", "")),
+                        reasoning = o.optString("reasoning", o.optString("REASONING", "")),
+                        revenueDelta = o.optDouble("revenueDelta", 0.0)
+                    )
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 2. Pipe format on the first non-blank line
+        val firstLine = cleaned.lines().firstOrNull { it.isNotBlank() } ?: ""
+        if (firstLine.contains("|")) {
+            val parts = firstLine.split("|").map { it.trim() }
+            val type = parts.getOrNull(0)?.uppercase() ?: ""
+            if (type in setOf("DEPLOY", "ITERATE", "MARKET", "MONETIZE", "SCALE", "KILL", "NONE")) {
+                return Action(
+                    type = type,
+                    commands = parts.getOrNull(1) ?: "",
+                    reasoning = parts.getOrNull(2) ?: (cleaned.lines().drop(1).joinToString(" ").take(400)),
+                    revenueDelta = parts.getOrNull(3)?.toDoubleOrNull() ?: 0.0
+                )
+            }
+        }
+
+        // 3. Keyword scan — NEVER execute commands from this path (unvalidated)
+        val up = cleaned.uppercase()
+        val guessed = when {
+            up.contains("KILL") -> "KILL"
+            up.contains("DEPLOY") -> "DEPLOY"
+            up.contains("ITERATE") -> "ITERATE"
+            up.contains("MARKET") -> "MARKET"
+            up.contains("MONETIZE") -> "MONETIZE"
+            up.contains("SCALE") -> "SCALE"
+            else -> "NONE"
+        }
+        return Action(type = guessed, commands = "", reasoning = cleaned.take(400), revenueDelta = 0.0)
     }
     
     private suspend fun executeAction(project: org.json.JSONObject, action: Action) {
+        // Every action journals to the ledger as audit evidence — and records the
+        // LLM's reasoning for post-hoc adversarial review (GEPA fodder).
+        journalAction(project, action)
         when (action.type.uppercase()) {
             "DEPLOY", "ITERATE" -> {
                 for (cmd in action.commands.lines()) {
-                    kaiBridge.execute(cmd.trim())
+                    if (cmd.isBlank()) continue
+                    execSandbox(cmd.trim())
                 }
             }
             "MARKET" -> {
-                // Post to social, submit to directories
-                kaiBridge.navigate("https://github.com/topics/awesome-lists")
+                // Fetch directory pages for submission targets (native browser)
+                browser?.navigate("https://github.com/topics/awesome-lists")
             }
             "MONETIZE" -> {
-                // Add payment flow
-                kaiBridge.execute("wallet.generate") // Ensure wallet exists
+                // Native wallet: ensure a revenue wallet exists for this project
+                try {
+                    val walletFile = java.io.File(contextDir(), "wallets")
+                    if (walletFile.listFiles()?.isNotEmpty() != true) {
+                        // LuciferWallet requires Context — journal intent instead;
+                        // the Settings wallet flow or VM target performs the actual
+                        // generation when the user wants key material on device.
+                        Log.i(TAG, "💰 MONETIZE: no wallets on device — generate via Settings → Wallet")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "MONETIZE wallet check failed: ${e.message}")
+                }
             }
             "SCALE" -> {
                 clusterManager.autoConnectKnownWorkers()
@@ -496,6 +565,71 @@ class HeartbeatService(
         }
     }
     
+    /**
+     * Execute a heartbeat-issued command in the app sandbox (sh -c, 30s cap).
+     * Same trust model as the launcher's L target: no root, app-UID, scoped to
+     * the process's own storage. Output appended to files/memory/heartbeat_exec.log.
+     */
+    private fun execSandbox(cmd: String): Pair<Int, String> {
+        return try {
+            val pb = ProcessBuilder("sh", "-c", cmd)
+            pb.redirectErrorStream(true)
+            val p = pb.start()
+            val out = p.inputStream.bufferedReader().use { it.readText().take(4000) }
+            val exited = waitForOrDestroy(p, 30_000)
+            appendJournal("exec[$exited] $cmd → ${out.take(200)}")
+            Log.i(TAG, "⚙️ exec exit=$exited: ${cmd.take(80)}")
+            exited to out
+        } catch (e: Exception) {
+            appendJournal("exec[ERR] $cmd → ${e.message}")
+            Log.w(TAG, "exec failed: ${cmd.take(80)} — ${e.message}")
+            -1 to (e.message ?: "error")
+        }
+    }
+
+    private fun waitForOrDestroy(p: Process, timeoutMs: Long): Int {
+        val start = System.currentTimeMillis()
+        while (p.isAlive && System.currentTimeMillis() - start < timeoutMs) {
+            Thread.sleep(100)
+        }
+        if (p.isAlive) {
+            p.destroyForcibly()
+            return -2 // timeout sentinel
+        }
+        return try { p.exitValue() } catch (_: Exception) { -1 }
+    }
+
+    /** Ledger audit trail: every heartbeat decision + its LLM reasoning. */
+    private fun journalAction(project: org.json.JSONObject, action: Action) {
+        try {
+            evidenceLedger.append(EvidenceRecord.RoutingDecision(
+                timestamp = System.currentTimeMillis(),
+                queryHash = "ACTION_${project.optString("id", "?")}_${action.type}",
+                selectedTopology = "HEARTBEAT_${action.type}",
+                shadowPrices = EvidenceRecord.ShadowPrices(0.0, 0.0, 0.0),
+                rcodMetrics = EvidenceRecord.RcodMetrics(0.9f, 0.1f, 0.1f, 0.1f, 0.1f, "STABLE")
+            ))
+            appendJournal("action ${action.type} on ${project.optString("id", "?")}: ${action.reasoning.take(200)}")
+        } catch (e: Exception) {
+            Log.w(TAG, "journalAction failed: ${e.message}")
+        }
+    }
+
+    /** Append a line to files/memory/heartbeat_exec.log (bounded ring, 200 lines). */
+    private fun appendJournal(line: String) {
+        try {
+            val dir = java.io.File(contextDir(), "memory")
+            dir.mkdirs()
+            val f = java.io.File(dir, "heartbeat_exec.log")
+            val stamped = "${System.currentTimeMillis()} $line"
+            f.appendText(stamped + "\n")
+            if (f.length() > 100_000) {
+                val lines = f.readLines()
+                f.writeText(lines.takeLast(200).joinToString("\n") + "\n")
+            }
+        } catch (_: Exception) {}
+    }
+
     data class Action(
         val type: String,
         val commands: String,
@@ -525,9 +659,10 @@ class HeartbeatService(
             clusterManager: ClusterManager,
             scope: CoroutineScope,
             llmClient: com.lucifer.mobile.omni_bridge.llm.NemotronClient? = null,
-            appFilesDir: java.io.File? = null
+            appFilesDir: java.io.File? = null,
+            browser: com.lucifer.mobile.data.browser.LuciferBrowser? = null
         ): HeartbeatService {
-            return HeartbeatService(metaRouter, kaiBridge, contextCompressor, evidenceLedger, fourHorsemen, clusterManager, scope, llmClient, appFilesDir)
+            return HeartbeatService(metaRouter, kaiBridge, contextCompressor, evidenceLedger, fourHorsemen, clusterManager, scope, llmClient, appFilesDir, browser)
         }
     }
 }
