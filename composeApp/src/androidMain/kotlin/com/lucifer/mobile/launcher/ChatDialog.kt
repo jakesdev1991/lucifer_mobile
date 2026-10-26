@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -67,7 +69,12 @@ data class ChatMessage(
 @Composable
 fun ChatDialog(
     messages: List<ChatMessage>,
-    targetLabel: String,
+    selectedTarget: CommandTarget,
+    onTargetSelected: (CommandTarget) -> Unit,
+    pendingAction: TerminalAction?,
+    pendingDestinationDetails: String? = null,
+    onConfirmAction: () -> Unit,
+    onCancelAction: () -> Unit,
     onSend: (String) -> Unit,
     onClose: () -> Unit,
     thinking: Boolean = false,
@@ -123,7 +130,7 @@ fun ChatDialog(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "LUCIFER · CHAP",
+                    text = "LUCIFER · CHAT",
                     color = Color(0xFFFFD700),
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
@@ -132,7 +139,7 @@ fun ChatDialog(
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
-                    text = "exec: $targetLabel",
+                    text = "default: ${selectedTarget.displayName}",
                     color = Color(0xFF8B7D8B),
                     fontSize = 9.sp,
                     fontFamily = FontFamily.Monospace
@@ -162,6 +169,36 @@ fun ChatDialog(
                 }
             }
 
+            // Explicit default destination, with natural-language target overrides supported too.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .background(Color(0xFF100610))
+                    .padding(horizontal = 12.dp, vertical = 5.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CommandTarget.entries.forEach { destination ->
+                    val selected = destination == selectedTarget
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (selected) Color(0xFF8B0000) else Color(0xFF251525))
+                            .clickable { onTargetSelected(destination) }
+                            .padding(horizontal = 9.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            destination.displayName,
+                            color = if (selected) Color(0xFFFFD700) else Color(0xFF8B7D8B),
+                            fontSize = 9.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+
             // Thinking shimmer — his mind is working
             if (thinking) {
                 Row(
@@ -183,7 +220,7 @@ fun ChatDialog(
                         fontFamily = FontFamily.Monospace
                     )
                     Text(
-                        "reasoning from the axioms…",
+                        "understanding · routing · responding…",
                         color = Color(0xFF8B7D8B).copy(alpha = 0.5f + shimmer * 0.5f),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace
@@ -231,6 +268,55 @@ fun ChatDialog(
                 }
             }
 
+            if (pendingAction != null) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF24150A))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        "CONFIRM · ${pendingAction.target.displayName}",
+                        color = Color(0xFFFFD700),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    pendingDestinationDetails?.let {
+                        Text(it, color = Color(0xFFB8AEB8), fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                    }
+                    Text(
+                        pendingAction.command,
+                        color = Color(0xFFE0E0E0),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF8B0000))
+                                .clickable { onConfirmAction() }
+                                .padding(horizontal = 12.dp, vertical = 5.dp)
+                        ) {
+                            Text("RUN COMMAND", color = Color(0xFFFFD700), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(Color(0xFF251525))
+                                .clickable { onCancelAction() }
+                                .padding(horizontal = 12.dp, vertical = 5.dp)
+                        ) {
+                            Text("CANCEL", color = Color(0xFFB8AAB8), fontSize = 10.sp)
+                        }
+                    }
+                }
+            }
+
             // Input bar (bottom)
             Row(
                 modifier = Modifier
@@ -257,6 +343,7 @@ fun ChatDialog(
                     BasicTextField(
                         value = input,
                         onValueChange = { input = it },
+                        enabled = !thinking && pendingAction == null,
                         singleLine = true,
                         textStyle = TextStyle(
                             color = Color(0xFFE0E0E0),
@@ -282,7 +369,7 @@ fun ChatDialog(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
                         .background(Color(0xFF8B0000))
-                        .clickable {
+                        .clickable(enabled = !thinking && pendingAction == null) {
                             val trimmed = input.trim()
                             if (trimmed.isNotBlank()) {
                                 onSend(trimmed)

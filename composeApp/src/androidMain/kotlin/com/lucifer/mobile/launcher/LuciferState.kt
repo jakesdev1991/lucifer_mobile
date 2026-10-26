@@ -3,9 +3,8 @@ package com.lucifer.mobile.launcher
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * LuciferState — the shared consciousness bus between the agent engine and the Launcher.
- * The HeartbeatService publishes its phase/cycle here; the LauncherActivity renders it
- * on the home screen. Same process (one APK) = zero IPC, always fresh.
+ * LuciferState — shared launcher diagnostics. Heartbeat sessions are opt-in from the main app;
+ * service state remains dormant and is not a live background-service indicator.
  */
 object LuciferState {
     @Volatile var phase: String = "DORMANT"

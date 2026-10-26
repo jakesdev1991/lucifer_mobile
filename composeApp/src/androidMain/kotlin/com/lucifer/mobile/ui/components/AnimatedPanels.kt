@@ -20,13 +20,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -53,7 +51,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -183,6 +180,7 @@ data class SkillItem(
     val category: String,
     val isEnabled: Boolean,
     val icon: ImageVector,
+    val status: String = if (isEnabled) "AVAILABLE" else "LIMITED",
     val complexity: Int = 1
 )
 
@@ -190,7 +188,6 @@ data class SkillItem(
 fun AnimatedSkillsPanel(
     modifier: Modifier = Modifier,
     skills: List<SkillItem> = listOf(),
-    onSkillToggle: (String, Boolean) -> Unit,
 ) {
     Column(
         modifier = modifier
@@ -206,6 +203,11 @@ fun AnimatedSkillsPanel(
             color = Color(0xFFFFD700),
             letterSpacing = 1.5.sp
         )
+        Text(
+            text = "Operational status only. Limited and experimental integrations are labeled; this list does not enable or disable engines.",
+            fontSize = 11.sp,
+            color = Color(0xFF8B7D8B)
+        )
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
@@ -213,7 +215,7 @@ fun AnimatedSkillsPanel(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(skills) { skill ->
-                SkillCard(skill = skill, onToggle = onSkillToggle)
+                SkillCard(skill = skill)
             }
         }
     }
@@ -221,8 +223,7 @@ fun AnimatedSkillsPanel(
 
 @Composable
 fun SkillCard(
-    skill: SkillItem,
-    onToggle: (String, Boolean) -> Unit
+    skill: SkillItem
 ) {
     var isExpanded by remember { mutableStateOf(false) }
     val toggleAnim by animateFloatAsState(
@@ -263,17 +264,14 @@ fun SkillCard(
 
                 Box(
                     modifier = Modifier
-                        .size(52.dp, 28.dp)
-                        .background(if (skill.isEnabled) Color(0xFF8B0000) else Color(0xFF332233), RoundedCornerShape(14.dp))
-                        .clickable { onToggle(skill.id, !skill.isEnabled) }
-                        .graphicsLayer { scaleX = 0.9f + toggleAnim * 0.1f; scaleY = 0.9f + toggleAnim * 0.1f }
+                        .background(if (skill.isEnabled) Color(0xFF173B2D) else Color(0xFF332233), RoundedCornerShape(14.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .background(Color(0xFFFFD700), CircleShape)
-                            .offset { IntOffset(((if (skill.isEnabled) 26.dp.toPx() else 2.dp.toPx()) * toggleAnim).toInt(), 0) }
-                            .graphicsLayer { scaleX = 0.8f + toggleAnim * 0.2f; scaleY = 0.8f + toggleAnim * 0.2f }
+                    Text(
+                        text = skill.status,
+                        color = if (skill.isEnabled) Color(0xFF00FF88) else Color(0xFFFFAA00),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }

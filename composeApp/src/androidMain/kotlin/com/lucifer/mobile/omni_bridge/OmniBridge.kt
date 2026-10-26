@@ -83,10 +83,10 @@ class OmniBridge(
                 val wallet = wallet.loadWallet(operation.address)
                 WalletResult(success = wallet != null, wallet = wallet)
             }
-            is WalletOperation.SignTransaction -> {
-                val signed = wallet.signTransaction(operation.params)
-                WalletResult(success = signed != null, signedTx = signed)
-            }
+            is WalletOperation.SignTransaction -> WalletResult(
+                success = false,
+                message = "Signing is disabled: this legacy request contains only a raw hash and address, so chain, recipient, value, fees, and spending limits cannot be verified."
+            )
             is WalletOperation.GetBalance -> {
                 val balance = wallet.getBalance(operation.address, operation.token)
                 WalletResult(success = balance != null, balance = balance)
@@ -187,7 +187,8 @@ data class WalletResult(
     val success: Boolean,
     val wallet: com.lucifer.mobile.data.wallet.Wallet? = null,
     val signedTx: String? = null,
-    val balance: String? = null
+    val balance: String? = null,
+    val message: String? = null
 )
 
 data class BrowserResult(

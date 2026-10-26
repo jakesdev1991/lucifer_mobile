@@ -13,31 +13,31 @@ import java.net.URL
  *
  * Speaks JSON-RPC 2.0 to the omega-knowledge-mcp server (the ToE corpus:
  * 54 Lean 4 proof volumes, axioms, docs, full book), wherever it runs:
- *   - Debian VM   (default: http://10.13.135.192:8030)
- *   - Termux      (http://127.0.0.1:8030)
- *   - Host/laptop (http://<lan-ip>:8030)
+ *   - Termux/device-local server (http://127.0.0.1:8030)
+ *   - Emulator host (http://10.0.2.2:8030)
+ *   - Remote VM (user-configured HTTPS URL)
  *
  * All calls are suspend + IO dispatcher. Never blocks the UI.
  */
 class OmegaKnowledgeClient(
-    @Volatile var baseUrl: String = DEFAULT_VM_URL
+    @Volatile var baseUrl: String = ""
 ) {
 
     companion object {
         private const val TAG = "OmegaKnowledge"
         private const val TIMEOUT_MS = 6000
-        const val DEFAULT_VM_URL = "http://10.13.135.192:8030"
         const val LOCAL_URL = "http://127.0.0.1:8030"
+        const val EMULATOR_HOST_URL = "http://10.0.2.2:8030"
         private var _id = 0
 
-        fun defaultUrls(): List<String> = listOf(
-            DEFAULT_VM_URL, LOCAL_URL
-        )
+        fun defaultUrls(): List<String> = listOf(LOCAL_URL, EMULATOR_HOST_URL)
     }
 
-    /** Try VM then Termux localhost; return first URL that answers /health. */
+    /** Try the user-configured endpoint first, then safe device/emulator-local defaults. */
     suspend fun discover(): String? = withContext(Dispatchers.IO) {
-        for (base in defaultUrls()) {
+        val candidates = (listOf(baseUrl.takeIf { it.isNotBlank() }) + defaultUrls())
+            .filterNotNull().distinct()
+        for (base in candidates) {
             try {
                 val conn = URL("$base/health").openConnection() as HttpURLConnection
                 conn.connectTimeout = 1200

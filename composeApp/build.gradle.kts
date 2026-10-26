@@ -51,6 +51,7 @@ android {
         compose = true
         viewBinding = false
         dataBinding = false
+        aidl = true
     }
 
     composeOptions {
@@ -67,6 +68,7 @@ android {
     sourceSets["main"].java.srcDirs("src/androidMain/kotlin")
     sourceSets["main"].res.srcDirs("src/androidMain/res")
     sourceSets["main"].assets.srcDirs("src/androidMain/assets")
+    sourceSets["main"].aidl.srcDirs("src/androidMain/aidl")
 
     namespace = "com.lucifer.mobile"
 }
@@ -110,6 +112,10 @@ dependencies {
     // JSch for VM SSH
     implementation("com.github.mwiede:jsch:0.2.16")
 
+    // Shizuku: user-authorized shell/system API bridge (ADB wireless debugging or root).
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
+
     // AndroidX
     implementation("androidx.core:core-ktx:1.12.0")
     implementation("androidx.appcompat:appcompat:1.6.1")
@@ -117,6 +123,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-process:2.7.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-service:2.7.0")
 
     // MultiDex
     implementation("androidx.multidex:multidex:2.0.1")
