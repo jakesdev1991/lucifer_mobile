@@ -1,11 +1,10 @@
 package com.lucifer.mobile.omni_bridge.kai_bridge
 
 import android.content.Context
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
-import java.util.concurrent.TimeoutException
+import org.json.JSONObject
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 
 // Message types for Kai sandbox communication
 sealed class KaiMessage {
@@ -38,8 +37,11 @@ sealed class KaiResponse {
 // Kai Bridge - executes via sandbox (no JNI needed)
 class KaiBridge(private val context: Context) {
 
+    companion object {
+        private const val MAX_CAPTURE_CHARS = 1_000_000
+    }
+
     private var connected = false
-    private val scope = CoroutineScope(Dispatchers.IO)
 
     // Initialize connection to Kai sandbox
     suspend fun connect(): Boolean {
@@ -61,7 +63,7 @@ class KaiBridge(private val context: Context) {
             import json, sys
             sys.path.insert(0, '/tmp/omni_bridge/wallet')
             from wallet.generate import generate_wallet
-            result = generate_wallet(chain='$chain', count=$count)
+            result = generate_wallet(chain=${pythonLiteral(chain)}, count=${count.coerceIn(1, 10)})
             print(json.dumps(result))
         """.trimIndent()
         val result = execute(script, 10000)
@@ -74,7 +76,7 @@ class KaiBridge(private val context: Context) {
             import json, sys
             sys.path.insert(0, '/tmp/omni_bridge/wallet')
             from wallet.sign import sign_transaction
-            result = sign_transaction(address='$address', data='$data', derivation_path='${derivationPath ?: ""}')
+            result = sign_transaction(address=${pythonLiteral(address)}, data=${pythonLiteral(data)}, derivation_path=${pythonLiteral(derivationPath.orEmpty())})
             print(json.dumps(result))
         """.trimIndent()
         val result = execute(script, 10000)
@@ -87,7 +89,7 @@ class KaiBridge(private val context: Context) {
             import json, sys
             sys.path.insert(0, '/tmp/omni_bridge/wallet')
             from wallet.balance import get_balance
-            result = get_balance(address='$address', chain='$chain')
+            result = get_balance(address=${pythonLiteral(address)}, chain=${pythonLiteral(chain)})
             print(json.dumps(result))
         """.trimIndent()
         val result = execute(script, 15000)
@@ -101,7 +103,7 @@ class KaiBridge(private val context: Context) {
             import json, sys
             sys.path.insert(0, '/tmp/omni_bridge/browser')
             from browser.navigate import navigate
-            result = navigate(url='$url', wait_until='$waitUntil')
+            result = navigate(url=${pythonLiteral(url)}, wait_until=${pythonLiteral(waitUntil)})
             print(json.dumps(result))
         """.trimIndent()
         val result = execute(script, 30000)
@@ -114,7 +116,7 @@ class KaiBridge(private val context: Context) {
             import json, sys
             sys.path.insert(0, '/tmp/omni_bridge/browser')
             from browser.click import click
-            result = click(selector='$selector')
+            result = click(selector=${pythonLiteral(selector)})
             print(json.dumps(result))
         """.trimIndent()
         val result = execute(script, 15000)
@@ -136,12 +138,11 @@ class KaiBridge(private val context: Context) {
 
     suspend fun evaluate(script: String): KaiResponse.BrowserResult? {
         if (!connected) return null
-        val escaped = script.replace("\"", "\\\"").replace("\n", "\\n").replace("'", "\\'")
         val script = """
             import json, sys
             sys.path.insert(0, '/tmp/omni_bridge/browser')
             from browser.evaluate import evaluate
-            result = evaluate(script='$escaped')
+            result = evaluate(script=${pythonLiteral(script)})
             print(json.dumps(result))
         """.trimIndent()
         val result = execute(script, 15000)
@@ -151,30 +152,56 @@ class KaiBridge(private val context: Context) {
     // LLM queries - executed via sandbox with NVIDIA API
     suspend fun queryLlm(prompt: String, model: String = "nemotron-3-ultra", maxTokens: Int = 2048): KaiResponse.LlmResponse? {
         if (!connected) return null
-        val escaped = prompt.replace("\"", "\\\"").replace("\n", "\\n").replace("'", "\\'")
         val script = """
             import json, sys
             sys.path.insert(0, '/tmp/omni_bridge/llm')
             from llm.query import query_llm
-            result = query_llm(prompt='$escaped', model='$model', max_tokens=$maxTokens)
+            result = query_llm(prompt=${pythonLiteral(prompt)}, model=${pythonLiteral(model)}, max_tokens=${maxTokens.coerceIn(1, 8192)})
             print(json.dumps(result))
         """.trimIndent()
         val result = execute(script, 60000)
         return parseLlmResponse(result?.stdout ?: "")
     }
 
-    // Sandbox execution - runs in Kai app context via run-as
+    // Sandbox execution - command is intentionally a shell command, but never re-parsed by a parent shell.
     suspend fun execute(command: String, timeoutMs: Int = 30000): KaiResponse.SandboxResult? {
-        return withTimeout(timeoutMs.toLong()) {
-            // Execute in Kai sandbox context using run-as
-            val runAsCmd = "run-as com.inspiredandroid.kai sh -c \"$command\""
-            val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", runAsCmd))
-            val stdout = process.inputStream.bufferedReader().readText()
-            val stderr = process.errorStream.bufferedReader().readText()
-            val exitCode = process.waitFor()
-            KaiResponse.SandboxResult(exitCode, stdout, stderr)
+        return kotlinx.coroutines.withContext(Dispatchers.IO) {
+            val process = Runtime.getRuntime().exec(
+                arrayOf("run-as", "com.inspiredandroid.kai", "sh", "-c", command)
+            )
+            val stdout = StringBuilder()
+            val stderr = StringBuilder()
+            val stdoutReader = drainStream(process.inputStream, stdout, "kai-stdout")
+            val stderrReader = drainStream(process.errorStream, stderr, "kai-stderr")
+            val finished = process.waitFor(timeoutMs.coerceIn(1, 120_000).toLong(), TimeUnit.MILLISECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                process.waitFor()
+            }
+            stdoutReader.join(1_000)
+            stderrReader.join(1_000)
+            KaiResponse.SandboxResult(
+                exitCode = if (finished) process.exitValue() else 124,
+                stdout = synchronized(stdout) { stdout.toString() },
+                stderr = synchronized(stderr) {
+                    stderr.toString() + if (finished) "" else "\n[timeout] sandbox command exceeded its time limit"
+                }
+            )
         }
     }
+
+    private fun pythonLiteral(value: String): String = JSONObject.quote(value)
+
+    private fun drainStream(stream: java.io.InputStream, output: StringBuilder, name: String) =
+        thread(name = name, isDaemon = true) {
+            stream.bufferedReader().useLines { lines ->
+                lines.forEach { line ->
+                    synchronized(output) {
+                        if (output.length < MAX_CAPTURE_CHARS) output.append(line).append('\n')
+                    }
+                }
+            }
+        }
 
     // RCOD evaluation
     suspend fun evaluateRcod(stateVectors: List<FloatArray>): KaiResponse.RcodResult? {

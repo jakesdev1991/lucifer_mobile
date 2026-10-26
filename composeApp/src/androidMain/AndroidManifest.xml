@@ -2,10 +2,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Declarations restore requested platform capability scope; Android still requires runtime consent for dangerous permissions, and declaration alone does not implement a feature. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.CAMERA" />
@@ -28,11 +33,15 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <package android:name="moe.shizuku.privileged.api" />
+        <package android:name="com.mirfatif.permissionmanagerx" />
+        <package android:name="com.termux" />
+        <package android:name="com.android.virtualization.terminal" />
     </queries>
 
     <application
         android:name=".LuciferApplication"
-        android:allowBackup="true"
+        android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
         android:icon="@mipmap/ic_launcher"
@@ -84,14 +93,41 @@
         </receiver>
 
         <service
-            android:name=".services.SSHService"
-            android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:name=".terminal.TermuxResultService"
+            android:exported="false" />
 
+        <service
+            android:name=".terminal.FloatingChatService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-visible floating chat companion while Lucifer's terminal session is active" />
+        </service>
+
+        <!-- Starts only after explicit opt-in; after reboot resumes text-only until camera is re-authorized in-app. -->
         <service
             android:name=".omni_bridge.heartbeat.LuciferHeartbeatService"
             android:exported="false"
-            android:foregroundServiceType="dataSync" />
+            android:foregroundServiceType="dataSync|camera" />
+
+        <receiver
+            android:name=".omni_bridge.heartbeat.HeartbeatBootReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Shizuku API provider. The user still starts the Shizuku server and grants Lucifer access in Shizuku. -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:enabled="true"
+            android:exported="true"
+            android:multiprocess="false"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

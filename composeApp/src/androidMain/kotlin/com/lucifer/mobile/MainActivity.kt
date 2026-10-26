@@ -1,19 +1,33 @@
 package com.lucifer.mobile
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Psychology
@@ -24,23 +38,40 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import com.lucifer.mobile.omni_bridge.kai_bridge.KaiBridge
+import com.lucifer.mobile.omni_bridge.heartbeat.LuciferHeartbeatService
 import com.lucifer.mobile.omni_bridge.knowledge.ToEReasoningEngine
+import com.lucifer.mobile.omni_bridge.knowledge.Lean4VerificationRunner
 import com.lucifer.mobile.terminal.TerminalExecutor
+import com.lucifer.mobile.terminal.FloatingChatService
+import com.lucifer.mobile.terminal.TermuxInteractiveSession
+import com.lucifer.mobile.terminal.LocalWebsiteManager
+import com.lucifer.mobile.launcher.ChatRoute
+import com.lucifer.mobile.launcher.CommandTarget
+import com.lucifer.mobile.launcher.NaturalLanguageRouter
+import com.lucifer.mobile.launcher.TerminalAction
+import com.lucifer.mobile.security.SecretStore
+import com.lucifer.mobile.shizuku.ShizukuAccess
+import com.lucifer.mobile.shizuku.ShizukuTerminal
+import rikka.shizuku.Shizuku
 import com.lucifer.mobile.ui.components.AnimatedMemoryPanel
 import com.lucifer.mobile.ui.components.AnimatedSettingsPanel
 import com.lucifer.mobile.ui.components.AnimatedSkillsPanel
 import com.lucifer.mobile.ui.components.AnimatedTabBar
 import com.lucifer.mobile.ui.components.AnimatedTerminal
+import com.lucifer.mobile.ui.components.BrowserControlPanel
+import com.lucifer.mobile.ui.components.HeartbeatControlPanel
+import com.lucifer.mobile.ui.components.WalletControlPanel
 import com.lucifer.mobile.ui.components.TabItem
 import com.lucifer.mobile.ui.theme.LuciferColors
 import com.lucifer.mobile.ui.theme.LuciferTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -53,36 +84,124 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Start the foreground heartbeat service OUTSIDE of Compose (prevents process freeze)
-        try {
-            ContextCompat.startForegroundService(
-                this,
-                Intent(this, com.lucifer.mobile.omni_bridge.heartbeat.LuciferHeartbeatService::class.java)
-            )
-        } catch (e: Exception) {
-            Log.e("MainActivity", "heartbeat service start failed", e)
-        }
-
         setContent {
             LuciferTheme {
                 val scope = remember { CoroutineScope(Dispatchers.Main) }
 
                 var terminalLines by remember { mutableStateOf(loadTerminalHistory()) }
                 var isProcessing by remember { mutableStateOf(false) }
-                var terminalTarget by remember { mutableStateOf(0) } // 0=LOCAL, 1=TERMUX, 2=VM
-                val terminalExecutor = remember { TerminalExecutor(this@MainActivity, scope) }
+                var terminalTarget by remember { mutableStateOf(0) } // 0=LOCAL, 1=TERMUX, 2=VM, 3=SHIZUKU
+                val terminalExecutor = remember { TerminalExecutor(this@MainActivity) }
+                val router = remember { NaturalLanguageRouter(this@MainActivity) }
                 val reasoner = remember { ToEReasoningEngine(this@MainActivity) }
+                var pendingTerminalAction by remember { mutableStateOf<TerminalAction?>(null) }
                 var voiceEnabled by remember { mutableStateOf(loadVoiceEnabled()) }
                 var settingsToast by remember { mutableStateOf<String?>(null) }
+                var showTermuxToolkitDialog by remember { mutableStateOf(false) }
+                var showLeanVerificationConfirmation by remember { mutableStateOf(false) }
+                var leanVerificationBusy by remember { mutableStateOf(false) }
+                var leanVerificationState by remember { mutableStateOf("NOT RUN") }
+                var leanVerificationOutput by remember { mutableStateOf("") }
+                var leanVerificationCommit by remember { mutableStateOf<String?>(null) }
+                var leanVerificationToolchain by remember { mutableStateOf<String?>(null) }
+                var shizukuStatus by remember { mutableStateOf(ShizukuAccess.status()) }
+
+                fun runLeanVerification(operation: suspend () -> Lean4VerificationRunner.Snapshot) {
+                    if (leanVerificationBusy) return
+                    leanVerificationBusy = true
+                    scope.launch {
+                        val result = try {
+                            operation()
+                        } catch (e: Exception) {
+                            Lean4VerificationRunner.Snapshot(
+                                "UNAVAILABLE",
+                                "[ERROR] ${e.message ?: "Lean verification request failed."}"
+                            )
+                        }
+                        leanVerificationState = result.state
+                        leanVerificationOutput = result.output
+                        if (result.commit != null) leanVerificationCommit = result.commit
+                        if (result.toolchain != null) leanVerificationToolchain = result.toolchain
+                        leanVerificationBusy = false
+                    }
+                }
+
+                fun runLocalSiteOperation(label: String, operation: suspend () -> List<String>) {
+                    if (isProcessing) return
+                    if (terminalTarget != CommandTarget.TERMUX.launcherIndex) {
+                        appendTerminalLines(listOf("[SETUP] Select TERMUX to stage a local website."))
+                        return
+                    }
+                    isProcessing = true
+                    appendTerminalLines(listOf("[INFO] $label"))
+                    scope.launch(Dispatchers.IO) {
+                        val result = try { operation() } catch (e: Exception) {
+                            listOf("[ERROR] ${e.message ?: "Local site operation failed."}")
+                        }
+                        withContext(Dispatchers.Main) {
+                            appendTerminalLines(result)
+                            isProcessing = false
+                        }
+                    }
+                }
+
+                DisposableEffect(Unit) {
+                    val permissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
+                        if (requestCode == ShizukuAccess.REQUEST_CODE) {
+                            runOnUiThread {
+                                shizukuStatus = ShizukuAccess.status()
+                                settingsToast = if (grantResult == PackageManager.PERMISSION_GRANTED) {
+                                    "Shizuku access granted to Lucifer."
+                                } else {
+                                    "Shizuku access denied. You can change it in Shizuku."
+                                }
+                            }
+                        }
+                    }
+                    Shizuku.addRequestPermissionResultListener(permissionListener)
+                    onDispose { Shizuku.removeRequestPermissionResultListener(permissionListener) }
+                }
+                var heartbeatPermissionAction by remember { mutableStateOf("start") }
+                val heartbeatPermissionLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestMultiplePermissions()
+                ) { _ ->
+                    val cameraGranted = ContextCompat.checkSelfPermission(
+                        this@MainActivity, Manifest.permission.CAMERA
+                    ) == PackageManager.PERMISSION_GRANTED
+                    val notificationsGranted = Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(
+                        this@MainActivity, Manifest.permission.POST_NOTIFICATIONS
+                    ) == PackageManager.PERMISSION_GRANTED
+                    val cameraRequired = heartbeatPermissionAction == "camera"
+                    if (notificationsGranted && (!cameraRequired || cameraGranted)) {
+                        try {
+                            if (heartbeatPermissionAction == "camera") LuciferHeartbeatService.enableCamera(this@MainActivity)
+                            else LuciferHeartbeatService.start(this@MainActivity)
+                            settingsToast = if (heartbeatPermissionAction == "camera") "Camera enabled for future heartbeat sessions." else "Heartbeat enabled. The first session is starting now."
+                        } catch (e: Exception) {
+                            settingsToast = "Could not start heartbeat: ${e.message ?: "system denied foreground service"}"
+                        }
+                    } else {
+                        settingsToast = if (cameraRequired && !cameraGranted) {
+                            "Camera not enabled: grant CAMERA permission to opt into image context."
+                        } else {
+                            "Heartbeat not started: allow notifications for its persistent foreground status."
+                        }
+                    }
+                }
                 val savedKnowledgeUrl by remember { mutableStateOf(loadKnowledgeUrl()) }
 
-                var kaiConnected by remember { mutableStateOf(false) }
-                var connectionError by remember { mutableStateOf<String?>(null) }
                 var llmStatus by remember { mutableStateOf("…") }
                 var savedVmHost by remember { mutableStateOf(loadVmHost()) }
+                var savedVmUser by remember { mutableStateOf(loadVmUser()) }
+                var savedVmPort by remember { mutableStateOf(loadVmPort()) }
+                var savedVmKnownHosts by remember { mutableStateOf(loadVmKnownHosts()) }
                 val llmClient = remember { com.lucifer.mobile.omni_bridge.llm.NemotronClient(this@MainActivity) }
                 var memoryItems by remember { mutableStateOf(loadMemoryItems()) }
-                var skills by remember { mutableStateOf(buildSkillRegistry()) }
+                val skills = remember { buildSkillRegistry() }
+
+                LaunchedEffect(savedKnowledgeUrl) {
+                    if (savedKnowledgeUrl.isNotBlank()) reasoner.updateBaseUrl(savedKnowledgeUrl)
+                }
 
                 // One-shot LLM health probe for the Settings status row.
                 LaunchedEffect(Unit) {
@@ -94,16 +213,72 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                scope.launch {
-                    try {
-                        val connected = KaiBridge(this@MainActivity).connect()
-                        kaiConnected = connected
-                    } catch (e: Exception) {
-                        connectionError = e.message
+                fun appendTerminalLines(lines: List<String>) {
+                    terminalLines = (terminalLines + lines).takeLast(200)
+                    val historySnapshot = terminalLines
+                    scope.launch(Dispatchers.IO) { saveTerminalHistory(historySnapshot) }
+                }
+
+                fun runTerminalAction(action: TerminalAction) {
+                    pendingTerminalAction = null
+                    isProcessing = true
+                    scope.launch(Dispatchers.IO) {
+                        val result = try {
+                            terminalExecutor.execute(action.command, action.target.launcherIndex)
+                        } catch (e: Exception) {
+                            listOf("[ERROR] ${e.message ?: "Command failed"}")
+                        }
+                        withContext(Dispatchers.Main) {
+                            appendTerminalLines(listOf("${action.target.displayName} · ${terminalExecutor.destinationDetails(action.target.launcherIndex)} · ${action.command}") + result)
+                            isProcessing = false
+                        }
                     }
                 }
 
+                fun cancelPendingTerminalAction() {
+                    pendingTerminalAction = null
+                    appendTerminalLines(listOf("[CANCELLED] Command was not run."))
+                }
+
+                fun requestHeartbeatPermissions(action: String) {
+                    heartbeatPermissionAction = action
+                    val permissions = mutableListOf<String>()
+                    if (action == "camera") permissions.add(Manifest.permission.CAMERA)
+                    if (Build.VERSION.SDK_INT >= 33) permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+                    val missing = permissions.filter {
+                        ContextCompat.checkSelfPermission(this@MainActivity, it) != PackageManager.PERMISSION_GRANTED
+                    }
+                    if (missing.isNotEmpty()) {
+                        heartbeatPermissionLauncher.launch(missing.toTypedArray())
+                    } else {
+                        try {
+                            if (action == "camera") LuciferHeartbeatService.enableCamera(this@MainActivity)
+                            else LuciferHeartbeatService.start(this@MainActivity)
+                            settingsToast = if (action == "camera") "Camera enabled for future heartbeat sessions." else "Heartbeat enabled. The first session is starting now."
+                        } catch (e: Exception) {
+                            settingsToast = "Could not start heartbeat: ${e.message ?: "system denied foreground service"}"
+                        }
+                    }
+                }
+
+                fun requestHeartbeatStart() = requestHeartbeatPermissions("start")
+                fun requestHeartbeatCamera() = requestHeartbeatPermissions("camera")
+
+                fun stopHeartbeat() {
+                    LuciferHeartbeatService.stop(this@MainActivity)
+                    settingsToast = "Heartbeat stopped."
+                }
+
                 var selectedTab by remember { mutableStateOf(intent?.getIntExtra("lucifer_tab", 0) ?: 0) }
+
+                LaunchedEffect(selectedTab) {
+                    if (selectedTab == 3) {
+                        while (true) {
+                            shizukuStatus = withContext(Dispatchers.IO) { ShizukuAccess.status() }
+                            delay(1_500)
+                        }
+                    }
+                }
 
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -124,7 +299,10 @@ class MainActivity : ComponentActivity() {
                                     TabItem("Terminal", Icons.Filled.Terminal),
                                     TabItem("Memory", Icons.Filled.Memory),
                                     TabItem("Skills", Icons.Filled.Psychology),
-                                    TabItem("Settings", Icons.Filled.Settings)
+                                    TabItem("Settings", Icons.Filled.Settings),
+                                    TabItem("Wallet", Icons.Filled.AccountBalanceWallet),
+                                    TabItem("Browser", Icons.Filled.Language),
+                                    TabItem("Heartbeat", Icons.Filled.Psychology)
                                 )
                             )
 
@@ -135,15 +313,104 @@ class MainActivity : ComponentActivity() {
                                     isProcessing = isProcessing,
                                     target = terminalTarget,
                                     onTargetSelected = { terminalTarget = it },
+                                    onOpenInteractiveTermux = {
+                                        val message = launchTermuxInteractive(installToolkit = false)
+                                        settingsToast = message
+                                        Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                                    },
+                                    onInstallTermuxTools = { showTermuxToolkitDialog = true },
+                                    onOpenAndroidLinux = {
+                                        val message = openAndroidLinuxWithOverlay()
+                                        settingsToast = message
+                                        Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                                    },
+                                    onStageStaticSite = {
+                                        runLocalSiteOperation("Creating the local static-site starter…") {
+                                            LocalWebsiteManager.stageStatic(this@MainActivity)
+                                        }
+                                    },
+                                    onStageApiSite = {
+                                        runLocalSiteOperation("Creating the local website + API starter…") {
+                                            LocalWebsiteManager.stageApi(this@MainActivity)
+                                        }
+                                    },
+                                    onStagePaymentDemo = {
+                                        runLocalSiteOperation("Creating the no-money USDC checkout demo…") {
+                                            LocalWebsiteManager.stagePaymentDemo(this@MainActivity)
+                                        }
+                                    },
+                                    onStopLocalSites = {
+                                        runLocalSiteOperation("Stopping local preview servers…") {
+                                            LocalWebsiteManager.stop(this@MainActivity)
+                                        }
+                                    },
                                     onCommand = { cmd ->
-                                        isProcessing = true
-                                        terminalLines = terminalLines + "$ $cmd"
-                                        scope.launch(Dispatchers.IO) {
-                                            val result = terminalExecutor.execute(cmd, terminalTarget)
-                                            val newLines = terminalLines + result
-                                            terminalLines = if (newLines.size > 200) newLines.takeLast(200) else newLines
-                                            saveTerminalHistory(terminalLines)
-                                            isProcessing = false
+                                        if (!isProcessing && pendingTerminalAction == null) {
+                                            isProcessing = true
+                                            appendTerminalLines(listOf("λ $cmd"))
+                                            val selectedTarget = CommandTarget.fromLauncherIndex(terminalTarget)
+                                            scope.launch(Dispatchers.IO) {
+                                                val route = try {
+                                                    router.understand(cmd, selectedTarget, installedAppNames = installedAppNames())
+                                                } catch (_: Exception) {
+                                                    ChatRoute.Clarify("I couldn't route that request. Rephrase it or choose LOCAL, TERMUX, VM, or SHIZUKU.")
+                                                }
+                                                when (route) {
+                                                    ChatRoute.Conversation -> {
+                                                        val answer = try {
+                                                            reasoner.reason(cmd)
+                                                        } catch (e: Exception) {
+                                                            "[CHAT ERROR] ${e.message ?: "Could not answer"}"
+                                                        }
+                                                        withContext(Dispatchers.Main) {
+                                                            appendTerminalLines(listOf("[CHAT] $answer"))
+                                                            isProcessing = false
+                                                        }
+                                                    }
+                                                    is ChatRoute.Clarify -> withContext(Dispatchers.Main) {
+                                                        appendTerminalLines(listOf("[NEED CLARIFICATION] ${route.question}"))
+                                                        isProcessing = false
+                                                    }
+                                                    is ChatRoute.OpenApp -> withContext(Dispatchers.Main) {
+                                                        appendTerminalLines(listOf(launchRequestedApp(route.appName)))
+                                                        isProcessing = false
+                                                    }
+                                                    is ChatRoute.OpenSettings -> withContext(Dispatchers.Main) {
+                                                        val opened = launchSystemSettings(route.section)
+                                                        appendTerminalLines(listOf(if (opened) "[SETTINGS] Opened ${route.section}; make protected changes in Android Settings." else "[SETTINGS] Could not open that Settings page."))
+                                                        isProcessing = false
+                                                    }
+                                                    is ChatRoute.OpenPanel -> withContext(Dispatchers.Main) {
+                                                        selectedTab = when (route.panel) {
+                                                            "terminal" -> 0
+                                                            "memory" -> 1
+                                                            "skills" -> 2
+                                                            "settings" -> 3
+                                                            "wallet" -> 4
+                                                            "browser" -> 5
+                                                            "heartbeat" -> 6
+                                                            else -> 0
+                                                        }
+                                                        appendTerminalLines(listOf("[PANEL] Opening Lucifer's ${route.panel} panel."))
+                                                        isProcessing = false
+                                                    }
+                                                    is ChatRoute.Execute -> withContext(Dispatchers.Main) {
+                                                        val action = route.action
+                                                        if (action.requiresConfirmation) {
+                                                            pendingTerminalAction = action
+                                                            appendTerminalLines(listOf(
+                                                                "[CONFIRM] ${action.explanation}",
+                                                                "[${action.target.displayName}] ${action.command}",
+                                                                "Review and confirm before running."
+                                                            ))
+                                                            isProcessing = false
+                                                        } else {
+                                                            appendTerminalLines(listOf("[UNDERSTOOD] ${action.explanation}"))
+                                                            runTerminalAction(action)
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 )
@@ -160,28 +427,78 @@ class MainActivity : ComponentActivity() {
                                 )
                                 2 -> AnimatedSkillsPanel(
                                     modifier = Modifier.fillMaxSize(),
-                                    skills = skills,
-                                    onSkillToggle = { id, enabled ->
-                                        skills = skills.map { if (it.id == id) it.copy(isEnabled = enabled) else it }
-                                    }
+                                    skills = skills
                                 )
                                 3 -> AnimatedSettingsPanel(
                                     modifier = Modifier.fillMaxSize(),
                                     onSoulMdEdit = { saveSoulPrompt(it) },
-                                    onHeartbeatEdit = { saveHeartbeatPrompt(it) },
-                                    onWalletConnect = { },
-                                    onDeployKaiBridge = { },
+                                    onManageWallets = { selectedTab = 4 },
+                                    onHeartbeatOpen = { selectedTab = 6 },
+                                    shizukuStatus = shizukuStatus.message,
+                                    onShizukuRequest = {
+                                        settingsToast = if (ShizukuAccess.requestPermission()) {
+                                            "Approve Lucifer in the Shizuku permission prompt."
+                                        } else {
+                                            "Start the Shizuku server first, then retry."
+                                        }
+                                    },
+                                    onOpenShizuku = {
+                                        settingsToast = if (ShizukuAccess.openShizuku(this@MainActivity)) "Opened Shizuku. Start its Wireless debugging service, then return here." else "Shizuku app not found. Install and configure it first."
+                                    },
+                                    onOpenPermissionManagerX = {
+                                        settingsToast = if (ShizukuAccess.openPermissionManagerX(this@MainActivity)) "Opened Permission Manager X. Manage grants there; Lucifer will not change them." else "Permission Manager X is not installed or has no launch activity."
+                                    },
+                                    onShizukuTest = {
+                                        scope.launch(Dispatchers.IO) {
+                                            val result = ShizukuTerminal.execute(this@MainActivity, "id")
+                                            withContext(Dispatchers.Main) { settingsToast = result.joinToString(" ").take(300) }
+                                        }
+                                    },
+                                    onKaiHealthCheck = {
+                                        scope.launch(Dispatchers.IO) {
+                                            val connected = KaiBridge(this@MainActivity).connect()
+                                            withContext(Dispatchers.Main) {
+                                                settingsToast = if (connected) "Kai sandbox responds to ping." else "Kai sandbox unavailable — install the Kai package and its sandbox first."
+                                            }
+                                        }
+                                    },
                                     onVmPasswordSave = { saveVmPassword(it) },
+                                    onVmUserSave = { user ->
+                                        if (saveVmUser(user)) { savedVmUser = user.trim(); settingsToast = "VM SSH user saved." }
+                                        else settingsToast = "Invalid SSH username."
+                                    },
+                                    onVmPortSave = { port ->
+                                        if (saveVmPort(port)) { savedVmPort = port.trim().toInt(); settingsToast = "VM SSH port saved." }
+                                        else settingsToast = "Port must be between 1 and 65535."
+                                    },
                                     onVmHostSave = { host ->
-                                        saveVmHost(host)
-                                        savedVmHost = host
+                                        if (saveVmHost(host)) {
+                                            savedVmHost = host.trim()
+                                            settingsToast = "VM host saved."
+                                        } else {
+                                            settingsToast = "Invalid VM hostname/IP; use a host only, without a URL or port."
+                                        }
+                                    },
+                                    onVmKnownHostsSave = { knownHosts ->
+                                        val saved = saveVmKnownHosts(knownHosts)
+                                        if (saved) savedVmKnownHosts = knownHosts.trim()
+                                        settingsToast = when {
+                                            !saved -> "Invalid known_hosts entry; expected a host, key type, and base64 public key."
+                                            knownHosts.isBlank() -> "SSH host key cleared; VM execution is now disabled."
+                                            else -> "SSH known_hosts saved. Lucifer will require an exact host-key match."
+                                        }
                                     },
                                     onNvidiaKeySave = { key ->
                                         scope.launch(Dispatchers.IO) {
-                                            llmClient.saveRuntimeKey(key)
-                                            val ok = llmClient.healthCheck()
+                                            val saved = llmClient.saveRuntimeKey(key)
+                                            val ok = if (saved && key.isNotBlank()) llmClient.healthCheck() else false
                                             withContext(Dispatchers.Main) {
-                                                llmStatus = if (ok) "LIVE" else "DARK"
+                                                llmStatus = when {
+                                                    !saved -> "INVALID KEY"
+                                                    key.isBlank() -> "NO KEY"
+                                                    ok -> "LIVE"
+                                                    else -> "DARK"
+                                                }
                                             }
                                         }
                                     },
@@ -206,14 +523,222 @@ class MainActivity : ComponentActivity() {
                                     corpusInfo = "54 Lean volumes · axioms · book (in-APK)",
                                     savedKnowledgeUrl = savedKnowledgeUrl,
                                     llmStatus = llmStatus,
-                                    savedVmHost = savedVmHost
+                                    savedVmHost = savedVmHost,
+                                    savedVmUser = savedVmUser,
+                                    savedVmPort = savedVmPort,
+                                    savedVmKnownHosts = savedVmKnownHosts,
+                                    leanVerificationState = leanVerificationState,
+                                    leanVerificationOutput = leanVerificationOutput,
+                                    leanVerificationCommit = leanVerificationCommit,
+                                    leanVerificationToolchain = leanVerificationToolchain,
+                                    leanVerificationBusy = leanVerificationBusy,
+                                    onLeanVerificationPrepare = {
+                                        runLeanVerification { Lean4VerificationRunner.prepare(this@MainActivity) }
+                                    },
+                                    onLeanVerificationStart = {
+                                        if (leanVerificationState == "PREPARED" && leanVerificationCommit != null && leanVerificationToolchain != null) {
+                                            showLeanVerificationConfirmation = true
+                                        }
+                                    },
+                                    onLeanVerificationRefresh = {
+                                        runLeanVerification { Lean4VerificationRunner.refresh(this@MainActivity) }
+                                    },
+                                    onLeanVerificationStop = {
+                                        runLeanVerification { Lean4VerificationRunner.stop(this@MainActivity) }
+                                    },
+                                    statusMessage = settingsToast
+                                )
+                                4 -> WalletControlPanel(this@MainActivity, Modifier.fillMaxSize())
+                                5 -> BrowserControlPanel(this@MainActivity, Modifier.fillMaxSize())
+                                6 -> HeartbeatControlPanel(
+                                    context = this@MainActivity,
+                                    modifier = Modifier.fillMaxSize(),
+                                    statusMessage = settingsToast,
+                                    onStart = { requestHeartbeatStart() },
+                                    onStop = { stopHeartbeat() },
+                                    onEnableCamera = { requestHeartbeatCamera() }
                                 )
                             }
                         }
                     }
+                    if (showLeanVerificationConfirmation) {
+                        val confirmedCommit = leanVerificationCommit
+                        val confirmedToolchain = leanVerificationToolchain
+                        AlertDialog(
+                            onDismissRequest = { showLeanVerificationConfirmation = false },
+                            title = { Text("Run local Lean verification?") },
+                            text = {
+                                Text(
+                                    "This will execute the repository's Python audit scripts and Lean/Lake build inside your Debian VM. Source SHA: ${confirmedCommit ?: "missing"}. Toolchain: ${confirmedToolchain ?: "missing"}. Network access may be used to obtain pinned dependencies. This checks formal artifacts, not whether their physical interpretation is true."
+                                )
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    showLeanVerificationConfirmation = false
+                                    val commit = confirmedCommit
+                                    val toolchain = confirmedToolchain
+                                    if (commit != null && toolchain != null) {
+                                        runLeanVerification { Lean4VerificationRunner.start(this@MainActivity, commit, toolchain) }
+                                    }
+                                }) { Text("Run in Debian VM") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showLeanVerificationConfirmation = false }) { Text("Cancel") }
+                            }
+                        )
+                    }
+                    if (showTermuxToolkitDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showTermuxToolkitDialog = false },
+                            title = { Text("Install Termux toolkit?") },
+                            text = {
+                                Text("This downloads and installs a curated CLI toolkit in Termux (shell and tmux, build runtimes, Git, Python/Node/Rust/Go, search/edit tools, network diagnostics, media utilities, and proot-distro). Size and download time vary by repository and device. Lucifer will open a visible Termux session; no packages are installed silently.")
+                            },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    showTermuxToolkitDialog = false
+                                    val message = launchTermuxInteractive(installToolkit = true)
+                                    settingsToast = message
+                                    Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                                }) { Text("Install and open") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showTermuxToolkitDialog = false }) { Text("Cancel") }
+                            }
+                        )
+                    }
+                    pendingTerminalAction?.let { action ->
+                        AlertDialog(
+                            onDismissRequest = { cancelPendingTerminalAction() },
+                            title = { Text("Confirm terminal command") },
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(action.explanation)
+                                    Text(terminalExecutor.destinationDetails(action.target.launcherIndex))
+                                    Text("${action.target.displayName} · ${action.command}")
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(onClick = { runTerminalAction(action) }) { Text("Run") }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { cancelPendingTerminalAction() }) { Text("Cancel") }
+                            }
+                        )
+                    }
                 }
             }
         }
+    }
+
+    private fun launchTermuxInteractive(installToolkit: Boolean): String {
+        if (!Settings.canDrawOverlays(this)) {
+            return try {
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                "Allow Lucifer to display over other apps, return here, then tap OPEN PTY + CHAT again."
+            } catch (error: Exception) {
+                "Overlay permission is required: ${error.message ?: "Android denied the settings page"}"
+            }
+        }
+        return try {
+            FloatingChatService.start(this, CommandTarget.TERMUX.launcherIndex)
+            if (TermuxInteractiveSession.launch(this, installToolkit)) {
+                if (installToolkit) "Termux toolkit installation started in a visible interactive session. The Lucifer chat bubble stays on top."
+                else "Opened persistent Termux tmux shell with Lucifer's floating chat."
+            } else {
+                stopService(Intent(this, FloatingChatService::class.java))
+                "Could not start Termux. Install Termux, enable allow-external-apps, and grant Lucifer Run commands in Termux."
+            }
+        } catch (error: Exception) {
+            stopService(Intent(this, FloatingChatService::class.java))
+            "Could not launch the interactive terminal companion: ${error.message ?: error.javaClass.simpleName}"
+        }
+    }
+
+    private fun openAndroidLinuxWithOverlay(): String {
+        if (!Settings.canDrawOverlays(this)) {
+            return try {
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+                "Allow Lucifer to display over other apps, return here, then open Android Linux again."
+            } catch (error: Exception) {
+                "Overlay permission is required: ${error.message ?: "Android denied the settings page"}"
+            }
+        }
+        val launchIntent = packageManager.getLaunchIntentForPackage("com.android.virtualization.terminal")
+        if (launchIntent == null) {
+            return try {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS))
+                "Enable Android's Linux development environment in Developer options, finish its setup, then return."
+            } catch (_: Exception) {
+                "Android Linux Terminal is not enabled or supported on this device."
+            }
+        }
+        return try {
+            FloatingChatService.start(this, CommandTarget.VM.launcherIndex)
+            startActivity(launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            "Opened Android Linux Terminal with chat overlay. To share its live shell, enable guest SSH, forward a host port to guest port 22 in Terminal settings, configure the SSH user/port/password and verified host key here, then start `tmux new-session -A -s lucifer` inside Debian."
+        } catch (error: Exception) {
+            stopService(Intent(this, FloatingChatService::class.java))
+            "Could not open Android Linux Terminal: ${error.message ?: error.javaClass.simpleName}"
+        }
+    }
+
+    private fun installedAppNames(): List<String> = try {
+        packageManager.queryIntentActivities(
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),
+            PackageManager.MATCH_ALL
+        ).mapNotNull { info ->
+            try { info.loadLabel(packageManager).toString() } catch (_: Exception) { null }
+        }.distinct()
+    } catch (_: Exception) {
+        emptyList()
+    }
+
+    private fun launchRequestedApp(query: String): String {
+        return try {
+            val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            val apps = packageManager.queryIntentActivities(launcherIntent, PackageManager.MATCH_ALL)
+                .distinctBy { it.activityInfo.packageName }
+                .mapNotNull { info ->
+                    val label = try { info.loadLabel(packageManager).toString() } catch (_: Exception) { null }
+                    label?.let { it to info.activityInfo.packageName }
+                }
+            val exact = apps.filter { it.first.equals(query, ignoreCase = true) }
+            val matches = if (exact.isNotEmpty()) exact else apps.filter { it.first.contains(query, ignoreCase = true) }
+            when {
+                matches.isEmpty() -> "[APP] No installed app matched ‘$query’."
+                matches.size > 1 -> "[APP] Multiple apps match: ${matches.take(5).joinToString { it.first }}. Be more specific."
+                else -> {
+                    val (label, pkg) = matches.single()
+                    val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
+                        ?: return "[APP] $label has no launchable activity."
+                    startActivity(launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    "[APP] Opening $label."
+                }
+            }
+        } catch (e: Exception) {
+            "[APP] Could not open ‘$query’: ${e.message ?: "launch failed"}"
+        }
+    }
+
+    private fun launchSystemSettings(section: String): Boolean = try {
+        val settingsIntent = when (section) {
+            "wifi" -> Intent(Settings.ACTION_WIFI_SETTINGS)
+            "bluetooth" -> Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
+            "location" -> Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+            "display" -> Intent(Settings.ACTION_DISPLAY_SETTINGS)
+            "sound" -> Intent(Settings.ACTION_SOUND_SETTINGS)
+            "notifications" -> Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            "battery" -> Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS)
+            "apps" -> Intent(Settings.ACTION_APPLICATION_SETTINGS)
+            "app_permissions" -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))
+            else -> Intent(Settings.ACTION_SETTINGS)
+        }
+        startActivity(settingsIntent)
+        true
+    } catch (_: Exception) {
+        false
     }
 
     private fun loadTerminalHistory(): List<String> {
@@ -225,13 +750,13 @@ class MainActivity : ComponentActivity() {
                 }
             } else {
                 listOf(
-                    "🫀 Heartbeat service started",
-                    "🔗 Kai Bridge: Connecting...",
-                    "💰 Wallet: Ready"
+                    "Lucifer controls ready. Heartbeat is opt-in from its control panel.",
+                    "Type a plain-language request; Lucifer routes before action.",
+                    "Wallet and read-only Browser controls are available in their tabs."
                 )
             }
         } catch (e: Exception) {
-            listOf("🫀 Heartbeat service started")
+            listOf("Lucifer controls ready. Heartbeat is opt-in from its control panel.")
         }
     }
 
@@ -273,91 +798,154 @@ class MainActivity : ComponentActivity() {
         return items.takeLast(30)
     }
 
-    /** The framework's real capabilities, wired from his own engines. */
+    /** A truthful catalog of implemented controls and their current limitations. */
     private fun buildSkillRegistry(): List<com.lucifer.mobile.ui.components.SkillItem> {
         return listOf(
             com.lucifer.mobile.ui.components.SkillItem(
-                id = "four_horsemen", name = "Four Horsemen Council",
-                description = "CONQUEST plans, WAR red-teams, FAMINE compresses, DEATH prunes — real Nemotron passes",
-                category = "Cognition", isEnabled = true,
-                icon = Icons.Filled.Psychology, complexity = 3
+                id = "natural_language", name = "Natural-language request routing",
+                description = "Understands requests before routing to chat, shell, apps, or Android Settings; non-read-only shell commands require confirmation.",
+                category = "Control", isEnabled = true, status = "READY",
+                icon = Icons.Filled.Psychology
             ),
             com.lucifer.mobile.ui.components.SkillItem(
-                id = "toe_reasoning", name = "Omega ToE Reasoning",
-                description = "PERCEIVE→UNDERSTAND→DECIDE→ACT grounded in the 54-volume embedded corpus",
-                category = "Cognition", isEnabled = true,
-                icon = Icons.Filled.Psychology, complexity = 3
+                id = "app_control", name = "Installed-app launcher",
+                description = "Launch by natural-language app name or by explicitly tapping an app tile.",
+                category = "Device", isEnabled = true, status = "READY",
+                icon = Icons.Filled.PlayArrow
             ),
             com.lucifer.mobile.ui.components.SkillItem(
-                id = "heartbeat", name = "Autonomous Heartbeat",
-                description = "25-min Ideation↔Execution cycle with project ledger and auto-deploy",
-                category = "Autonomy", isEnabled = true,
-                icon = Icons.Filled.PlayArrow, complexity = 3
+                id = "system_settings", name = "Android Settings shortcuts",
+                description = "Opens Wi-Fi, Bluetooth, location, display, sound, notifications, battery, app, and permission settings. Android keeps protected toggles user-controlled.",
+                category = "Device", isEnabled = true, status = "USER ACTION REQUIRED",
+                icon = Icons.Filled.Settings
             ),
             com.lucifer.mobile.ui.components.SkillItem(
-                id = "rcod", name = "RCOD State Estimator",
-                description = "Uncertainty/contradiction/complexity tracking for his own reasoning",
-                category = "Metacognition", isEnabled = true,
-                icon = Icons.Filled.Memory, complexity = 2
+                id = "multi_target_terminal", name = "Interactive Termux · Linux VM · Shizuku terminal",
+                description = "Natural-language-routed commands across LOCAL, Termux, pinned SSH VM, and Shizuku. Termux and SSH can share a tmux PTY with a floating chat overlay; Android's AVF guest needs user-configured guest SSH and port forwarding.",
+                category = "Terminal", isEnabled = false, status = "LIMITED",
+                icon = Icons.Filled.Terminal
             ),
             com.lucifer.mobile.ui.components.SkillItem(
-                id = "equi_router", name = "EquiRouter Topology Ranking",
-                description = "Instance-wise Pareto-optimal horseman topology via Plackett-Luce ranking",
-                category = "Metacognition", isEnabled = true,
-                icon = Icons.Filled.Memory, complexity = 3
+                id = "evm_wallet", name = "EVM wallet manager",
+                description = "Creates EVM addresses, encrypts keys at rest, and checks native-token balances. No recovery phrase/export or transaction sending is implemented; do not fund wallets yet.",
+                category = "Wallet", isEnabled = false, status = "LIMITED",
+                icon = Icons.Filled.AccountBalanceWallet
             ),
             com.lucifer.mobile.ui.components.SkillItem(
-                id = "context_compression", name = "Context Compressor",
-                description = "8K-budget context curation with token accounting",
-                category = "Metacognition", isEnabled = true,
-                icon = Icons.Filled.Memory, complexity = 2
+                id = "public_browser", name = "Public web reader",
+                description = "Fetches HTTPS pages and extracts text. Read-only: no JS, clicks, forms, sign-in, or browser session automation.",
+                category = "Browser", isEnabled = false, status = "READ ONLY",
+                icon = Icons.Filled.Language
             ),
             com.lucifer.mobile.ui.components.SkillItem(
-                id = "evidence_ledger", name = "Evidence Ledger",
-                description = "Cryptographic provenance records for every decision",
-                category = "Governance", isEnabled = true,
-                icon = Icons.Filled.Build, complexity = 3
+                id = "memory", name = "Local activity memory",
+                description = "Searches recent app-launch events and terminal history; this is a lightweight log viewer, not semantic long-term memory.",
+                category = "Memory", isEnabled = true, status = "READY",
+                icon = Icons.Filled.Memory
             ),
             com.lucifer.mobile.ui.components.SkillItem(
-                id = "appa_policy", name = "APPA Policy Engine",
-                description = "Prospective acquisition enforcement — prevents the usability wall",
-                category = "Governance", isEnabled = true,
-                icon = Icons.Filled.Build, complexity = 3
+                id = "voice", name = "Voice output",
+                description = "Text-to-speech for chat and terminal results when enabled in Settings.",
+                category = "Interface", isEnabled = true, status = "READY",
+                icon = Icons.Filled.PlayArrow
             ),
             com.lucifer.mobile.ui.components.SkillItem(
-                id = "voice", name = "Voice (TTS)",
-                description = "He speaks results and replies — rate 0.95, pitch 0.85",
-                category = "Interface", isEnabled = true,
-                icon = Icons.Filled.PlayArrow, complexity = 1
+                id = "kai_sandbox", name = "Kai sandbox bridge",
+                description = "Can ping the installed Kai package. Deployment and several bridge operations remain incomplete or depend on external sandbox files.",
+                category = "Sandbox", isEnabled = false, status = "INCOMPLETE",
+                icon = Icons.Filled.Build
             ),
             com.lucifer.mobile.ui.components.SkillItem(
-                id = "multi_target_terminal", name = "Multi-Target Terminal",
-                description = "L=app sandbox · T=Termux · V=Debian VM — with history persistence",
-                category = "Interface", isEnabled = true,
-                icon = Icons.Filled.Terminal, complexity = 2
+                id = "heartbeat", name = "Opt-in idea and creation heartbeat",
+                description = "Runs one model-planned session immediately and repeats about every 30 minutes while its visible foreground service is active. With runtime consent it sends one camera still per session to NVIDIA; writes local Markdown drafts. No shell or external publishing. Browser interaction remains unavailable.",
+                category = "Automation", isEnabled = true, status = "OPT-IN · LIMITED",
+                icon = Icons.Filled.PlayArrow
             )
         )
     }
 
-    // ───────────── VM host config (bridge IP changes per reinstall) ─────────────
+    // ───────────── VM host and pinned SSH host keys ─────────────
 
     private fun loadVmHost(): String {
         return try {
             val file = File(filesDir, "config/vm_host.txt")
             if (file.exists()) file.readText().trim() else ""
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             ""
         }
     }
 
-    fun saveVmHost(host: String) {
-        try {
-            val configDir = File(filesDir, "config")
-            configDir.mkdirs()
+    private fun saveVmHost(host: String): Boolean {
+        val normalized = host.trim()
+        if (normalized.isNotEmpty() && (normalized.length > 253 || !normalized.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._:%-]*$")))) return false
+        return try {
+            val configDir = File(filesDir, "config").apply { mkdirs() }
             val file = File(configDir, "vm_host.txt")
-            FileOutputStream(file).use { output -> output.write(host.trim().toByteArray()) }
+            if (normalized.isBlank()) file.delete() else FileOutputStream(file).use { it.write(normalized.toByteArray()) }
+            true
         } catch (e: Exception) {
             Log.e("MainActivity", "saveVmHost failed", e)
+            false
+        }
+    }
+
+    private fun loadVmUser(): String = try {
+        File(filesDir, "config/vm_user.txt").takeIf { it.exists() }?.readText()?.trim()?.takeIf {
+            it.matches(Regex("^[A-Za-z_][A-Za-z0-9_.-]{0,31}$"))
+        } ?: "droid"
+    } catch (_: Exception) { "droid" }
+
+    private fun saveVmUser(user: String): Boolean {
+        val normalized = user.trim()
+        if (!normalized.matches(Regex("^[A-Za-z_][A-Za-z0-9_.-]{0,31}$"))) return false
+        return try {
+            val dir = File(filesDir, "config").apply { mkdirs() }
+            FileOutputStream(File(dir, "vm_user.txt")).use { it.write(normalized.toByteArray()) }
+            true
+        } catch (_: Exception) { false }
+    }
+
+    private fun loadVmPort(): Int = try {
+        File(filesDir, "config/vm_port.txt").takeIf { it.exists() }?.readText()?.trim()?.toIntOrNull()?.takeIf { it in 1..65535 } ?: 8022
+    } catch (_: Exception) { 8022 }
+
+    private fun saveVmPort(port: String): Boolean {
+        val value = port.trim().toIntOrNull()?.takeIf { it in 1..65535 } ?: return false
+        return try {
+            val dir = File(filesDir, "config").apply { mkdirs() }
+            FileOutputStream(File(dir, "vm_port.txt")).use { it.write(value.toString().toByteArray()) }
+            true
+        } catch (_: Exception) { false }
+    }
+
+    private fun loadVmKnownHosts(): String = try {
+        val file = File(filesDir, "config/known_hosts")
+        if (file.isFile) file.readText().take(32_000) else ""
+    } catch (_: Exception) {
+        ""
+    }
+
+    private fun saveVmKnownHosts(value: String): Boolean {
+        val normalized = value.trim()
+        if (normalized.isNotEmpty()) {
+            if (normalized.length > 32_000) return false
+            val keyLines = normalized.lines().filter { it.isNotBlank() && !it.trimStart().startsWith("#") }
+            if (keyLines.isEmpty() || keyLines.any { line ->
+                    val fields = line.trim().split(Regex("\\s+"))
+                    fields.size < 3 ||
+                        !(fields[1].startsWith("ssh-") || fields[1].startsWith("ecdsa-") || fields[1].startsWith("sk-")) ||
+                        try { java.util.Base64.getDecoder().decode(fields[2]); false } catch (_: Exception) { true }
+                }
+            ) return false
+        }
+        return try {
+            val configDir = File(filesDir, "config").apply { mkdirs() }
+            val file = File(configDir, "known_hosts")
+            if (normalized.isBlank()) file.delete() else FileOutputStream(file).use { it.write((normalized + "\n").toByteArray()) }
+            true
+        } catch (e: Exception) {
+            Log.e("MainActivity", "saveVmKnownHosts failed", e)
+            false
         }
     }
 
@@ -381,23 +969,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun saveHeartbeatPrompt(prompt: String) {
-        try {
-            val file = File(filesDir, "heartbeat_prompt.md")
-            FileOutputStream(file).use { output -> output.write(prompt.toByteArray()) }
-        } catch (e: Exception) {
-            Log.e("MainActivity", "saveHeartbeatPrompt failed", e)
-        }
-    }
-
     fun saveVmPassword(password: String) {
-        try {
-            val configDir = File(filesDir, "config")
-            configDir.mkdirs()
-            val file = File(configDir, "vm_ssh_password.txt")
-            FileOutputStream(file).use { output -> output.write(password.toByteArray()) }
-        } catch (e: Exception) {
-            Log.e("MainActivity", "saveVmPassword failed", e)
+        if (password.isEmpty()) {
+            SecretStore.delete(this, "config/vm_ssh_password.txt")
+        } else if (!SecretStore.write(this, "config/vm_ssh_password.txt", password)) {
+            Log.e("MainActivity", "saveVmPassword failed: secure storage unavailable")
         }
     }
 

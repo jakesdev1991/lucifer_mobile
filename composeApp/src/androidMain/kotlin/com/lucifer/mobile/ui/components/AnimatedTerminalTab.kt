@@ -41,9 +41,16 @@ fun AnimatedTerminal(
     modifier: Modifier = Modifier,
     outputLines: List<String> = listOf(),
     isProcessing: Boolean = false,
-    target: Int = 0, // 0=LOCAL, 1=TERMUX, 2=VM
+    target: Int = 0, // 0=LOCAL, 1=TERMUX, 2=VM, 3=SHIZUKU
     onTargetSelected: (Int) -> Unit = {},
-    onCommand: (String) -> Unit = {}
+    onCommand: (String) -> Unit = {},
+    onOpenInteractiveTermux: () -> Unit = {},
+    onInstallTermuxTools: () -> Unit = {},
+    onOpenAndroidLinux: () -> Unit = {},
+    onStageStaticSite: () -> Unit = {},
+    onStageApiSite: () -> Unit = {},
+    onStagePaymentDemo: () -> Unit = {},
+    onStopLocalSites: () -> Unit = {}
 ) {
     var cmdText by remember { mutableStateOf("") }
 
@@ -58,7 +65,7 @@ fun AnimatedTerminal(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            listOf("LOCAL", "TERMUX", "VM").forEachIndexed { idx, label ->
+            listOf("LOCAL", "TERMUX", "VM", "SHIZUKU").forEachIndexed { idx, label ->
                 val isSelected = target == idx
                 Box(
                     modifier = Modifier
@@ -80,6 +87,53 @@ fun AnimatedTerminal(
                     )
                 }
             }
+        }
+
+        if (target == 1) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(
+                    modifier = Modifier.weight(1f).height(34.dp).background(Color(0xFF164A36), RoundedCornerShape(8.dp)).clickable { onOpenInteractiveTermux() },
+                    contentAlignment = Alignment.Center
+                ) { Text("OPEN PTY + CHAT", color = Color(0xFFB8FFD8), fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                Box(
+                    modifier = Modifier.weight(1f).height(34.dp).background(Color(0xFF2A2440), RoundedCornerShape(8.dp)).clickable { onInstallTermuxTools() },
+                    contentAlignment = Alignment.Center
+                ) { Text("INSTALL TOOLKIT", color = Color(0xFFD8C8FF), fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Box(
+                    modifier = Modifier.weight(1f).height(32.dp).background(Color(0xFF182A31), RoundedCornerShape(8.dp)).clickable { onStageStaticSite() },
+                    contentAlignment = Alignment.Center
+                ) { Text("STAGE STATIC", color = Color(0xFFB8E8FF), fontSize = 9.sp, fontWeight = FontWeight.Bold) }
+                Box(
+                    modifier = Modifier.weight(1f).height(32.dp).background(Color(0xFF182A31), RoundedCornerShape(8.dp)).clickable { onStageApiSite() },
+                    contentAlignment = Alignment.Center
+                ) { Text("STAGE API", color = Color(0xFFB8E8FF), fontSize = 9.sp, fontWeight = FontWeight.Bold) }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Box(
+                    modifier = Modifier.weight(1f).height(32.dp).background(Color(0xFF3A3020), RoundedCornerShape(8.dp)).clickable { onStagePaymentDemo() },
+                    contentAlignment = Alignment.Center
+                ) { Text("PAYMENT DEMO", color = Color(0xFFFFD98A), fontSize = 9.sp, fontWeight = FontWeight.Bold) }
+                Box(
+                    modifier = Modifier.weight(1f).height(32.dp).background(Color(0xFF3A2020), RoundedCornerShape(8.dp)).clickable { onStopLocalSites() },
+                    contentAlignment = Alignment.Center
+                ) { Text("STOP PREVIEWS", color = Color(0xFFFFCACA), fontSize = 9.sp, fontWeight = FontWeight.Bold) }
+            }
+        } else if (target == 2) {
+            Box(
+                modifier = Modifier.fillMaxWidth().height(34.dp).background(Color(0xFF164A36), RoundedCornerShape(8.dp)).clickable { onOpenAndroidLinux() },
+                contentAlignment = Alignment.Center
+            ) { Text("OPEN ANDROID LINUX + CHAT", color = Color(0xFFB8FFD8), fontSize = 10.sp, fontWeight = FontWeight.Bold) }
         }
 
         LazyColumn(
@@ -155,7 +209,7 @@ fun AnimatedTerminal(
                     unfocusedIndicatorColor = Color.Transparent,
                     disabledIndicatorColor = Color.Transparent
                 ),
-                placeholder = { Text("Enter command...", color = Color(0xFF665566)) }
+                placeholder = { Text("Ask naturally or enter a command…", color = Color(0xFF665566)) }
             )
         }
     }

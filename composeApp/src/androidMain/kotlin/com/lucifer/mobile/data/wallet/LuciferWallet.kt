@@ -2,6 +2,7 @@ package com.lucifer.mobile.data.wallet
 
 import android.content.Context
 import android.util.Log
+import com.lucifer.mobile.security.SecretStore
 import org.bouncycastle.crypto.digests.KeccakDigest
 import org.bouncycastle.crypto.digests.SHA256Digest
 import org.bouncycastle.crypto.ec.CustomNamedCurves
@@ -21,10 +22,10 @@ import java.security.SecureRandom
 /**
  * LuciferWallet — native wallet ops. No Kai sandbox.
  *
- * Real secp256k1 + Keccak-256 via BouncyCastle: key generation, Ethereum-style
- * address derivation, RFC-6979 deterministic signing with recovery byte and
- * low-s normalization (EIP-2), JSON-RPC balance lookups against public
- * endpoints, and persistence to app-private files/wallets/.
+ * Real secp256k1 + Keccak-256 via BouncyCastle: key generation and Ethereum-style
+ * address derivation, JSON-RPC balance lookups against public endpoints, and
+ * persistence to app-private files/wallets/. Transaction signing is not exposed;
+ * legacy raw-hash requests cannot enforce a spending policy.
  *
  * Trust model: private keys live in app-private storage (this is Jake's
  * headless agent phone by design). EVM chains only — same scope as wallet_ops.py.
@@ -47,7 +48,7 @@ class LuciferWallet(private val context: Context? = null) {
         )
 
         private val CHAIN_SYMBOL = mapOf(
-            "polygon" to "MATIC"
+            "polygon" to "POL"
         )
     }
 
@@ -68,7 +69,7 @@ class LuciferWallet(private val context: Context? = null) {
                 symbol = CHAIN_SYMBOL[chain] ?: "ETH",
                 usdValue = "0.00"
             )
-            persist(chain, address, priv)
+            if (!persist(chain, address, priv)) return null
             Log.i(TAG, "wallet generated: $address ($chain)")
             wallet
         } catch (e: Exception) {
@@ -78,14 +79,23 @@ class LuciferWallet(private val context: Context? = null) {
     }
 
     /** Load the persisted private key for an address (null if unknown). */
-    fun privateKeyFor(address: String): String? {
+    private fun privateKeyFor(address: String): String? {
         val dir = walletsDir() ?: return null
         val files = dir.listFiles { f -> f.name.endsWith(".json") } ?: return null
         for (f in files) {
             try {
                 val o = JSONObject(f.readText())
                 if (o.optString("address", "").equals(address, ignoreCase = true)) {
-                    return o.getString("privateKey")
+                    val secretPath = "wallets/${f.name}.key"
+                    SecretStore.read(context ?: return null, secretPath)?.let { return it }
+
+                    // Migrate keys written by older releases out of plaintext wallet JSON.
+                    val legacyKey = o.optString("privateKey", "").takeIf { it.isNotBlank() } ?: continue
+                    val ctx = context ?: return null
+                    if (!SecretStore.write(ctx, secretPath, legacyKey)) return null
+                    o.remove("privateKey")
+                    f.writeText(o.toString())
+                    return legacyKey
                 }
             } catch (_: Exception) {}
         }
@@ -97,7 +107,7 @@ class LuciferWallet(private val context: Context? = null) {
      * normalized, Ethereum-style recovery byte (v = 27/28). Returns 65-byte
      * signature as 0x-hex, or null on failure.
      */
-    suspend fun signMessageHash(messageHash: ByteArray, privateKeyHex: String): String? {
+    private suspend fun signMessageHash(messageHash: ByteArray, privateKeyHex: String): String? {
         if (messageHash.size != 32) return null
         return try {
             val priv = BigInteger(privateKeyHex.removePrefix("0x"), 16)
@@ -213,22 +223,6 @@ class LuciferWallet(private val context: Context? = null) {
         return null
     }
 
-    /**
-     * OmniBridge compatibility: sign a transaction payload (EIP-155 style).
-     * params must contain "hash" (0x + 64 hex, the keccak of the RLP payload)
-     * and "address" — returns the 65-byte signature or null.
-     */
-    suspend fun signTransaction(params: Map<String, String>): String? {
-        val hashHex = params["hash"] ?: return null
-        if (!hashHex.matches(Regex("^0x[0-9a-fA-F]{64}$"))) return null
-        val address = params["address"] ?: return null
-        val key = privateKeyFor(address) ?: return null
-        val hash = ByteArray(32) { i ->
-            Integer.parseInt(hashHex.substring(2 + i * 2, 4 + i * 2), 16).toByte()
-        }
-        return signMessageHash(hash, key)
-    }
-
     fun initialize() { /* pure crypto — nothing to warm; kept for OmniBridge/LuciferCore */ }
 
     fun shutdown() { /* pure crypto — nothing to tear down */ }
@@ -281,19 +275,24 @@ class LuciferWallet(private val context: Context? = null) {
         return out
     }
 
-    /** Persist key material to app-private files/wallets/<chain>-<address>.json. */
-    private fun persist(chain: String, address: String, priv: BigInteger) {
-        val dir = walletsDir() ?: return
-        try {
+    /** Store wallet metadata separately from its Keystore-encrypted signing key. */
+    private fun persist(chain: String, address: String, priv: BigInteger): Boolean {
+        val dir = walletsDir() ?: return false
+        val ctx = context ?: return false
+        val fileName = "${chain}-${address.removePrefix("0x")}.json"
+        return try {
+            if (!SecretStore.write(ctx, "wallets/$fileName.key", priv.toString(16))) return false
             val rec = JSONObject().apply {
                 put("address", address)
                 put("chain", chain)
-                put("privateKey", priv.toString(16))
                 put("createdAt", System.currentTimeMillis())
             }
-            File(dir, "${chain}-${address.removePrefix("0x")}.json").writeText(rec.toString())
+            File(dir, fileName).writeText(rec.toString())
+            true
         } catch (e: Exception) {
+            SecretStore.delete(ctx, "wallets/$fileName.key")
             Log.e(TAG, "persist failed: ${e.message}")
+            false
         }
     }
 }

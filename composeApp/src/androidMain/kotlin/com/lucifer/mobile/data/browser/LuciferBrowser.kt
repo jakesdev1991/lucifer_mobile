@@ -3,6 +3,7 @@ package com.lucifer.mobile.data.browser
 import android.util.Log
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
+import java.net.InetAddress
 import java.net.URL
 import java.util.regex.Pattern
 
@@ -28,7 +29,9 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
         )
     }
 
-    private val cookieJar = mutableMapOf<String, String>()
+    // Host-only cookie storage: never forward credentials across unrelated sites.
+    private val cookieJar = mutableMapOf<String, MutableMap<String, String>>()
+    private var activeHost: String? = null
 
     fun initialize() { /* connection-per-request; nothing to warm */ }
 
@@ -38,7 +41,12 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
         var hops = 0
         var last: HttpURLConnection? = null
         return try {
+            current = validatePublicWebUrl(current)
             while (hops++ < 5) {
+                last?.disconnect()
+                current = validatePublicWebUrl(current)
+                val requestHost = java.net.URI(current).host.lowercase()
+                activeHost = requestHost
                 last = (URL(current).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
                     connectTimeout = timeoutMs
@@ -46,14 +54,15 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
                     setRequestProperty("User-Agent", UA)
                     setRequestProperty("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
                     setRequestProperty("Accept-Encoding", "gzip")
-                    if (cookieJar.isNotEmpty()) {
-                        setRequestProperty("Cookie", cookieJar.entries.joinToString("; ") { "${it.key}=${it.value}" })
+                    val hostCookies = cookieJar[requestHost].orEmpty()
+                    if (hostCookies.isNotEmpty()) {
+                        setRequestProperty("Cookie", hostCookies.entries.joinToString("; ") { "${it.key}=${it.value}" })
                     }
-                    instanceFollowRedirects = true
+                    instanceFollowRedirects = false
                 }
                 when (last.responseCode) {
                     in 200..299 -> {
-                        captureCookies(last)
+                        captureCookies(last, requestHost)
                         val bytes = readClamped(last, MAX_BYTES)
                         val html = decodeBody(last, bytes)
                         val text = extractText(html)
@@ -63,14 +72,14 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
                             html = if (html.length > 200_000) "" else html,
                             text = if (text.length > 100_000) text.take(100_000) else text,
                             links = extractLinks(html, current),
-                            cookies = cookieJar.toMap(),
+                            cookies = cookieJar[requestHost]?.toMap().orEmpty(),
                             success = true
                         )
                     }
                     in 300..399 -> {
                         val loc = last.getHeaderField("Location")
                         if (loc.isNullOrBlank()) break
-                        current = java.net.URI(current).resolve(loc).toString()
+                        current = validatePublicWebUrl(java.net.URI(current).resolve(loc).toString())
                         continue
                     }
                     else -> {
@@ -106,16 +115,71 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
 
     suspend fun screenshot(fullPage: Boolean = false): String? = null
 
-    fun getCookies(): Map<String, String> = cookieJar.toMap()
+    fun getCookies(): Map<String, String> = activeHost?.let { cookieJar[it]?.toMap() }.orEmpty()
 
+    /** Set cookies only for the current host; no current page means no-op. */
     fun setCookies(cookies: Map<String, String>) {
-        cookieJar.putAll(cookies)
+        activeHost?.let { host -> cookieJar.getOrPut(host) { mutableMapOf() }.putAll(cookies) }
     }
 
-    fun close() { cookieJar.clear() }
+    fun close() { cookieJar.clear(); activeHost = null }
     fun shutdown() { close() }
 
     // ───────────── internals ─────────────
+
+    /** Reject non-HTTPS, credential-bearing, local, and private-network targets. */
+    private fun validatePublicWebUrl(raw: String): String {
+        require(raw.length <= 2_048) { "URL is too long" }
+        val uri = java.net.URI(raw).normalize()
+        val scheme = uri.scheme?.lowercase()
+        require(scheme == "https") { "Only HTTPS pages are supported" }
+        require(uri.userInfo == null) { "URLs containing embedded credentials are not allowed" }
+        val host = uri.host?.lowercase()?.trimEnd('.')
+            ?: throw IllegalArgumentException("URL must include a valid public host")
+        require(host.isNotBlank() && !host.endsWith(".localhost") && !host.endsWith(".local") && !host.endsWith(".internal")) {
+            "Local and internal hosts are not allowed"
+        }
+        val addresses = InetAddress.getAllByName(host)
+        require(addresses.isNotEmpty() && addresses.all(::isPublicAddress)) {
+            "Local, private, or reserved network addresses are not allowed"
+        }
+        return uri.toString()
+    }
+
+    private fun isPublicAddress(address: InetAddress): Boolean {
+        if (address.isAnyLocalAddress || address.isLoopbackAddress || address.isLinkLocalAddress ||
+            address.isSiteLocalAddress || address.isMulticastAddress
+        ) return false
+        val bytes = address.address
+        if (bytes.size == 4) return isPublicIpv4(bytes, 0)
+        if (bytes.size == 16) {
+            val first = bytes[0].toInt() and 0xff
+            if ((first and 0xfe) == 0xfc) return false // IPv6 unique-local (fc00::/7)
+            if (first == 0x20 && (bytes[1].toInt() and 0xff) == 0x01 &&
+                (bytes[2].toInt() and 0xff) == 0x0d && (bytes[3].toInt() and 0xff) == 0xb8
+            ) return false // IPv6 documentation prefix (2001:db8::/32)
+            // Treat IPv4-mapped IPv6 exactly like its embedded IPv4 address.
+            if ((0 until 10).all { bytes[it] == 0.toByte() } &&
+                bytes[10] == 0xff.toByte() && bytes[11] == 0xff.toByte()
+            ) return isPublicIpv4(bytes, 12)
+        }
+        return true
+    }
+
+    private fun isPublicIpv4(bytes: ByteArray, offset: Int): Boolean {
+        val a = bytes[offset].toInt() and 0xff
+        val b = bytes[offset + 1].toInt() and 0xff
+        val c = bytes[offset + 2].toInt() and 0xff
+        // Unspecified, carrier-grade NAT, benchmark, deprecated relay, and reserved blocks.
+        if (a == 0 || a >= 240) return false
+        if (a == 100 && b in 64..127) return false
+        if (a == 198 && b in 18..19) return false
+        if (a == 192 && b == 0) return false
+        if (a == 192 && b == 88 && c == 99) return false
+        if (a == 198 && b == 51 && c == 100) return false
+        if (a == 203 && b == 0 && c == 113) return false
+        return true
+    }
 
     private fun readClamped(conn: HttpURLConnection, max: Int): ByteArray {
         val stream = if (conn.contentEncoding == "gzip") {
@@ -145,7 +209,7 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
         }
     }
 
-    private fun captureCookies(conn: HttpURLConnection) {
+    private fun captureCookies(conn: HttpURLConnection, host: String) {
         // headerField loop: index-based access to also catch multiple Set-Cookie
         var i = 1
         while (true) {
@@ -153,7 +217,7 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
             if (key.equals("Set-Cookie", true)) {
                 val v = conn.getHeaderField(i) ?: break
                 val pair = v.substringBefore(";").split("=", limit = 2)
-                if (pair.size == 2) cookieJar[pair[0].trim()] = pair[1].trim()
+                if (pair.size == 2) cookieJar.getOrPut(host) { mutableMapOf() }[pair[0].trim()] = pair[1].trim()
             }
             i++
         }
