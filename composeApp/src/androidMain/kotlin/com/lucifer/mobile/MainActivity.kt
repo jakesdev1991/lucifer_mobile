@@ -1052,6 +1052,12 @@ class MainActivity : ComponentActivity() {
                 icon = Icons.Filled.Terminal
             ),
             com.lucifer.mobile.ui.components.SkillItem(
+                id = "shizuku_user_service", name = "Shizuku AIDL UserService bridge",
+                description = "Checks the Shizuku Binder/grant/version and reports the actual shell UID 2000 or root UID 0, then invokes Lucifer's bounded AIDL UserService. This build uses a confirmed shell-command path, not direct PackageManager/AppOps Binder wrappers. PMX permission mutations are blocked.",
+                category = "Device access", isEnabled = true, status = "USER-GRANTED · LIMITED",
+                icon = Icons.Filled.Build
+            ),
+            com.lucifer.mobile.ui.components.SkillItem(
                 id = "evm_wallet", name = "EVM wallet manager",
                 description = "Creates EVM addresses, encrypts keys at rest, and checks native-token balances. No recovery phrase/export or transaction sending is implemented; do not fund wallets yet.",
                 category = "Wallet", isEnabled = false, status = "LIMITED",

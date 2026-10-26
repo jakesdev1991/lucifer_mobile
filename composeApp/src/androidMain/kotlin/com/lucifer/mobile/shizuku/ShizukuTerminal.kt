@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ServiceConnection
 import android.os.IBinder
 import com.lucifer.mobile.BuildConfig
+import com.lucifer.mobile.terminal.TerminalCommandPolicy
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +34,9 @@ object ShizukuTerminal {
         val command = rawCommand.trim()
         if (command.isBlank() || command.length > 4_000 || command.contains('\u0000')) {
             return@withContext listOf("[ERROR] Shizuku command is empty or exceeds 4,000 characters.")
+        }
+        TerminalCommandPolicy.refusalReason(command)?.let { reason ->
+            return@withContext listOf("[BLOCKED] $reason")
         }
         val access = ShizukuAccess.status()
         if (!access.ready) {

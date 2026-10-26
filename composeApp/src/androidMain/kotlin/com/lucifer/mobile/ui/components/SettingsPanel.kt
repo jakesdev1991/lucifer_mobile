@@ -142,8 +142,12 @@ fun AnimatedSettingsPanel(
         SettingsCard(title = "SHIZUKU SYSTEM ACCESS", icon = { Icon(Icons.Filled.Build, contentDescription = "Shizuku", tint = Color(0xFF00E5FF), modifier = Modifier.size(24.dp)) }) {
             SystemStatusRow("Shizuku", shizukuStatus, if (shizukuStatus.startsWith("Connected")) Color(0xFF00FF88) else Color(0xFFFFAA00))
             Text(
-                "Start Shizuku yourself with Wireless debugging, then grant Lucifer access in Shizuku. Lucifer uses the granted identity for the SHIZUKU terminal target; it does not grant/revoke permissions in Permission Manager X.",
+                "Shizuku is a user-started Binder broker, not a blanket root grant. Lucifer checks pingBinder(), its Shizuku grant, server version, and UID (ADB shell 2000 vs root 0), then binds its custom AIDL UserService and runs the confirmed command with output/time limits. Lucifer currently uses UserService + sh -c, not ShizukuBinderWrapper direct PackageManager/AppOps calls; ADB-shell abilities vary by Android version and SELinux.",
                 color = Color(0xFFB8AEB8), fontSize = 12.sp
+            )
+            Text(
+                "Start Shizuku yourself through Wireless debugging and grant Lucifer access there. Lucifer will not grant/revoke/change Permission Manager X permissions; recognizable direct PM/AppOps permission mutations targeting PMX are blocked. Shizuku alone does not expose device traffic—network telemetry/filtering needs a separate Android VPN consent flow.",
+                color = Color(0xFFFFCC88), fontSize = 12.sp
             )
             Button(onClick = onShizukuRequest, modifier = Modifier.fillMaxWidth()) { Text("REQUEST / REFRESH SHIZUKU ACCESS") }
             Button(onClick = onOpenShizuku, modifier = Modifier.fillMaxWidth()) { Text("OPEN SHIZUKU SETUP") }
