@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.AtomicFile
 import com.lucifer.mobile.launcher.CommandTarget
 import com.lucifer.mobile.omni_bridge.llm.NemotronClient
+import com.lucifer.mobile.skills.SkillLibrary
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -256,7 +257,11 @@ class WorkflowTaskStore(context: Context) {
 
 /** Model-assisted planning/reflection. It only proposes natural-language steps; MainActivity enforces tool approvals. */
 class WorkflowAgent(context: Context) {
-    private val llm = NemotronClient(context.applicationContext)
+    private val appContext = context.applicationContext
+    private val llm = NemotronClient(appContext)
+    private val skillLibrary = SkillLibrary.load(appContext.assets)
+
+    private fun guidanceFor(query: String): String = skillLibrary.promptContext(query, maxEntries = 2, maxChars = 1_500)
 
     suspend fun plan(blueprint: WorkflowBlueprint, goal: String): WorkflowPlan {
         val user = JSONObject()
@@ -266,8 +271,10 @@ class WorkflowAgent(context: Context) {
             .put("starter_steps", JSONArray().apply {
                 blueprint.steps.forEach { put(JSONObject().put("title", it.title).put("instruction", it.instruction).put("acceptance", it.acceptance)) }
             }).toString()
+        val referenceGuidance = guidanceFor("${blueprint.title} ${blueprint.summary} $goal")
+        val systemPrompt = if (referenceGuidance.isBlank()) PLANNER_PROMPT else "$PLANNER_PROMPT\n\n$referenceGuidance"
         val raw = llm.chat(
-            listOf("system" to PLANNER_PROMPT, "user" to user),
+            listOf("system" to systemPrompt, "user" to user),
             maxTokens = 1_200, temperature = 0.15, requestTimeoutMs = 30_000
         )
         val parsed = parseObject(raw)
@@ -292,9 +299,11 @@ class WorkflowAgent(context: Context) {
                     put(JSONObject().put("title", it.title).put("result", it.result.take(1_000)))
                 }
             }).toString()
+        val referenceGuidance = guidanceFor("${task.goal} ${current.title} ${current.instruction}")
+        val systemPrompt = if (referenceGuidance.isBlank()) REFLECTION_PROMPT else "$REFLECTION_PROMPT\n\n$referenceGuidance"
         val raw = try {
             llm.chat(
-                listOf("system" to REFLECTION_PROMPT, "user" to user),
+                listOf("system" to systemPrompt, "user" to user),
                 maxTokens = 700, temperature = 0.1, requestTimeoutMs = 30_000
             )
         } catch (_: Exception) { "" }

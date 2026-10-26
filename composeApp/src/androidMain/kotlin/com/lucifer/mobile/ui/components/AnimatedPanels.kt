@@ -53,6 +53,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lucifer.mobile.skills.ReferenceSkill
+import com.lucifer.mobile.skills.SkillLibrary
 
 data class MemoryItem(
     val id: String,
@@ -188,13 +190,23 @@ data class SkillItem(
 fun AnimatedSkillsPanel(
     modifier: Modifier = Modifier,
     skills: List<SkillItem> = listOf(),
+    library: SkillLibrary? = null
 ) {
+    var query by remember { mutableStateOf("") }
+    val operationalMatches = skills.filter { skill ->
+        query.isBlank() || listOf(skill.name, skill.description, skill.category, skill.status)
+            .any { it.contains(query, ignoreCase = true) }
+    }
+    val referenceMatches = remember(query, library) {
+        if (library == null) emptyList() else if (query.isBlank()) library.skills else library.search(query, limit = 50)
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
             .background(Color(0xFF0D050D))
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
             text = "SKILLS & CAPABILITIES",
@@ -204,19 +216,89 @@ fun AnimatedSkillsPanel(
             letterSpacing = 1.5.sp
         )
         Text(
-            text = "Operational status only. Limited and experimental integrations are labeled; this list does not enable or disable engines.",
+            text = "Operational status is separate from reference guidance. Guidance entries do not add tools, authorization, or executable capability.",
             fontSize = 11.sp,
             color = Color(0xFF8B7D8B)
         )
+        TextField(
+            value = query,
+            onValueChange = { query = it.take(100) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = "Search skills", tint = Color(0xFF8B7D8B)) },
+            colors = TextFieldDefaults.textFieldColors(
+                containerColor = Color(0xFF1A0A1A),
+                focusedTextColor = Color(0xFFE0E0E0),
+                unfocusedTextColor = Color(0xFFE0E0E0),
+                cursorColor = Color(0xFFFFD700),
+                focusedIndicatorColor = Color(0xFF8B0000),
+                unfocusedIndicatorColor = Color.Transparent,
+                disabledIndicatorColor = Color.Transparent
+            ),
+            placeholder = { Text("Search operational skills and reference guidance…", color = Color(0xFF665566), fontSize = 12.sp) }
+        )
+        Text(
+            text = library?.statusSummary ?: "Reference skill library not loaded",
+            fontSize = 10.sp,
+            color = if (library?.isAvailable == true) Color(0xFF8B7D8B) else Color(0xFFFFAA00)
+        )
         LazyColumn(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
+            modifier = Modifier.weight(1f).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items(skills) { skill ->
-                SkillCard(skill = skill)
+            if (operationalMatches.isNotEmpty()) {
+                item {
+                    Text("IMPLEMENTED / OPERATIONAL REGISTRY", color = Color(0xFFFFD700), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+                items(operationalMatches) { skill -> SkillCard(skill = skill) }
             }
+            if (referenceMatches.isNotEmpty()) {
+                item {
+                    Text("REFERENCE LIBRARY · GUIDANCE ONLY", color = Color(0xFFB99DFF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+                items(referenceMatches) { skill -> ReferenceSkillCard(skill = skill, library = library) }
+            }
+            if (operationalMatches.isEmpty() && referenceMatches.isEmpty()) {
+                item {
+                    Text("No skills match this search.", color = Color(0xFF8B7D8B), modifier = Modifier.padding(vertical = 16.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReferenceSkillCard(skill: ReferenceSkill, library: SkillLibrary?) {
+    var expanded by remember(skill.id) { mutableStateOf(false) }
+    val pack = library?.packFor(skill)
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF171222), contentColor = Color(0xFFE0E0E0)),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, Color(0xFF8066B3).copy(alpha = 0.45f))
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(skill.name, color = Color(0xFFE2D6FF), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text("${pack?.title ?: skill.packId} · ${skill.readiness} · NOT RUNNABLE", color = Color(0xFFB99DFF), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(skill.summary, color = Color(0xFFD0C9D8), fontSize = 12.sp, lineHeight = 18.sp)
+            if (expanded && pack != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Prerequisites", color = Color(0xFFFFD700), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text(pack.prerequisites, color = Color(0xFFCCCCCC), fontSize = 11.sp, lineHeight = 17.sp)
+                Spacer(modifier = Modifier.height(6.dp))
+                Text("Safety boundary", color = Color(0xFFFFD700), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text(pack.safetyBoundary, color = Color(0xFFCCCCCC), fontSize = 11.sp, lineHeight = 17.sp)
+                Spacer(modifier = Modifier.height(6.dp))
+                Text("Verification / evidence", color = Color(0xFFFFD700), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text(pack.verification, color = Color(0xFFCCCCCC), fontSize = 11.sp, lineHeight = 17.sp)
+                if (pack.references.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text("Sources: ${pack.references.joinToString()}", color = Color(0xFF8B7D8B), fontSize = 9.sp, lineHeight = 14.sp)
+                }
+            }
+            Text(if (expanded) "Tap to collapse" else "Tap for prerequisites, boundaries and evidence", color = Color(0xFF8B7D8B), fontSize = 9.sp, modifier = Modifier.padding(top = 8.dp))
         }
     }
 }

@@ -30,6 +30,10 @@ Lucifer Mobile is an Android launcher and assistant with natural-language chat, 
 - Browser URL/DNS checks are not a hardened defense against DNS rebinding. Treat fetched web content as untrusted.
 - See [APP_CAPABILITY_AUDIT.md](APP_CAPABILITY_AUDIT.md) for the broader capability map, risks, and prioritized follow-up list. See [SECURITY.md](SECURITY.md) for credential-handling notes.
 
+## Reference skill library
+
+The Skills tab keeps implemented/partial controls in a separate operational registry and adds a searchable library of 100 reference-only skills across ten packs. Guidance entries show prerequisites, safety boundaries, verification notes, and source links; they are not executable tools and cannot grant authorization. Retrieval is schema-validated and bounded before it can ground assistant/workflow prompts. See [SKILL_LIBRARY.md](SKILL_LIBRARY.md), and validate the checked-in catalog with `python3 scripts/validate_skill_library.py`.
+
 ## Using chat and the terminal
 
 Open **CHAT** from the launcher or type into the launcher bar. The request is understood before routing. Examples:

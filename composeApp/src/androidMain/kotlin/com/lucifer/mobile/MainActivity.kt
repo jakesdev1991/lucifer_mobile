@@ -55,6 +55,7 @@ import com.lucifer.mobile.launcher.CommandTarget
 import com.lucifer.mobile.launcher.NaturalLanguageRouter
 import com.lucifer.mobile.launcher.TerminalAction
 import com.lucifer.mobile.security.SecretStore
+import com.lucifer.mobile.skills.SkillLibrary
 import com.lucifer.mobile.shizuku.ShizukuAccess
 import com.lucifer.mobile.shizuku.ShizukuTerminal
 import rikka.shizuku.Shizuku
@@ -300,6 +301,7 @@ class MainActivity : ComponentActivity() {
                 val llmClient = remember { com.lucifer.mobile.omni_bridge.llm.NemotronClient(this@MainActivity) }
                 var memoryItems by remember { mutableStateOf(loadMemoryItems()) }
                 val skills = remember { buildSkillRegistry() }
+                val referenceSkillLibrary = remember { SkillLibrary.load(this@MainActivity.assets) }
 
                 LaunchedEffect(savedKnowledgeUrl) {
                     if (savedKnowledgeUrl.isNotBlank()) reasoner.updateBaseUrl(savedKnowledgeUrl)
@@ -613,7 +615,8 @@ class MainActivity : ComponentActivity() {
                                 )
                                 2 -> AnimatedSkillsPanel(
                                     modifier = Modifier.fillMaxSize(),
-                                    skills = skills
+                                    skills = skills,
+                                    library = referenceSkillLibrary
                                 )
                                 3 -> AnimatedSettingsPanel(
                                     modifier = Modifier.fillMaxSize(),

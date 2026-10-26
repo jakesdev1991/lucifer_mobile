@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.lucifer.mobile.omni_bridge.equirouter.Horseman
 import com.lucifer.mobile.omni_bridge.llm.NemotronClient
+import com.lucifer.mobile.skills.SkillLibrary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -68,6 +69,7 @@ class FourHorsemenOrchestrator(context: Context? = null) {
     }
 
     private val llm: NemotronClient? = if (context != null) NemotronClient(context) else null
+    private val skillLibrary: SkillLibrary? = context?.let { SkillLibrary.load(it.assets) }
 
     /** Synchronous single-horseman pass (call from Dispatchers.IO). */
     suspend fun execute(input: String, horseman: Horseman): String =
@@ -115,7 +117,9 @@ class FourHorsemenOrchestrator(context: Context? = null) {
 
     private fun systemPromptFor(horseman: Horseman, input: String): String {
         val persona = PERSONAS[horseman] ?: "You are a precise assistant."
-        return if (SYSTEM_ACCESS_TERMS.containsMatchIn(input)) "$persona\n\n$ANDROID_SYSTEMS_CONTEXT" else persona
+        val platformContext = if (SYSTEM_ACCESS_TERMS.containsMatchIn(input)) "\n\n$ANDROID_SYSTEMS_CONTEXT" else ""
+        val referenceContext = skillLibrary?.promptContext(input).orEmpty()
+        return listOf(persona + platformContext, referenceContext).filter(String::isNotBlank).joinToString("\n\n")
     }
 
     // ── offline fallbacks (never silently fake) ──
