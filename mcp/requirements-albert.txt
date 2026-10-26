@@ -1,0 +1,2 @@
+# Optional ALBERT embedding/ranking layer. A compatible CPU PyTorch build must be installed separately.
+transformers==4.57.1

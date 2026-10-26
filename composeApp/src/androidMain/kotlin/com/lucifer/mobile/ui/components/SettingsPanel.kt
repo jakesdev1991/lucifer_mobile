@@ -78,6 +78,12 @@ fun AnimatedSettingsPanel(
     onVoiceToggle: (Boolean) -> Unit = {},
     onKnowledgeSync: () -> Unit = {},
     onKnowledgeUrlSave: (String) -> Unit = {},
+    savedMemoryMcpUrl: String = "",
+    memoryMcpStatus: String = "DISABLED",
+    memoryMcpTokenConfigured: Boolean = false,
+    onMemoryMcpSave: (String, String) -> Unit = { _, _ -> },
+    onMemoryMcpTest: () -> Unit = {},
+    onMemoryMcpRemove: () -> Unit = {},
     voiceEnabled: Boolean = true,
     knowledgeStatus: String = "…",
     corpusInfo: String = "124 files · 54 volumes",
@@ -115,6 +121,8 @@ fun AnimatedSettingsPanel(
     var soulMdText by remember { mutableStateOf("") }
     var vmPasswordText by remember { mutableStateOf("") }
     var knowledgeUrlText by remember { mutableStateOf(savedKnowledgeUrl) }
+    var memoryMcpUrlText by remember { mutableStateOf(savedMemoryMcpUrl) }
+    var memoryMcpTokenText by remember { mutableStateOf("") }
     var vmHostText by remember { mutableStateOf(savedVmHost) }
     var vmUserText by remember { mutableStateOf(savedVmUser) }
     var vmPortText by remember { mutableStateOf(savedVmPort.toString()) }
@@ -519,6 +527,66 @@ fun AnimatedSettingsPanel(
                         contentColor = Color(0xFFFFFFFF)
                     )
                 ) { Text("SAVE URL", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+            }
+        }
+
+        // Read-only local MCP retrieval from the user's private Drive memory file.
+        SettingsCard(title = "DRIVE MEMORY · LOCAL MCP", icon = { Icon(Icons.Filled.Psychology, contentDescription = "Drive memory MCP", tint = Color(0xFFB99DFF), modifier = Modifier.size(24.dp)) }) {
+            Text(
+                "Before sending a prompt to the main model, Lucifer asks the same-device Termux MCP server for a few relevant passages from the private Drive memory. Retrieval is read-only; retrieved text is untrusted context, not policy or permission. If Termux is stopped, the original prompt is sent unchanged.",
+                color = Color(0xFFB8AEB8), fontSize = 12.sp
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            SystemStatusRow("Memory MCP", memoryMcpStatus, when {
+                memoryMcpStatus.startsWith("CONNECTED") -> Color(0xFF00FF88)
+                memoryMcpStatus.startsWith("CONFIGURED") -> Color(0xFFFFAA00)
+                memoryMcpStatus.startsWith("NOT CONNECTED") -> Color(0xFFFF6677)
+                else -> Color(0xFF8B7D8B)
+            })
+            SystemStatusRow("Bearer token", if (memoryMcpTokenConfigured) "ENCRYPTED IN ANDROID KEYSTORE" else "NOT SAVED", if (memoryMcpTokenConfigured) Color(0xFF00FF88) else Color(0xFFFFAA00))
+            TextField(
+                value = memoryMcpUrlText,
+                onValueChange = { memoryMcpUrlText = it.take(160) },
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Uri),
+                colors = TextFieldDefaults.textFieldColors(
+                    containerColor = Color(0xFF0D050D), focusedTextColor = Color(0xFFE0E0E0),
+                    unfocusedTextColor = Color(0xFFE0E0E0), cursorColor = Color(0xFFB99DFF),
+                    focusedIndicatorColor = Color(0xFF8066B3), unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent
+                ),
+                placeholder = { Text("http://127.0.0.1:8031/mcp", color = Color(0xFF443344)) }
+            )
+            TextField(
+                value = memoryMcpTokenText,
+                onValueChange = { memoryMcpTokenText = it.take(256) },
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password),
+                colors = TextFieldDefaults.textFieldColors(
+                    containerColor = Color(0xFF0D050D), focusedTextColor = Color(0xFFE0E0E0),
+                    unfocusedTextColor = Color(0xFFE0E0E0), cursorColor = Color(0xFFB99DFF),
+                    focusedIndicatorColor = Color(0xFF8066B3), unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent
+                ),
+                placeholder = { Text("Paste the Termux bearer token (leave blank to keep saved token)", color = Color(0xFF443344)) }
+            )
+            Text("The endpoint is restricted to localhost / 127.0.0.1 on port 8031. The token is never stored in plaintext by Lucifer.", color = Color(0xFF8B7D8B), fontSize = 10.sp)
+            Button(
+                onClick = onMemoryMcpTest,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF332244), contentColor = Color(0xFFE2D6FF))
+            ) { Text("TEST READ-ONLY MCP CONNECTION") }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { onMemoryMcpSave(memoryMcpUrlText, memoryMcpTokenText); memoryMcpTokenText = "" },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8066B3), contentColor = Color.White)
+                ) { Text("SAVE LOCAL MCP") }
+                Button(
+                    onClick = { onMemoryMcpRemove(); memoryMcpUrlText = ""; memoryMcpTokenText = "" },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF332233), contentColor = Color(0xFFFFAA00))
+                ) { Text("REMOVE") }
             }
         }
 

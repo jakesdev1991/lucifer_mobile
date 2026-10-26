@@ -3,6 +3,7 @@ package com.lucifer.mobile.omni_bridge.llm
 import android.content.Context
 import android.util.Log
 import com.lucifer.mobile.security.SecretStore
+import com.lucifer.mobile.memory.DriveMemoryMcpClient
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -18,6 +19,7 @@ import java.net.URL
  * route is dead he says so honestly instead of pretending.
  */
 class NemotronClient(private val context: Context) {
+    private val driveMemoryMcp = DriveMemoryMcpClient(context.applicationContext)
 
     companion object {
         private const val TAG = "NemotronClient"
@@ -66,12 +68,15 @@ class NemotronClient(private val context: Context) {
             return "[LLM] No NVIDIA API keys configured."
         }
 
+        // Retrieve local-only Drive-memory passages before the prompt is sent to Nemotron.
+        // If the Termux MCP server is unavailable, the user's original messages pass unchanged.
+        val preparedMessages = driveMemoryMcp.augment(messages)
         val models = modelChain()
         var lastErr = "unknown"
         for (m in models) {
             for (key in keys) {
                 try {
-                    val content = call(key, m, messages, maxTokens, temperature, requestTimeoutMs)
+                    val content = call(key, m, preparedMessages, maxTokens, temperature, requestTimeoutMs)
                     persistPreferred(m)
                     return content
                 } catch (e: LlmAuthException) {
@@ -104,10 +109,11 @@ class NemotronClient(private val context: Context) {
         }
         val keys = keyPool()
         if (keys.isEmpty()) return "[LLM] No NVIDIA API keys configured."
+        val preparedMessages = driveMemoryMcp.augment(messages)
         var lastErr = "unknown"
         for (key in keys) {
             try {
-                return call(key, VISION_MODEL, messages, maxTokens, temperature, requestTimeoutMs, imageJpeg)
+                return call(key, VISION_MODEL, preparedMessages, maxTokens, temperature, requestTimeoutMs, imageJpeg)
             } catch (e: LlmAuthException) {
                 lastErr = e.message ?: "auth"
             } catch (e: Exception) {

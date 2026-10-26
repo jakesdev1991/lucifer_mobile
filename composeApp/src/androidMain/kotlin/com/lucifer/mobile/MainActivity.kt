@@ -55,6 +55,7 @@ import com.lucifer.mobile.launcher.CommandTarget
 import com.lucifer.mobile.launcher.NaturalLanguageRouter
 import com.lucifer.mobile.launcher.TerminalAction
 import com.lucifer.mobile.security.SecretStore
+import com.lucifer.mobile.memory.DriveMemoryMcpClient
 import com.lucifer.mobile.skills.SkillLibrary
 import com.lucifer.mobile.shizuku.ShizukuAccess
 import com.lucifer.mobile.shizuku.ShizukuTerminal
@@ -292,6 +293,17 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val savedKnowledgeUrl by remember { mutableStateOf(loadKnowledgeUrl()) }
+                var savedMemoryMcpUrl by remember { mutableStateOf(loadMemoryMcpUrl()) }
+                var memoryMcpTokenConfigured by remember {
+                    mutableStateOf(!SecretStore.read(this@MainActivity, "config/drive_memory_mcp_token.txt").isNullOrBlank())
+                }
+                var memoryMcpStatus by remember {
+                    mutableStateOf(when {
+                        savedMemoryMcpUrl.isBlank() -> "DISABLED"
+                        memoryMcpTokenConfigured -> "CONFIGURED · NOT TESTED"
+                        else -> "TOKEN REQUIRED"
+                    })
+                }
 
                 var llmStatus by remember { mutableStateOf("…") }
                 var savedVmHost by remember { mutableStateOf(loadVmHost()) }
@@ -727,6 +739,47 @@ class MainActivity : ComponentActivity() {
                                         saveKnowledgeUrl(url)
                                         reasoner.updateBaseUrl(url)
                                     },
+                                    savedMemoryMcpUrl = savedMemoryMcpUrl,
+                                    memoryMcpStatus = memoryMcpStatus,
+                                    onMemoryMcpTest = {
+                                        scope.launch(Dispatchers.IO) {
+                                            val status = DriveMemoryMcpClient(this@MainActivity).testConnection()
+                                            withContext(Dispatchers.Main) {
+                                                memoryMcpStatus = if (status.startsWith("No valid") || status.startsWith("MCP check failed") || status.startsWith("MCP URL") || status.startsWith("MCP bearer")) "NOT CONNECTED · $status" else "CONNECTED · READ ONLY"
+                                                settingsToast = status.take(500)
+                                            }
+                                        }
+                                    },
+                                    memoryMcpTokenConfigured = memoryMcpTokenConfigured,
+                                    onMemoryMcpSave = { url, token ->
+                                        val client = DriveMemoryMcpClient(this@MainActivity)
+                                        val normalized = client.validateLoopbackEndpoint(url.trim())
+                                        when {
+                                            url.isBlank() -> settingsToast = "Enter the local Termux MCP URL, or use Remove to disable memory retrieval."
+                                            normalized == null -> settingsToast = "MCP URL must be http://127.0.0.1:8031/mcp or http://localhost:8031/mcp."
+                                            token.isNotBlank() && token.length < 24 -> settingsToast = "MCP token must contain at least 24 characters."
+                                            token.isNotBlank() && !SecretStore.write(this@MainActivity, "config/drive_memory_mcp_token.txt", token.trim()) -> settingsToast = "Could not encrypt the MCP token in Android Keystore storage."
+                                            !token.isNotBlank() && !memoryMcpTokenConfigured -> settingsToast = "Paste the bearer token printed once when the Termux server was configured."
+                                            else -> {
+                                                if (!saveMemoryMcpUrl(normalized)) {
+                                                    settingsToast = "Could not save the MCP endpoint in app-private storage."
+                                                } else {
+                                                    savedMemoryMcpUrl = normalized
+                                                    if (token.isNotBlank()) memoryMcpTokenConfigured = true
+                                                    memoryMcpStatus = "CONFIGURED · NOT TESTED"
+                                                    settingsToast = "Drive-memory retrieval configured for the same-device Termux MCP server. Start Termux; prompts are not sent if it is unavailable."
+                                                }
+                                            }
+                                        }
+                                    },
+                                    onMemoryMcpRemove = {
+                                        saveMemoryMcpUrl("")
+                                        SecretStore.delete(this@MainActivity, "config/drive_memory_mcp_token.txt")
+                                        savedMemoryMcpUrl = ""
+                                        memoryMcpTokenConfigured = false
+                                        memoryMcpStatus = "DISABLED"
+                                        settingsToast = "Drive-memory retrieval disabled and its local bearer token removed."
+                                    },
                                     voiceEnabled = voiceEnabled,
                                     knowledgeStatus = if (reasoner.knowledgeServerAlive()) "EMBEDDED" else "…",
                                     corpusInfo = "54 Lean volumes · axioms · book (in-APK)",
@@ -1101,8 +1154,14 @@ class MainActivity : ComponentActivity() {
                 icon = Icons.Filled.Language
             ),
             com.lucifer.mobile.ui.components.SkillItem(
+                id = "drive_memory_mcp", name = "Private Google Drive memory retrieval (MCP)",
+                description = "Optional pre-prompt retrieval through a token-protected, loopback-only Termux MCP server. Reads the user's private Lucifer_Memory.md through rclone; BM25 is the fallback if the two local ALBERT encoders are unavailable. Retrieved passages are untrusted context, not policy or authorization.",
+                category = "Memory", isEnabled = false, status = "OPTIONAL · USER CONFIGURED",
+                icon = Icons.Filled.Memory
+            ),
+            com.lucifer.mobile.ui.components.SkillItem(
                 id = "memory", name = "Local activity memory",
-                description = "Searches recent app-launch events and terminal history; this is a lightweight log viewer, not semantic long-term memory.",
+                description = "Searches recent app-launch events and terminal history; this is a lightweight local log viewer, separate from optional Drive-backed retrieval.",
                 category = "Memory", isEnabled = true, status = "READY",
                 icon = Icons.Filled.Memory
             ),
@@ -1281,5 +1340,19 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             Log.e("MainActivity", "saveKnowledgeUrl failed", e)
         }
+    }
+
+    private fun loadMemoryMcpUrl(): String = try {
+        File(filesDir, "config/drive_memory_mcp_url.txt").takeIf { it.isFile }?.readText()?.trim().orEmpty()
+    } catch (_: Exception) { "" }
+
+    private fun saveMemoryMcpUrl(url: String): Boolean = try {
+        val configDir = File(filesDir, "config")
+        configDir.mkdirs()
+        File(configDir, "drive_memory_mcp_url.txt").writeText(url.trim(), Charsets.UTF_8)
+        true
+    } catch (error: Exception) {
+        Log.e("MainActivity", "Could not save memory MCP URL", error)
+        false
     }
 }
