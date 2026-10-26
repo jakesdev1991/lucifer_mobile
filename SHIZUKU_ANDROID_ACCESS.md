@@ -26,6 +26,8 @@ Lucifer does **not** currently use `ShizukuBinderWrapper` to call PackageManager
 
 The relevant implementation is in `composeApp/src/androidMain/kotlin/com/lucifer/mobile/shizuku/`, its AIDL is in `composeApp/src/androidMain/aidl/`, and provider/permission declarations are in `AndroidManifest.xml`.
 
+Settings also offers an explicit read-only package inspection using `dumpsys package <validated.package>` and `cmd appops get <validated.package>`. It does not write permission/AppOps state, output is shown in memory only (not persisted or sent to the model), and command errors are surfaced rather than replaced with broader access. This is a point-in-time report, not an audit log. Device/build, process, power, usage-access-for-Lucifer, and active-VPN status are available in the local Pixel/Android diagnostics card; see [PIXEL8A_ANDROID_SYSTEMS.md](PIXEL8A_ANDROID_SYSTEMS.md).
+
 ## What identity means
 
 | Shizuku UID | Practical interpretation | Important limit |

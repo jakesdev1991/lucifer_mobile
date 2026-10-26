@@ -27,7 +27,13 @@ Frame the question and time bounds → gather primary/authoritative sources with
 
 Define audience, routes, and exclusions → stage a static/API starter locally in Termux → keep preview on loopback → exercise success/error paths and responsive layout → inspect files and document run/test/stop steps. This blueprint does not authorize public hosting, payment processing, or external writes.
 
-### 4. Formal verification check
+### 4. Pixel 8a system / permission audit
+
+Open Settings → Pixel / Android Process Diagnostics and record the detected device code and actual runtime build/API (Pixel 8a is `akita`; do not infer the OS from the model) → check Shizuku UID and run the identity test → use the validated package field for read-only `dumpsys package` + `cmd appops get` → refresh process/power/active-VPN diagnostics → summarize evidence and unsupported results. No permission/AppOps writes are allowed; Lucifer must not change Permission Manager X grants. Record only the minimum necessary observations and redact sensitive package/permission details: workflow observations can be sent to the configured NVIDIA model. This workflow reports point-in-time state, not a complete audit history.
+
+Lucifer does not yet implement a VPN packet forwarder. The diagnostics report whether Android has an active VPN but do not route, capture, or filter network traffic. Never start a TUN route without a complete tested forwarder and explicit Android VPN consent; do not propose DeviceConfig/power changes to evade lifecycle limits.
+
+### 5. Formal verification check
 
 Use the dedicated Settings → on-device Lean verification flow to prepare a clean checkout → review exact SHA/toolchain → explicitly confirm the Debian VM job → inspect each build/audit result → report what Lean checks and what it cannot establish. The workflow runner does not launch or monitor that specialized job; perform it in Settings, then paste its visible status/log evidence into the current step's observation field for reflection. A passing formal check applies only to that revision/toolchain, not the app's differently sourced bundled corpus or physical interpretations.
 

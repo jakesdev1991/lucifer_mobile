@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -31,16 +32,24 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.platform.LocalContext
+import com.lucifer.mobile.diagnostics.AndroidPlatformDiagnostics
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -55,6 +64,9 @@ fun AnimatedSettingsPanel(
     onOpenShizuku: () -> Unit = {},
     onOpenPermissionManagerX: () -> Unit = {},
     onShizukuTest: () -> Unit = {},
+    onShizukuAudit: (String) -> Unit = {},
+    shizukuAuditOutput: String = "",
+    shizukuAuditBusy: Boolean = false,
     shizukuStatus: String = "Checking Shizuku…",
     onKaiHealthCheck: () -> Unit = {},
     onVmPasswordSave: (String) -> Unit = {},
@@ -86,6 +98,20 @@ fun AnimatedSettingsPanel(
     onLeanVerificationStop: () -> Unit = {},
     statusMessage: String? = null
 ) {
+    val context = LocalContext.current
+    val diagnosticsScope = rememberCoroutineScope()
+    var androidDiagnosticsText by remember { mutableStateOf("Collecting a local runtime snapshot…") }
+    var androidDiagnosticsBusy by remember { mutableStateOf(true) }
+    LaunchedEffect(context) {
+        androidDiagnosticsBusy = true
+        androidDiagnosticsText = try {
+            withContext(Dispatchers.IO) { AndroidPlatformDiagnostics.snapshot(context) }
+        } catch (error: Exception) {
+            "[ERROR] ${error.message ?: "Runtime diagnostics unavailable."}"
+        }
+        androidDiagnosticsBusy = false
+    }
+    var shizukuPackageText by remember { mutableStateOf("com.mirfatif.permissionmanagerx") }
     var soulMdText by remember { mutableStateOf("") }
     var vmPasswordText by remember { mutableStateOf("") }
     var knowledgeUrlText by remember { mutableStateOf(savedKnowledgeUrl) }
@@ -153,6 +179,73 @@ fun AnimatedSettingsPanel(
             Button(onClick = onOpenShizuku, modifier = Modifier.fillMaxWidth()) { Text("OPEN SHIZUKU SETUP") }
             Button(onClick = onOpenPermissionManagerX, modifier = Modifier.fillMaxWidth()) { Text("OPEN PERMISSION MANAGER X") }
             Button(onClick = onShizukuTest, modifier = Modifier.fillMaxWidth()) { Text("TEST SHIZUKU IDENTITY") }
+            Text(
+                "Read-only package report: dumpsys package plus cmd appops get. Enter one package; results stay in this screen's memory and are not sent to Lucifer's model. AppOps state and Android runtime permission grants are separate.",
+                color = Color(0xFFB8AEB8), fontSize = 12.sp
+            )
+            TextField(
+                value = shizukuPackageText,
+                onValueChange = { value ->
+                    if (value.length <= 255 && value.all { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it == '.' || it == '_' }) {
+                        shizukuPackageText = value
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Text),
+                colors = TextFieldDefaults.textFieldColors(
+                    containerColor = Color(0xFF0D050D),
+                    focusedTextColor = Color(0xFFE0E0E0),
+                    unfocusedTextColor = Color(0xFFE0E0E0),
+                    cursorColor = Color(0xFF00CCFF),
+                    focusedIndicatorColor = Color(0xFF0066AA),
+                    unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent
+                ),
+                placeholder = { Text("com.example.app", color = Color(0xFF443344)) }
+            )
+            Button(
+                onClick = { onShizukuAudit(shizukuPackageText.trim()) },
+                enabled = !shizukuAuditBusy && shizukuStatus.startsWith("Connected") &&
+                    shizukuPackageText.matches(Regex("^[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)+$")),
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (shizukuAuditBusy) "READ-ONLY AUDIT RUNNING…" else "INSPECT PACKAGE PERMISSIONS + APP-OPS") }
+            if (shizukuAuditOutput.isNotBlank()) {
+                Text(
+                    shizukuAuditOutput,
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp).verticalScroll(rememberScrollState()),
+                    color = Color(0xFFD8D1D8), fontFamily = FontFamily.Monospace, fontSize = 10.sp
+                )
+            }
+        }
+
+        SettingsCard(title = "PIXEL / ANDROID PROCESS DIAGNOSTICS", icon = { Icon(Icons.Filled.Info, contentDescription = "Android diagnostics", tint = Color(0xFF00E5FF), modifier = Modifier.size(24.dp)) }) {
+            Text(
+                "Local, read-only runtime snapshot for Pixel 8a (akita) or the detected Android device. Reports the actual build/API, power and process state, Usage Access status for Lucifer, and whether a system VPN is active. It does not inspect other-app usage history or capture traffic.",
+                color = Color(0xFFB8AEB8), fontSize = 12.sp
+            )
+            Button(
+                onClick = {
+                    diagnosticsScope.launch {
+                        androidDiagnosticsBusy = true
+                        androidDiagnosticsText = try {
+                            withContext(Dispatchers.IO) { AndroidPlatformDiagnostics.snapshot(context) }
+                        } catch (error: Exception) {
+                            "[ERROR] ${error.message ?: "Runtime diagnostics unavailable."}"
+                        }
+                        androidDiagnosticsBusy = false
+                    }
+                },
+                enabled = !androidDiagnosticsBusy,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (androidDiagnosticsBusy) "REFRESHING DEVICE STATUS…" else "REFRESH DEVICE / PROCESS STATUS")
+            }
+            Text(
+                androidDiagnosticsText,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).verticalScroll(rememberScrollState()),
+                color = Color(0xFFD8D1D8), fontFamily = FontFamily.Monospace, fontSize = 10.sp
+            )
         }
 
         // VM SSH Password

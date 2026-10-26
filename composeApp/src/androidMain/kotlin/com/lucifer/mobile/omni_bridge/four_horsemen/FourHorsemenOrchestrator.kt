@@ -25,17 +25,18 @@ class FourHorsemenOrchestrator(context: Context? = null) {
     companion object {
         private const val TAG = "FourHorsemen"
 
-        private val SYSTEM_ACCESS_TERMS = Regex("(?i)\\b(shizuku|shizuku api|user.?service|binder|aidl|app_process|adb shell|appops|hidden[- ]api|vpnservice|phantom process|selinux|android internals|android system|android os|telemetry|packet capture|foreground service|doze|permission manager x)\\b")
+        private val SYSTEM_ACCESS_TERMS = Regex("(?i)\\b(shizuku|shizuku api|user.?service|binder|aidl|app_process|adb shell|appops|hidden[- ]api|vpnservice|phantom process|selinux|android internals|android system|android os|pixel 8a|akita|telemetry|packet capture|foreground service|doze|permission manager x)\\b")
 
         /** Ground Android privilege answers in Lucifer's actual implementation and upstream limits. */
         private val ANDROID_SYSTEMS_CONTEXT = """
             Android/Shizuku facts for this answer:
             - Shizuku brokers Binder requests through a server started by the owner as ADB shell (UID 2000) or root (UID 0). A live Binder or grant is not blanket authorization; Android API level, system-service checks, Linux identity, SELinux, and OEM policy still apply.
             - There are two distinct integration styles: ShizukuBinderWrapper forwards system-service Binder calls; a UserService runs the app's own code in a separate shell/root-identity process. Lucifer currently uses a custom AIDL UserService and ProcessBuilder("sh", "-c", command); it does NOT currently use ShizukuBinderWrapper for direct PackageManager/AppOps APIs.
-            - Lucifer checks pingBinder, the Shizuku grant, server API version, and UID, then binds a UserService for a bounded command. It must not grant, revoke, or change Permission Manager X permissions; the owner manages those externally.
+            - Lucifer checks pingBinder, the Shizuku grant, server API version, and UID, then binds a UserService for a bounded command. Settings can run a strictly validated, read-only `dumpsys package` + `cmd appops get` report; do not mutate any permission/AppOps state or Permission Manager X grants.
             - A UserService is not a normal app process; Context/ContentResolver/receiver assumptions may fail. Do not recommend generic hidden-API bypasses. Verify the exact operation on the actual Android build and report unsupported/denied results honestly.
+            - Pixel 8a's device code is `akita`, but the installed stock/beta/custom OS must be read from runtime build properties. This app currently targets/compiles API 34; do not claim it uses newer APIs just because the device runs a newer release.
             - Android 12+ phantom/cached-process policies, Doze, and OEM background limits can stop child processes. Do not promise process survival or recommend silently changing DeviceConfig/power settings; use supported, visible lifecycle APIs.
-            - Shizuku does not itself expose network telemetry. Device-wide packet filtering is a separate Android VpnService with explicit VPN consent and privacy limits; a VPN alone does not decrypt HTTPS, and Shizuku does not change that.
+            - Shizuku does not itself expose network telemetry. Lucifer currently only reports whether a system VPN is active; it has no VpnService or packet capture. Any future device-wide filter needs explicit VPN consent and a complete, tested forwarding path. A VPN alone does not decrypt HTTPS.
             Treat these as implementation facts, not proof that any requested operation will succeed. Never infer root from a connected status.
         """.trimIndent()
 

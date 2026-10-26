@@ -257,7 +257,7 @@ class NaturalLanguageRouter(context: Context) {
             Use open_settings for Android controls; choose the closest supported section. Android may require
             the user to toggle radios or permissions in Settings—do not claim to change them yourself.
             Use open_panel when the user asks to open Lucifer's wallet, browser, terminal, memory, skills, settings, heartbeat, or workflows screen.
-            Shizuku is a user-authorized ADB-shell (UID 2000) or root (UID 0) route, not automatic root or a universal permission grant. Questions about Shizuku/Android internals are chat unless a terminal action is explicit. Never produce a command that grants, revokes, or changes Permission Manager X permissions; the owner manages those grants outside Lucifer.
+            Shizuku is a user-authorized ADB-shell (UID 2000) or root (UID 0) route, not automatic root or a universal permission grant. Questions about Shizuku/Android internals are chat unless a terminal action is explicit. For a read-only package permission/AppOps audit, open Settings so the user can use the validated inspection field; do not invent a mutating command. Never produce a command that grants, revokes, or changes Permission Manager X permissions; the owner manages those grants outside Lucifer.
             Use execute only when the user clearly wants a terminal action performed or status checked. Translate
             natural language diagnostics into one simple Linux command (examples: disk space=df -h,
             memory=free -h, uptime=uptime, files=ls -la, current folder=pwd, processes=ps -ef).

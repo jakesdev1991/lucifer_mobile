@@ -124,6 +124,8 @@ class MainActivity : ComponentActivity() {
                 var leanVerificationCommit by remember { mutableStateOf<String?>(null) }
                 var leanVerificationToolchain by remember { mutableStateOf<String?>(null) }
                 var shizukuStatus by remember { mutableStateOf(ShizukuAccess.status()) }
+                var shizukuAuditOutput by remember { mutableStateOf("") }
+                var shizukuAuditBusy by remember { mutableStateOf(false) }
 
                 fun runLeanVerification(operation: suspend () -> Lean4VerificationRunner.Snapshot) {
                     if (leanVerificationBusy) return
@@ -638,6 +640,26 @@ class MainActivity : ComponentActivity() {
                                             withContext(Dispatchers.Main) { settingsToast = result.joinToString(" ").take(300) }
                                         }
                                     },
+                                    onShizukuAudit = { packageName ->
+                                        if (!shizukuAuditBusy) {
+                                            shizukuAuditBusy = true
+                                            shizukuAuditOutput = "Running read-only package and AppOps inspection…"
+                                            scope.launch(Dispatchers.IO) {
+                                                val result = try {
+                                                    ShizukuTerminal.inspectPackageReadOnly(this@MainActivity, packageName)
+                                                } catch (e: Exception) {
+                                                    listOf("[ERROR] ${e.message ?: "Read-only package inspection failed."}")
+                                                }
+                                                withContext(Dispatchers.Main) {
+                                                    shizukuAuditOutput = result.joinToString("\n").take(12_000)
+                                                    shizukuAuditBusy = false
+                                                    settingsToast = "Read-only audit finished for $packageName; results remain local to this screen."
+                                                }
+                                            }
+                                        }
+                                    },
+                                    shizukuAuditOutput = shizukuAuditOutput,
+                                    shizukuAuditBusy = shizukuAuditBusy,
                                     onKaiHealthCheck = {
                                         scope.launch(Dispatchers.IO) {
                                             val connected = KaiBridge(this@MainActivity).connect()
@@ -1053,8 +1075,14 @@ class MainActivity : ComponentActivity() {
             ),
             com.lucifer.mobile.ui.components.SkillItem(
                 id = "shizuku_user_service", name = "Shizuku AIDL UserService bridge",
-                description = "Checks the Shizuku Binder/grant/version and reports the actual shell UID 2000 or root UID 0, then invokes Lucifer's bounded AIDL UserService. This build uses a confirmed shell-command path, not direct PackageManager/AppOps Binder wrappers. PMX permission mutations are blocked.",
+                description = "Checks Shizuku Binder/grant/version and UID, supports bounded terminal actions plus a validated read-only package/AppOps report, and blocks recognizable PMX permission mutations. It uses UserService shell execution, not direct PackageManager/AppOps Binder wrappers.",
                 category = "Device access", isEnabled = true, status = "USER-GRANTED · LIMITED",
+                icon = Icons.Filled.Build
+            ),
+            com.lucifer.mobile.ui.components.SkillItem(
+                id = "pixel_android_diagnostics", name = "Pixel 8a / Android process diagnostics",
+                description = "Locally reports runtime build/API, process/power state, Usage Access for Lucifer, and active VPN status. Detects Pixel 8a by akita/model; does not capture traffic or promise process survival.",
+                category = "Device access", isEnabled = true, status = "LOCAL · READ ONLY",
                 icon = Icons.Filled.Build
             ),
             com.lucifer.mobile.ui.components.SkillItem(

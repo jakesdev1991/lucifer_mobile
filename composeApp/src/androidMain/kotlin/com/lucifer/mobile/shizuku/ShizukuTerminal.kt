@@ -30,6 +30,28 @@ object ShizukuTerminal {
         .debuggable(BuildConfig.DEBUG)
         .version(BuildConfig.VERSION_CODE)
 
+    private val PACKAGE_NAME_PATTERN = Regex("^[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)+$")
+
+    /** Explicit, read-only package state inspection; package input is strictly validated. */
+    suspend fun inspectPackageReadOnly(context: Context, rawPackageName: String): List<String> = withContext(Dispatchers.IO) {
+        val packageName = rawPackageName.trim()
+        if (packageName.length > 255 || !PACKAGE_NAME_PATTERN.matches(packageName)) {
+            return@withContext listOf("[ERROR] Enter a valid Android package name (for example, com.example.app).")
+        }
+        val status = ShizukuAccess.status()
+        if (!status.ready) return@withContext listOf("[SETUP] ${status.message}. Start Shizuku and grant Lucifer access first.")
+
+        val packageState = execute(context, "dumpsys package $packageName")
+        val appOpsState = execute(context, "cmd appops get $packageName")
+        buildList {
+            add("[READ-ONLY] dumpsys package $packageName")
+            addAll(packageState.take(90))
+            add("[READ-ONLY] cmd appops get $packageName")
+            addAll(appOpsState.take(90))
+            add("[INFO] Read-only result is held in Settings memory only; no permission/AppOps changes were made.")
+        }.take(190)
+    }
+
     suspend fun execute(context: Context, rawCommand: String): List<String> = withContext(Dispatchers.IO) {
         val command = rawCommand.trim()
         if (command.isBlank() || command.length > 4_000 || command.contains('\u0000')) {
