@@ -10,6 +10,7 @@ Lucifer Mobile is an Android launcher and assistant with natural-language chat, 
 - **Wallet panel:** create EVM addresses, list/copy addresses, and query native-token balances on Ethereum, Arbitrum, Optimism, Base, or Polygon. Private-key material is stored encrypted with Android Keystore-backed AES-GCM. Legacy raw-hash signing requests are rejected; there is no configured spending policy or transaction-send flow.
 - **Read-only browser panel:** fetch HTTPS pages and extract text. It does not execute JavaScript, click, type, sign in, submit forms, or purchase; local/private/reserved hosts are rejected as defense-in-depth.
 - **Memory and skills panels:** search recent local app/terminal logs and inspect an honest capability/limitation catalog.
+- **Workflow blueprints and runner (implemented, not yet compiled/device-tested):** choose a software-change, research, local-site, or formal-verification recipe; Lucifer plans, runs one user-started terminal/chat step or accepts a user-entered observation from another panel, reflects, and proposes at most one next step. The task target is fixed, non-read-only terminal commands still use the existing exact-command confirmation, and completion requires a separate user action. There is no background workflow loop. Task goals and observations may be sent to the configured NVIDIA model; saved task text is in app-private storage but is not encrypted. Common token/password patterns are redacted from captured output, not every possible secret format. See [WORKFLOW_BLUEPRINTS.md](WORKFLOW_BLUEPRINTS.md).
 - **Credential storage:** user-provided NVIDIA and VM secrets are stored encrypted, not embedded in the current source.
 
 ### Important limitations
@@ -34,7 +35,7 @@ Open **CHAT** from the launcher or type into the launcher bar. The request is un
 - “Show disk space on my VM”
 - “List files in Termux”
 - “Open Chrome”
-- “Open wallet” or “Open the browser panel”
+- “Open wallet,” “Open the browser panel,” or “Open workflows”
 - “Open Bluetooth settings” (Android will ask you to make protected changes there)
 - “What is entropy?”
 - “Run `git status` on the VM”
@@ -62,8 +63,9 @@ composeApp/
   build.gradle.kts                    # Android application plugin/source configuration
   src/androidMain/AndroidManifest.xml
   src/androidMain/kotlin/com/lucifer/mobile/
-    MainActivity.kt                   # Terminal, memory, skills, settings, wallet, browser, heartbeat tabs
+    MainActivity.kt                   # Terminal, memory, skills, settings, wallet, browser, heartbeat, workflow tabs
     launcher/                         # Home launcher, chat, natural-language routing, voice
+    workflows/                        # Bounded workflow plans, task persistence, and state transitions
     terminal/                         # Local, Termux PTY/overlay, VM, and Shizuku execution
     data/wallet/                      # Native EVM wallet and encrypted persistence
     data/browser/                     # Read-only HTTPS fetch/extract

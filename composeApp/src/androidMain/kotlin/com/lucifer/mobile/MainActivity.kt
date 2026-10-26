@@ -66,6 +66,15 @@ import com.lucifer.mobile.ui.components.AnimatedTerminal
 import com.lucifer.mobile.ui.components.BrowserControlPanel
 import com.lucifer.mobile.ui.components.HeartbeatControlPanel
 import com.lucifer.mobile.ui.components.WalletControlPanel
+import com.lucifer.mobile.ui.components.WorkflowControlPanel
+import com.lucifer.mobile.workflows.WorkflowAgent
+import com.lucifer.mobile.workflows.WorkflowBlueprints
+import com.lucifer.mobile.workflows.WorkflowReflection
+import com.lucifer.mobile.workflows.WorkflowStepStatus
+import com.lucifer.mobile.workflows.WorkflowTask
+import com.lucifer.mobile.workflows.WorkflowTaskStatus
+import com.lucifer.mobile.workflows.WorkflowTaskStore
+import com.lucifer.mobile.workflows.WorkflowTransitions
 import com.lucifer.mobile.ui.components.TabItem
 import com.lucifer.mobile.ui.theme.LuciferColors
 import com.lucifer.mobile.ui.theme.LuciferTheme
@@ -94,6 +103,16 @@ class MainActivity : ComponentActivity() {
                 val terminalExecutor = remember { TerminalExecutor(this@MainActivity) }
                 val router = remember { NaturalLanguageRouter(this@MainActivity) }
                 val reasoner = remember { ToEReasoningEngine(this@MainActivity) }
+                val workflowStore = remember { WorkflowTaskStore(this@MainActivity) }
+                val workflowAgent = remember { WorkflowAgent(this@MainActivity) }
+                val workflowLoad = remember { runCatching { workflowStore.load() } }
+                val recoveredWorkflowTasks = remember { workflowLoad.map(workflowStore::recoverInterrupted) }
+                var workflowTasks by remember { mutableStateOf(recoveredWorkflowTasks.getOrDefault(emptyList())) }
+                var selectedWorkflowTaskId by remember { mutableStateOf(workflowTasks.lastOrNull()?.id) }
+                var workflowBusy by remember { mutableStateOf(false) }
+                var workflowStoreHealthy by remember { mutableStateOf(workflowLoad.isSuccess) }
+                var workflowMessage by remember { mutableStateOf(workflowLoad.exceptionOrNull()?.message ?: "One step at a time; review output before continuing.") }
+                var pendingWorkflowStep by remember { mutableStateOf<Pair<String, String>?>(null) }
                 var pendingTerminalAction by remember { mutableStateOf<TerminalAction?>(null) }
                 var voiceEnabled by remember { mutableStateOf(loadVoiceEnabled()) }
                 var settingsToast by remember { mutableStateOf<String?>(null) }
@@ -123,6 +142,87 @@ class MainActivity : ComponentActivity() {
                         if (result.commit != null) leanVerificationCommit = result.commit
                         if (result.toolchain != null) leanVerificationToolchain = result.toolchain
                         leanVerificationBusy = false
+                    }
+                }
+
+                fun saveWorkflowTasks(updated: List<WorkflowTask>) {
+                    if (!workflowStoreHealthy) return
+                    try {
+                        workflowStore.save(updated)
+                        workflowTasks = updated
+                        if (selectedWorkflowTaskId == null || updated.none { it.id == selectedWorkflowTaskId }) {
+                            selectedWorkflowTaskId = updated.lastOrNull()?.id
+                        }
+                    } catch (e: Exception) {
+                        workflowStoreHealthy = false
+                        workflowMessage = "Workflow storage failed; changes are disabled to avoid overwriting data. ${e.message ?: "Storage error"}"
+                    }
+                }
+
+                fun updateWorkflowTask(taskId: String, transform: (WorkflowTask) -> WorkflowTask) {
+                    val updated = workflowTasks.map { task -> if (task.id == taskId) transform(task) else task }
+                    if (updated != workflowTasks) saveWorkflowTasks(updated)
+                }
+
+                fun createWorkflowTask(blueprintId: String, goal: String, target: CommandTarget) {
+                    if (workflowBusy || !workflowStoreHealthy || workflowTasks.size >= WorkflowTaskStore.MAX_TASKS) return
+                    val blueprint = WorkflowBlueprints.get(blueprintId) ?: return
+                    workflowBusy = true
+                    workflowMessage = "Planning the task. The goal is sent to the configured model when available."
+                    scope.launch(Dispatchers.IO) {
+                        val plan = try {
+                            workflowAgent.plan(blueprint, goal)
+                        } catch (_: Exception) {
+                            com.lucifer.mobile.workflows.WorkflowPlan(
+                                "Using the static blueprint because model planning failed.", blueprint.steps, "TEMPLATE"
+                            )
+                        }
+                        val task = try { workflowStore.newTask(blueprint, goal, target, plan) } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                workflowBusy = false
+                                workflowMessage = "Could not create workflow: ${e.message ?: "invalid plan"}"
+                            }
+                            return@launch
+                        }
+                        withContext(Dispatchers.Main) {
+                            saveWorkflowTasks((workflowTasks + task).takeLast(WorkflowTaskStore.MAX_TASKS))
+                            if (workflowStoreHealthy) {
+                                selectedWorkflowTaskId = task.id
+                                workflowMessage = "${plan.source} plan created. Run one step, inspect the result, then reflect before continuing."
+                            } else {
+                                workflowMessage = "Task could not be saved; storage is now read-only to protect existing workflow data."
+                            }
+                            workflowBusy = false
+                        }
+                    }
+                }
+
+                fun reflectWorkflowTask(taskId: String) {
+                    if (workflowBusy || !workflowStoreHealthy) return
+                    val task = workflowTasks.firstOrNull { it.id == taskId } ?: return
+                    if (task.status != WorkflowTaskStatus.REVIEW || task.currentStep?.status != WorkflowStepStatus.REVIEW) return
+                    workflowBusy = true
+                    workflowMessage = "Reviewing the recorded step output. This sends bounded task evidence to the configured model."
+                    scope.launch(Dispatchers.IO) {
+                        val reflection = try {
+                            workflowAgent.reflect(task)
+                        } catch (_: Exception) {
+                            WorkflowReflection(
+                                "Model reflection failed; inspect the result and retry or use the template fallback.",
+                                null, false, "ERROR"
+                            )
+                        }
+                        withContext(Dispatchers.Main) {
+                            if (reflection.source == "ERROR") {
+                                workflowMessage = reflection.assessment
+                            } else {
+                                updateWorkflowTask(taskId) { WorkflowTransitions.applyReflection(it, reflection) }
+                                workflowMessage = if (workflowStoreHealthy) {
+                                    "${reflection.source} review ready. Lucifer has not marked the task complete."
+                                } else "Review could not be saved; workflow actions are disabled to protect existing data."
+                            }
+                            workflowBusy = false
+                        }
                     }
                 }
 
@@ -221,6 +321,8 @@ class MainActivity : ComponentActivity() {
 
                 fun runTerminalAction(action: TerminalAction) {
                     pendingTerminalAction = null
+                    val workflowRef = pendingWorkflowStep
+                    pendingWorkflowStep = null
                     isProcessing = true
                     scope.launch(Dispatchers.IO) {
                         val result = try {
@@ -230,13 +332,93 @@ class MainActivity : ComponentActivity() {
                         }
                         withContext(Dispatchers.Main) {
                             appendTerminalLines(listOf("${action.target.displayName} · ${terminalExecutor.destinationDetails(action.target.launcherIndex)} · ${action.command}") + result)
+                            if (workflowRef != null) {
+                                updateWorkflowTask(workflowRef.first) {
+                                    WorkflowTransitions.recordOutcome(it, workflowRef.second, result.joinToString("\n"), executed = true)
+                                }
+                                workflowMessage = if (workflowStoreHealthy) {
+                                    "Step output recorded. Review it and request a reflection before continuing."
+                                } else "Command finished, but its result could not be saved; workflow actions are disabled. Check the terminal output."
+                            }
                             isProcessing = false
+                        }
+                    }
+                }
+
+                fun runWorkflowStep(taskId: String, stepId: String, instruction: String) {
+                    if (workflowBusy || isProcessing || pendingTerminalAction != null || !workflowStoreHealthy) return
+                    val task = workflowTasks.firstOrNull { it.id == taskId } ?: return
+                    if (task.status == WorkflowTaskStatus.PAUSED || task.status == WorkflowTaskStatus.COMPLETE) return
+                    val active = WorkflowTransitions.activate(task, stepId)
+                    if (active == task) return
+                    updateWorkflowTask(taskId) { active }
+                    if (!workflowStoreHealthy) return
+                    workflowBusy = true
+                    workflowMessage = "Routing one step to ${task.target.displayName}. Any non-read-only terminal action will wait for confirmation."
+                    scope.launch(Dispatchers.IO) {
+                        val route = try {
+                            router.understand(instruction, task.target, installedAppNames = installedAppNames())
+                        } catch (_: Exception) {
+                            ChatRoute.Clarify("I could not route this workflow step. Add context and retry; nothing was executed.")
+                        }
+                        when (route) {
+                            ChatRoute.Conversation -> {
+                                val answer = try { reasoner.reason(instruction) } catch (e: Exception) {
+                                    "[WORKFLOW ERROR] ${e.message ?: "Could not reason about this step."}"
+                                }
+                                withContext(Dispatchers.Main) {
+                                    updateWorkflowTask(taskId) { WorkflowTransitions.recordOutcome(it, stepId, answer, executed = true) }
+                                    workflowBusy = false
+                                    workflowMessage = if (workflowStoreHealthy) {
+                                        "Step result recorded. Inspect it, then request a reflection before continuing."
+                                    } else "Step result could not be saved; workflow actions are disabled."
+                                }
+                            }
+                            is ChatRoute.Execute -> withContext(Dispatchers.Main) {
+                                val action = route.action
+                                if (action.target != task.target) {
+                                    updateWorkflowTask(taskId) {
+                                        WorkflowTransitions.recordOutcome(it, stepId, "Blocked: router selected ${action.target.displayName}, but this workflow is locked to ${task.target.displayName}. No command ran.", executed = false)
+                                    }
+                                    workflowBusy = false
+                                    workflowMessage = "Blocked a target change; no terminal command ran. Edit the task plan or create a task for the intended target."
+                                } else {
+                                    pendingWorkflowStep = taskId to stepId
+                                    workflowBusy = false
+                                    if (action.requiresConfirmation) {
+                                        pendingTerminalAction = action
+                                        appendTerminalLines(listOf("[WORKFLOW CONFIRM] ${action.explanation}", "[${action.target.displayName}] ${action.command}", "This action came from one workflow step. Review the exact target and command."))
+                                    } else {
+                                        runTerminalAction(action)
+                                    }
+                                }
+                            }
+                            is ChatRoute.Clarify -> withContext(Dispatchers.Main) {
+                                updateWorkflowTask(taskId) { WorkflowTransitions.recordOutcome(it, stepId, "Needs clarification: ${route.question}", executed = false) }
+                                workflowBusy = false
+                                workflowMessage = "Nothing ran. Add the missing context to the step and retry."
+                            }
+                            else -> withContext(Dispatchers.Main) {
+                                updateWorkflowTask(taskId) {
+                                    WorkflowTransitions.recordOutcome(it, stepId, "This step resolved to a panel/app/settings action, which the workflow runner does not launch. Use the corresponding Lucifer UI, then add its observed result and retry/review.", executed = false)
+                                }
+                                workflowBusy = false
+                                workflowMessage = "Workflow steps can route to chat or a terminal command only; other controls remain manual."
+                            }
                         }
                     }
                 }
 
                 fun cancelPendingTerminalAction() {
                     pendingTerminalAction = null
+                    val workflowRef = pendingWorkflowStep
+                    pendingWorkflowStep = null
+                    if (workflowRef != null) {
+                        updateWorkflowTask(workflowRef.first) {
+                            WorkflowTransitions.recordOutcome(it, workflowRef.second, "User cancelled confirmation; command was not run.", executed = false)
+                        }
+                        workflowMessage = "Cancelled before execution. No terminal command was run."
+                    }
                     appendTerminalLines(listOf("[CANCELLED] Command was not run."))
                 }
 
@@ -302,7 +484,8 @@ class MainActivity : ComponentActivity() {
                                     TabItem("Settings", Icons.Filled.Settings),
                                     TabItem("Wallet", Icons.Filled.AccountBalanceWallet),
                                     TabItem("Browser", Icons.Filled.Language),
-                                    TabItem("Heartbeat", Icons.Filled.Psychology)
+                                    TabItem("Heartbeat", Icons.Filled.Psychology),
+                                    TabItem("Work", Icons.Filled.Build)
                                 )
                             )
 
@@ -389,6 +572,7 @@ class MainActivity : ComponentActivity() {
                                                             "wallet" -> 4
                                                             "browser" -> 5
                                                             "heartbeat" -> 6
+                                                            "workflow", "workflows" -> 7
                                                             else -> 0
                                                         }
                                                         appendTerminalLines(listOf("[PANEL] Opening Lucifer's ${route.panel} panel."))
@@ -557,6 +741,42 @@ class MainActivity : ComponentActivity() {
                                     onStart = { requestHeartbeatStart() },
                                     onStop = { stopHeartbeat() },
                                     onEnableCamera = { requestHeartbeatCamera() }
+                                )
+                                7 -> WorkflowControlPanel(
+                                    modifier = Modifier.fillMaxSize(),
+                                    tasks = workflowTasks,
+                                    selectedTaskId = selectedWorkflowTaskId,
+                                    busy = workflowBusy || isProcessing || pendingTerminalAction != null || !workflowStoreHealthy,
+                                    statusMessage = workflowMessage,
+                                    onSelectTask = { selectedWorkflowTaskId = it },
+                                    onCreateTask = { blueprintId, goal, target -> createWorkflowTask(blueprintId, goal, target) },
+                                    onRunStep = { taskId, stepId, instruction -> runWorkflowStep(taskId, stepId, instruction) },
+                                    onRecordObservation = { taskId, stepId, observation ->
+                                        updateWorkflowTask(taskId) { WorkflowTransitions.recordObservation(it, stepId, observation) }
+                                        workflowMessage = if (workflowStoreHealthy) "User observation recorded. Reflect on the updated evidence before continuing."
+                                        else "Observation could not be saved; workflow actions are disabled."
+                                    },
+                                    onReflect = { reflectWorkflowTask(it) },
+                                    onAcceptReview = { taskId ->
+                                        updateWorkflowTask(taskId) { WorkflowTransitions.acceptReview(it) }
+                                        workflowMessage = "Review accepted. Inspect the next suggested step, or explicitly complete the task."
+                                    },
+                                    onRetryStep = { taskId, stepId ->
+                                        updateWorkflowTask(taskId) { WorkflowTransitions.retry(it, stepId) }
+                                        workflowMessage = "Step reset for another user-started attempt."
+                                    },
+                                    onPauseResume = { taskId ->
+                                        updateWorkflowTask(taskId) { WorkflowTransitions.pauseResume(it) }
+                                        workflowMessage = "Workflow state updated. No background work is running."
+                                    },
+                                    onComplete = { taskId ->
+                                        updateWorkflowTask(taskId) { WorkflowTransitions.complete(it) }
+                                        workflowMessage = "Task completion recorded after user review."
+                                    },
+                                    onDelete = { taskId ->
+                                        saveWorkflowTasks(workflowTasks.filterNot { it.id == taskId })
+                                        workflowMessage = "Workflow task deleted from local app storage."
+                                    }
                                 )
                             }
                         }
@@ -806,6 +1026,12 @@ class MainActivity : ComponentActivity() {
                 description = "Understands requests before routing to chat, shell, apps, or Android Settings; non-read-only shell commands require confirmation.",
                 category = "Control", isEnabled = true, status = "READY",
                 icon = Icons.Filled.Psychology
+            ),
+            com.lucifer.mobile.ui.components.SkillItem(
+                id = "workflow_runner", name = "User-led iterative workflows",
+                description = "Four reusable blueprints with bounded persisted plans, user-started terminal/chat steps, manual observations, model reflection, pause/retry, and explicit completion. No background loop; only terminal/chat actions are routed here. Source is implemented but not yet compiled or device-tested.",
+                category = "Automation", isEnabled = true, status = "USER-LED · UNVALIDATED",
+                icon = Icons.Filled.Build
             ),
             com.lucifer.mobile.ui.components.SkillItem(
                 id = "app_control", name = "Installed-app launcher",

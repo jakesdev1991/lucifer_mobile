@@ -166,6 +166,7 @@ class LauncherActivity : ComponentActivity() {
             "settings" -> 3
             "wallet" -> 4
             "browser" -> 5
+            "workflows", "workflow" -> 7
             else -> return false
         }
         val intent = Intent().setClassName(packageName, "com.lucifer.mobile.MainActivity")
