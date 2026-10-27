@@ -75,6 +75,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lucifer.mobile.omni_bridge.four_horsemen.FourHorsemenOrchestrator
+import com.lucifer.mobile.memory.LocalConversationMemory
 import com.lucifer.mobile.omni_bridge.knowledge.ToEReasoningEngine
 import com.lucifer.mobile.terminal.TerminalExecutor
 import com.lucifer.mobile.ui.theme.LuciferColors
@@ -166,6 +167,7 @@ class LauncherActivity : ComponentActivity() {
             "settings" -> 3
             "wallet" -> 4
             "browser" -> 5
+            "workflows", "workflow" -> 7
             else -> return false
         }
         val intent = Intent().setClassName(packageName, "com.lucifer.mobile.MainActivity")
@@ -258,6 +260,7 @@ class LauncherActivity : ComponentActivity() {
         val scope = rememberCoroutineScope()
         val executor = remember { TerminalExecutor(this@LauncherActivity) }
         val router = remember { NaturalLanguageRouter(this@LauncherActivity) }
+        val localMemory = remember { LocalConversationMemory(this@LauncherActivity) }
         val kb = LocalSoftwareKeyboardController.current
         var pendingAction by remember { mutableStateOf<TerminalAction?>(null) }
 
@@ -270,6 +273,11 @@ class LauncherActivity : ComponentActivity() {
                 } catch (e: Exception) {
                     listOf("[ERROR] ${e.message ?: "Command failed"}")
                 }
+                localMemory.rememberFinding(
+                    "${action.target.displayName} command result: ${action.command.take(120)}",
+                    output.joinToString("\n").take(1_800),
+                    importance = 70
+                )
                 withContext(Dispatchers.Main) {
                     val transcript = "${action.target.displayName} · ${executor.destinationDetails(action.target.launcherIndex)} · ${action.command}\n${output.joinToString("\n")}".take(4_000)
                     chatMessages = chatMessages + ChatMessage(transcript, true)
@@ -297,6 +305,7 @@ class LauncherActivity : ComponentActivity() {
                 when (route) {
                     ChatRoute.Conversation -> {
                         val answer = try { reasoner.reason(text) } catch (e: Exception) { "I couldn't complete that reply: ${e.message}" }
+                        localMemory.rememberExchange(text, answer)
                         withContext(Dispatchers.Main) {
                             chatMessages = chatMessages + ChatMessage(answer, true)
                             chatThinking = false

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Wifi
@@ -31,16 +33,24 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.platform.LocalContext
+import com.lucifer.mobile.diagnostics.AndroidPlatformDiagnostics
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -55,6 +65,9 @@ fun AnimatedSettingsPanel(
     onOpenShizuku: () -> Unit = {},
     onOpenPermissionManagerX: () -> Unit = {},
     onShizukuTest: () -> Unit = {},
+    onShizukuAudit: (String) -> Unit = {},
+    shizukuAuditOutput: String = "",
+    shizukuAuditBusy: Boolean = false,
     shizukuStatus: String = "Checking Shizuku…",
     onKaiHealthCheck: () -> Unit = {},
     onVmPasswordSave: (String) -> Unit = {},
@@ -66,6 +79,17 @@ fun AnimatedSettingsPanel(
     onVoiceToggle: (Boolean) -> Unit = {},
     onKnowledgeSync: () -> Unit = {},
     onKnowledgeUrlSave: (String) -> Unit = {},
+    savedMemoryMcpUrl: String = "",
+    memoryMcpStatus: String = "DISABLED",
+    memoryMcpTokenConfigured: Boolean = false,
+    onMemoryMcpSave: (String, String) -> Unit = { _, _ -> },
+    onMemoryMcpTest: () -> Unit = {},
+    onMemoryMcpRemove: () -> Unit = {},
+    localMemoryEnabled: Boolean = true,
+    localMemoryCount: Int = 0,
+    localMemoryBytes: Long = 0L,
+    onLocalMemoryToggle: (Boolean) -> Unit = {},
+    onLocalMemoryClear: () -> Unit = {},
     voiceEnabled: Boolean = true,
     knowledgeStatus: String = "…",
     corpusInfo: String = "124 files · 54 volumes",
@@ -86,9 +110,25 @@ fun AnimatedSettingsPanel(
     onLeanVerificationStop: () -> Unit = {},
     statusMessage: String? = null
 ) {
+    val context = LocalContext.current
+    val diagnosticsScope = rememberCoroutineScope()
+    var androidDiagnosticsText by remember { mutableStateOf("Collecting a local runtime snapshot…") }
+    var androidDiagnosticsBusy by remember { mutableStateOf(true) }
+    LaunchedEffect(context) {
+        androidDiagnosticsBusy = true
+        androidDiagnosticsText = try {
+            withContext(Dispatchers.IO) { AndroidPlatformDiagnostics.snapshot(context) }
+        } catch (error: Exception) {
+            "[ERROR] ${error.message ?: "Runtime diagnostics unavailable."}"
+        }
+        androidDiagnosticsBusy = false
+    }
+    var shizukuPackageText by remember { mutableStateOf("com.mirfatif.permissionmanagerx") }
     var soulMdText by remember { mutableStateOf("") }
     var vmPasswordText by remember { mutableStateOf("") }
     var knowledgeUrlText by remember { mutableStateOf(savedKnowledgeUrl) }
+    var memoryMcpUrlText by remember { mutableStateOf(savedMemoryMcpUrl) }
+    var memoryMcpTokenText by remember { mutableStateOf("") }
     var vmHostText by remember { mutableStateOf(savedVmHost) }
     var vmUserText by remember { mutableStateOf(savedVmUser) }
     var vmPortText by remember { mutableStateOf(savedVmPort.toString()) }
@@ -142,13 +182,84 @@ fun AnimatedSettingsPanel(
         SettingsCard(title = "SHIZUKU SYSTEM ACCESS", icon = { Icon(Icons.Filled.Build, contentDescription = "Shizuku", tint = Color(0xFF00E5FF), modifier = Modifier.size(24.dp)) }) {
             SystemStatusRow("Shizuku", shizukuStatus, if (shizukuStatus.startsWith("Connected")) Color(0xFF00FF88) else Color(0xFFFFAA00))
             Text(
-                "Start Shizuku yourself with Wireless debugging, then grant Lucifer access in Shizuku. Lucifer uses the granted identity for the SHIZUKU terminal target; it does not grant/revoke permissions in Permission Manager X.",
+                "Shizuku is a user-started Binder broker, not a blanket root grant. Lucifer checks pingBinder(), its Shizuku grant, server version, and UID (ADB shell 2000 vs root 0), then binds its custom AIDL UserService and runs the confirmed command with output/time limits. Lucifer currently uses UserService + sh -c, not ShizukuBinderWrapper direct PackageManager/AppOps calls; ADB-shell abilities vary by Android version and SELinux.",
                 color = Color(0xFFB8AEB8), fontSize = 12.sp
+            )
+            Text(
+                "Start Shizuku yourself through Wireless debugging and grant Lucifer access there. Lucifer will not grant/revoke/change Permission Manager X permissions; recognizable direct PM/AppOps permission mutations targeting PMX are blocked. Shizuku alone does not expose device traffic—network telemetry/filtering needs a separate Android VPN consent flow.",
+                color = Color(0xFFFFCC88), fontSize = 12.sp
             )
             Button(onClick = onShizukuRequest, modifier = Modifier.fillMaxWidth()) { Text("REQUEST / REFRESH SHIZUKU ACCESS") }
             Button(onClick = onOpenShizuku, modifier = Modifier.fillMaxWidth()) { Text("OPEN SHIZUKU SETUP") }
             Button(onClick = onOpenPermissionManagerX, modifier = Modifier.fillMaxWidth()) { Text("OPEN PERMISSION MANAGER X") }
             Button(onClick = onShizukuTest, modifier = Modifier.fillMaxWidth()) { Text("TEST SHIZUKU IDENTITY") }
+            Text(
+                "Read-only package report: dumpsys package plus cmd appops get. Enter one package; results stay in this screen's memory and are not sent to Lucifer's model. AppOps state and Android runtime permission grants are separate.",
+                color = Color(0xFFB8AEB8), fontSize = 12.sp
+            )
+            TextField(
+                value = shizukuPackageText,
+                onValueChange = { value ->
+                    if (value.length <= 255 && value.all { it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' || it == '.' || it == '_' }) {
+                        shizukuPackageText = value
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Text),
+                colors = TextFieldDefaults.textFieldColors(
+                    containerColor = Color(0xFF0D050D),
+                    focusedTextColor = Color(0xFFE0E0E0),
+                    unfocusedTextColor = Color(0xFFE0E0E0),
+                    cursorColor = Color(0xFF00CCFF),
+                    focusedIndicatorColor = Color(0xFF0066AA),
+                    unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent
+                ),
+                placeholder = { Text("com.example.app", color = Color(0xFF443344)) }
+            )
+            Button(
+                onClick = { onShizukuAudit(shizukuPackageText.trim()) },
+                enabled = !shizukuAuditBusy && shizukuStatus.startsWith("Connected") &&
+                    shizukuPackageText.matches(Regex("^[A-Za-z_][A-Za-z0-9_]*(?:\\.[A-Za-z_][A-Za-z0-9_]*)+$")),
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (shizukuAuditBusy) "READ-ONLY AUDIT RUNNING…" else "INSPECT PACKAGE PERMISSIONS + APP-OPS") }
+            if (shizukuAuditOutput.isNotBlank()) {
+                Text(
+                    shizukuAuditOutput,
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp).verticalScroll(rememberScrollState()),
+                    color = Color(0xFFD8D1D8), fontFamily = FontFamily.Monospace, fontSize = 10.sp
+                )
+            }
+        }
+
+        SettingsCard(title = "PIXEL / ANDROID PROCESS DIAGNOSTICS", icon = { Icon(Icons.Filled.Info, contentDescription = "Android diagnostics", tint = Color(0xFF00E5FF), modifier = Modifier.size(24.dp)) }) {
+            Text(
+                "Local, read-only runtime snapshot for Pixel 8a (akita) or the detected Android device. Reports the actual build/API, power and process state, Usage Access status for Lucifer, and whether a system VPN is active. It does not inspect other-app usage history or capture traffic.",
+                color = Color(0xFFB8AEB8), fontSize = 12.sp
+            )
+            Button(
+                onClick = {
+                    diagnosticsScope.launch {
+                        androidDiagnosticsBusy = true
+                        androidDiagnosticsText = try {
+                            withContext(Dispatchers.IO) { AndroidPlatformDiagnostics.snapshot(context) }
+                        } catch (error: Exception) {
+                            "[ERROR] ${error.message ?: "Runtime diagnostics unavailable."}"
+                        }
+                        androidDiagnosticsBusy = false
+                    }
+                },
+                enabled = !androidDiagnosticsBusy,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (androidDiagnosticsBusy) "REFRESHING DEVICE STATUS…" else "REFRESH DEVICE / PROCESS STATUS")
+            }
+            Text(
+                androidDiagnosticsText,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).verticalScroll(rememberScrollState()),
+                color = Color(0xFFD8D1D8), fontFamily = FontFamily.Monospace, fontSize = 10.sp
+            )
         }
 
         // VM SSH Password
@@ -422,6 +533,89 @@ fun AnimatedSettingsPanel(
                         contentColor = Color(0xFFFFFFFF)
                     )
                 ) { Text("SAVE URL", fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+            }
+        }
+
+        SettingsCard(title = "LOCAL EPISODIC MEMORY · OFFLINE", icon = { Icon(Icons.Filled.Memory, contentDescription = "Local episodic memory", tint = Color(0xFF00CCFF), modifier = Modifier.size(24.dp)) }) {
+            Text(
+                "Stores compact, redacted extractive memories of conversations and completed findings/actions—no raw transcript or image archive. There is no age-based expiry; explicit decisions and durable findings rank above routine exchanges. Automatic low-value compaction/offload to the selected summary-only long-term server is not yet enabled, so local entries remain until you clear them and writes may fail at the 2 GiB app-private disk cap (not reserved RAM).",
+                color = Color(0xFFB8AEB8), fontSize = 12.sp
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            SystemStatusRow("Local memory", if (localMemoryEnabled) "ON · $localMemoryCount entries" else "PAUSED", if (localMemoryEnabled) Color(0xFF00FF88) else Color(0xFFFFAA00))
+            SystemStatusRow("Disk usage", "${(localMemoryBytes / (1024 * 1024)).coerceAtLeast(0)} MiB / 2048 MiB", Color(0xFF00CCFF))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { onLocalMemoryToggle(!localMemoryEnabled) },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (localMemoryEnabled) Color(0xFF332233) else Color(0xFF145A32), contentColor = Color.White)
+                ) { Text(if (localMemoryEnabled) "PAUSE SAVING" else "RESUME SAVING") }
+                Button(
+                    onClick = onLocalMemoryClear,
+                    enabled = localMemoryCount > 0,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5A2020), contentColor = Color.White)
+                ) { Text("DELETE LOCAL MEMORY") }
+            }
+        }
+
+        // Read-only local MCP retrieval from the user's private Drive memory file.
+        SettingsCard(title = "DRIVE MEMORY · LOCAL MCP", icon = { Icon(Icons.Filled.Psychology, contentDescription = "Drive memory MCP", tint = Color(0xFFB99DFF), modifier = Modifier.size(24.dp)) }) {
+            Text(
+                "Before sending a prompt to the main model, Lucifer asks the same-device Termux MCP server for a few relevant passages from the private Drive memory. Retrieval is read-only; retrieved text is untrusted context, not policy or permission. If Termux is stopped, the original prompt is sent unchanged.",
+                color = Color(0xFFB8AEB8), fontSize = 12.sp
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            SystemStatusRow("Memory MCP", memoryMcpStatus, when {
+                memoryMcpStatus.startsWith("CONNECTED") -> Color(0xFF00FF88)
+                memoryMcpStatus.startsWith("CONFIGURED") -> Color(0xFFFFAA00)
+                memoryMcpStatus.startsWith("NOT CONNECTED") -> Color(0xFFFF6677)
+                else -> Color(0xFF8B7D8B)
+            })
+            SystemStatusRow("Bearer token", if (memoryMcpTokenConfigured) "ENCRYPTED IN ANDROID KEYSTORE" else "NOT SAVED", if (memoryMcpTokenConfigured) Color(0xFF00FF88) else Color(0xFFFFAA00))
+            TextField(
+                value = memoryMcpUrlText,
+                onValueChange = { memoryMcpUrlText = it.take(160) },
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Uri),
+                colors = TextFieldDefaults.textFieldColors(
+                    containerColor = Color(0xFF0D050D), focusedTextColor = Color(0xFFE0E0E0),
+                    unfocusedTextColor = Color(0xFFE0E0E0), cursorColor = Color(0xFFB99DFF),
+                    focusedIndicatorColor = Color(0xFF8066B3), unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent
+                ),
+                placeholder = { Text("http://127.0.0.1:8031/mcp", color = Color(0xFF443344)) }
+            )
+            TextField(
+                value = memoryMcpTokenText,
+                onValueChange = { memoryMcpTokenText = it.take(256) },
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password),
+                colors = TextFieldDefaults.textFieldColors(
+                    containerColor = Color(0xFF0D050D), focusedTextColor = Color(0xFFE0E0E0),
+                    unfocusedTextColor = Color(0xFFE0E0E0), cursorColor = Color(0xFFB99DFF),
+                    focusedIndicatorColor = Color(0xFF8066B3), unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent
+                ),
+                placeholder = { Text("Paste the Termux bearer token (leave blank to keep saved token)", color = Color(0xFF443344)) }
+            )
+            Text("The endpoint is restricted to localhost / 127.0.0.1 on port 8031. The token is never stored in plaintext by Lucifer.", color = Color(0xFF8B7D8B), fontSize = 10.sp)
+            Button(
+                onClick = onMemoryMcpTest,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF332244), contentColor = Color(0xFFE2D6FF))
+            ) { Text("TEST READ-ONLY MCP CONNECTION") }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { onMemoryMcpSave(memoryMcpUrlText, memoryMcpTokenText); memoryMcpTokenText = "" },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8066B3), contentColor = Color.White)
+                ) { Text("SAVE LOCAL MCP") }
+                Button(
+                    onClick = { onMemoryMcpRemove(); memoryMcpUrlText = ""; memoryMcpTokenText = "" },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF332233), contentColor = Color(0xFFFFAA00))
+                ) { Text("REMOVE") }
             }
         }
 

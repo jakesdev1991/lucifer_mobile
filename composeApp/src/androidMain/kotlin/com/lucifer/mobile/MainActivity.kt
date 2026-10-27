@@ -55,6 +55,9 @@ import com.lucifer.mobile.launcher.CommandTarget
 import com.lucifer.mobile.launcher.NaturalLanguageRouter
 import com.lucifer.mobile.launcher.TerminalAction
 import com.lucifer.mobile.security.SecretStore
+import com.lucifer.mobile.memory.DriveMemoryMcpClient
+import com.lucifer.mobile.memory.LocalConversationMemory
+import com.lucifer.mobile.skills.SkillLibrary
 import com.lucifer.mobile.shizuku.ShizukuAccess
 import com.lucifer.mobile.shizuku.ShizukuTerminal
 import rikka.shizuku.Shizuku
@@ -66,6 +69,15 @@ import com.lucifer.mobile.ui.components.AnimatedTerminal
 import com.lucifer.mobile.ui.components.BrowserControlPanel
 import com.lucifer.mobile.ui.components.HeartbeatControlPanel
 import com.lucifer.mobile.ui.components.WalletControlPanel
+import com.lucifer.mobile.ui.components.WorkflowControlPanel
+import com.lucifer.mobile.workflows.WorkflowAgent
+import com.lucifer.mobile.workflows.WorkflowBlueprints
+import com.lucifer.mobile.workflows.WorkflowReflection
+import com.lucifer.mobile.workflows.WorkflowStepStatus
+import com.lucifer.mobile.workflows.WorkflowTask
+import com.lucifer.mobile.workflows.WorkflowTaskStatus
+import com.lucifer.mobile.workflows.WorkflowTaskStore
+import com.lucifer.mobile.workflows.WorkflowTransitions
 import com.lucifer.mobile.ui.components.TabItem
 import com.lucifer.mobile.ui.theme.LuciferColors
 import com.lucifer.mobile.ui.theme.LuciferTheme
@@ -94,6 +106,16 @@ class MainActivity : ComponentActivity() {
                 val terminalExecutor = remember { TerminalExecutor(this@MainActivity) }
                 val router = remember { NaturalLanguageRouter(this@MainActivity) }
                 val reasoner = remember { ToEReasoningEngine(this@MainActivity) }
+                val workflowStore = remember { WorkflowTaskStore(this@MainActivity) }
+                val workflowAgent = remember { WorkflowAgent(this@MainActivity) }
+                val workflowLoad = remember { runCatching { workflowStore.load() } }
+                val recoveredWorkflowTasks = remember { workflowLoad.map(workflowStore::recoverInterrupted) }
+                var workflowTasks by remember { mutableStateOf(recoveredWorkflowTasks.getOrDefault(emptyList())) }
+                var selectedWorkflowTaskId by remember { mutableStateOf(workflowTasks.lastOrNull()?.id) }
+                var workflowBusy by remember { mutableStateOf(false) }
+                var workflowStoreHealthy by remember { mutableStateOf(workflowLoad.isSuccess) }
+                var workflowMessage by remember { mutableStateOf(workflowLoad.exceptionOrNull()?.message ?: "One step at a time; review output before continuing.") }
+                var pendingWorkflowStep by remember { mutableStateOf<Pair<String, String>?>(null) }
                 var pendingTerminalAction by remember { mutableStateOf<TerminalAction?>(null) }
                 var voiceEnabled by remember { mutableStateOf(loadVoiceEnabled()) }
                 var settingsToast by remember { mutableStateOf<String?>(null) }
@@ -105,6 +127,8 @@ class MainActivity : ComponentActivity() {
                 var leanVerificationCommit by remember { mutableStateOf<String?>(null) }
                 var leanVerificationToolchain by remember { mutableStateOf<String?>(null) }
                 var shizukuStatus by remember { mutableStateOf(ShizukuAccess.status()) }
+                var shizukuAuditOutput by remember { mutableStateOf("") }
+                var shizukuAuditBusy by remember { mutableStateOf(false) }
 
                 fun runLeanVerification(operation: suspend () -> Lean4VerificationRunner.Snapshot) {
                     if (leanVerificationBusy) return
@@ -123,6 +147,87 @@ class MainActivity : ComponentActivity() {
                         if (result.commit != null) leanVerificationCommit = result.commit
                         if (result.toolchain != null) leanVerificationToolchain = result.toolchain
                         leanVerificationBusy = false
+                    }
+                }
+
+                fun saveWorkflowTasks(updated: List<WorkflowTask>) {
+                    if (!workflowStoreHealthy) return
+                    try {
+                        workflowStore.save(updated)
+                        workflowTasks = updated
+                        if (selectedWorkflowTaskId == null || updated.none { it.id == selectedWorkflowTaskId }) {
+                            selectedWorkflowTaskId = updated.lastOrNull()?.id
+                        }
+                    } catch (e: Exception) {
+                        workflowStoreHealthy = false
+                        workflowMessage = "Workflow storage failed; changes are disabled to avoid overwriting data. ${e.message ?: "Storage error"}"
+                    }
+                }
+
+                fun updateWorkflowTask(taskId: String, transform: (WorkflowTask) -> WorkflowTask) {
+                    val updated = workflowTasks.map { task -> if (task.id == taskId) transform(task) else task }
+                    if (updated != workflowTasks) saveWorkflowTasks(updated)
+                }
+
+                fun createWorkflowTask(blueprintId: String, goal: String, target: CommandTarget) {
+                    if (workflowBusy || !workflowStoreHealthy || workflowTasks.size >= WorkflowTaskStore.MAX_TASKS) return
+                    val blueprint = WorkflowBlueprints.get(blueprintId) ?: return
+                    workflowBusy = true
+                    workflowMessage = "Planning the task. The goal is sent to the configured model when available."
+                    scope.launch(Dispatchers.IO) {
+                        val plan = try {
+                            workflowAgent.plan(blueprint, goal)
+                        } catch (_: Exception) {
+                            com.lucifer.mobile.workflows.WorkflowPlan(
+                                "Using the static blueprint because model planning failed.", blueprint.steps, "TEMPLATE"
+                            )
+                        }
+                        val task = try { workflowStore.newTask(blueprint, goal, target, plan) } catch (e: Exception) {
+                            withContext(Dispatchers.Main) {
+                                workflowBusy = false
+                                workflowMessage = "Could not create workflow: ${e.message ?: "invalid plan"}"
+                            }
+                            return@launch
+                        }
+                        withContext(Dispatchers.Main) {
+                            saveWorkflowTasks((workflowTasks + task).takeLast(WorkflowTaskStore.MAX_TASKS))
+                            if (workflowStoreHealthy) {
+                                selectedWorkflowTaskId = task.id
+                                workflowMessage = "${plan.source} plan created. Run one step, inspect the result, then reflect before continuing."
+                            } else {
+                                workflowMessage = "Task could not be saved; storage is now read-only to protect existing workflow data."
+                            }
+                            workflowBusy = false
+                        }
+                    }
+                }
+
+                fun reflectWorkflowTask(taskId: String) {
+                    if (workflowBusy || !workflowStoreHealthy) return
+                    val task = workflowTasks.firstOrNull { it.id == taskId } ?: return
+                    if (task.status != WorkflowTaskStatus.REVIEW || task.currentStep?.status != WorkflowStepStatus.REVIEW) return
+                    workflowBusy = true
+                    workflowMessage = "Reviewing the recorded step output. This sends bounded task evidence to the configured model."
+                    scope.launch(Dispatchers.IO) {
+                        val reflection = try {
+                            workflowAgent.reflect(task)
+                        } catch (_: Exception) {
+                            WorkflowReflection(
+                                "Model reflection failed; inspect the result and retry or use the template fallback.",
+                                null, false, "ERROR"
+                            )
+                        }
+                        withContext(Dispatchers.Main) {
+                            if (reflection.source == "ERROR") {
+                                workflowMessage = reflection.assessment
+                            } else {
+                                updateWorkflowTask(taskId) { WorkflowTransitions.applyReflection(it, reflection) }
+                                workflowMessage = if (workflowStoreHealthy) {
+                                    "${reflection.source} review ready. Lucifer has not marked the task complete."
+                                } else "Review could not be saved; workflow actions are disabled to protect existing data."
+                            }
+                            workflowBusy = false
+                        }
                     }
                 }
 
@@ -189,6 +294,17 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 val savedKnowledgeUrl by remember { mutableStateOf(loadKnowledgeUrl()) }
+                var savedMemoryMcpUrl by remember { mutableStateOf(loadMemoryMcpUrl()) }
+                var memoryMcpTokenConfigured by remember {
+                    mutableStateOf(!SecretStore.read(this@MainActivity, "config/drive_memory_mcp_token.txt").isNullOrBlank())
+                }
+                var memoryMcpStatus by remember {
+                    mutableStateOf(when {
+                        savedMemoryMcpUrl.isBlank() -> "DISABLED"
+                        memoryMcpTokenConfigured -> "CONFIGURED · NOT TESTED"
+                        else -> "TOKEN REQUIRED"
+                    })
+                }
 
                 var llmStatus by remember { mutableStateOf("…") }
                 var savedVmHost by remember { mutableStateOf(loadVmHost()) }
@@ -196,11 +312,27 @@ class MainActivity : ComponentActivity() {
                 var savedVmPort by remember { mutableStateOf(loadVmPort()) }
                 var savedVmKnownHosts by remember { mutableStateOf(loadVmKnownHosts()) }
                 val llmClient = remember { com.lucifer.mobile.omni_bridge.llm.NemotronClient(this@MainActivity) }
+                val localMemoryStore = remember { LocalConversationMemory(this@MainActivity) }
+                var localMemoryEnabled by remember {
+                    mutableStateOf(getSharedPreferences(LocalConversationMemory.PREFS, MODE_PRIVATE)
+                        .getBoolean(LocalConversationMemory.KEY_ENABLED, true))
+                }
+                var localMemoryCount by remember { mutableStateOf(0) }
+                var localMemoryBytes by remember { mutableStateOf(0L) }
                 var memoryItems by remember { mutableStateOf(loadMemoryItems()) }
                 val skills = remember { buildSkillRegistry() }
+                val referenceSkillLibrary = remember { SkillLibrary.load(this@MainActivity.assets) }
 
                 LaunchedEffect(savedKnowledgeUrl) {
                     if (savedKnowledgeUrl.isNotBlank()) reasoner.updateBaseUrl(savedKnowledgeUrl)
+                }
+
+                LaunchedEffect(localMemoryStore) {
+                    val localStats = withContext(Dispatchers.IO) {
+                        localMemoryStore.count() to localMemoryStore.storageBytes()
+                    }
+                    localMemoryCount = localStats.first
+                    localMemoryBytes = localStats.second
                 }
 
                 // One-shot LLM health probe for the Settings status row.
@@ -221,6 +353,8 @@ class MainActivity : ComponentActivity() {
 
                 fun runTerminalAction(action: TerminalAction) {
                     pendingTerminalAction = null
+                    val workflowRef = pendingWorkflowStep
+                    pendingWorkflowStep = null
                     isProcessing = true
                     scope.launch(Dispatchers.IO) {
                         val result = try {
@@ -230,13 +364,93 @@ class MainActivity : ComponentActivity() {
                         }
                         withContext(Dispatchers.Main) {
                             appendTerminalLines(listOf("${action.target.displayName} · ${terminalExecutor.destinationDetails(action.target.launcherIndex)} · ${action.command}") + result)
+                            if (workflowRef != null) {
+                                updateWorkflowTask(workflowRef.first) {
+                                    WorkflowTransitions.recordOutcome(it, workflowRef.second, result.joinToString("\n"), executed = true)
+                                }
+                                workflowMessage = if (workflowStoreHealthy) {
+                                    "Step output recorded. Review it and request a reflection before continuing."
+                                } else "Command finished, but its result could not be saved; workflow actions are disabled. Check the terminal output."
+                            }
                             isProcessing = false
+                        }
+                    }
+                }
+
+                fun runWorkflowStep(taskId: String, stepId: String, instruction: String) {
+                    if (workflowBusy || isProcessing || pendingTerminalAction != null || !workflowStoreHealthy) return
+                    val task = workflowTasks.firstOrNull { it.id == taskId } ?: return
+                    if (task.status == WorkflowTaskStatus.PAUSED || task.status == WorkflowTaskStatus.COMPLETE) return
+                    val active = WorkflowTransitions.activate(task, stepId)
+                    if (active == task) return
+                    updateWorkflowTask(taskId) { active }
+                    if (!workflowStoreHealthy) return
+                    workflowBusy = true
+                    workflowMessage = "Routing one step to ${task.target.displayName}. Any non-read-only terminal action will wait for confirmation."
+                    scope.launch(Dispatchers.IO) {
+                        val route = try {
+                            router.understand(instruction, task.target, installedAppNames = installedAppNames())
+                        } catch (_: Exception) {
+                            ChatRoute.Clarify("I could not route this workflow step. Add context and retry; nothing was executed.")
+                        }
+                        when (route) {
+                            ChatRoute.Conversation -> {
+                                val answer = try { reasoner.reason(instruction) } catch (e: Exception) {
+                                    "[WORKFLOW ERROR] ${e.message ?: "Could not reason about this step."}"
+                                }
+                                withContext(Dispatchers.Main) {
+                                    updateWorkflowTask(taskId) { WorkflowTransitions.recordOutcome(it, stepId, answer, executed = true) }
+                                    workflowBusy = false
+                                    workflowMessage = if (workflowStoreHealthy) {
+                                        "Step result recorded. Inspect it, then request a reflection before continuing."
+                                    } else "Step result could not be saved; workflow actions are disabled."
+                                }
+                            }
+                            is ChatRoute.Execute -> withContext(Dispatchers.Main) {
+                                val action = route.action
+                                if (action.target != task.target) {
+                                    updateWorkflowTask(taskId) {
+                                        WorkflowTransitions.recordOutcome(it, stepId, "Blocked: router selected ${action.target.displayName}, but this workflow is locked to ${task.target.displayName}. No command ran.", executed = false)
+                                    }
+                                    workflowBusy = false
+                                    workflowMessage = "Blocked a target change; no terminal command ran. Edit the task plan or create a task for the intended target."
+                                } else {
+                                    pendingWorkflowStep = taskId to stepId
+                                    workflowBusy = false
+                                    if (action.requiresConfirmation) {
+                                        pendingTerminalAction = action
+                                        appendTerminalLines(listOf("[WORKFLOW CONFIRM] ${action.explanation}", "[${action.target.displayName}] ${action.command}", "This action came from one workflow step. Review the exact target and command."))
+                                    } else {
+                                        runTerminalAction(action)
+                                    }
+                                }
+                            }
+                            is ChatRoute.Clarify -> withContext(Dispatchers.Main) {
+                                updateWorkflowTask(taskId) { WorkflowTransitions.recordOutcome(it, stepId, "Needs clarification: ${route.question}", executed = false) }
+                                workflowBusy = false
+                                workflowMessage = "Nothing ran. Add the missing context to the step and retry."
+                            }
+                            else -> withContext(Dispatchers.Main) {
+                                updateWorkflowTask(taskId) {
+                                    WorkflowTransitions.recordOutcome(it, stepId, "This step resolved to a panel/app/settings action, which the workflow runner does not launch. Use the corresponding Lucifer UI, then add its observed result and retry/review.", executed = false)
+                                }
+                                workflowBusy = false
+                                workflowMessage = "Workflow steps can route to chat or a terminal command only; other controls remain manual."
+                            }
                         }
                     }
                 }
 
                 fun cancelPendingTerminalAction() {
                     pendingTerminalAction = null
+                    val workflowRef = pendingWorkflowStep
+                    pendingWorkflowStep = null
+                    if (workflowRef != null) {
+                        updateWorkflowTask(workflowRef.first) {
+                            WorkflowTransitions.recordOutcome(it, workflowRef.second, "User cancelled confirmation; command was not run.", executed = false)
+                        }
+                        workflowMessage = "Cancelled before execution. No terminal command was run."
+                    }
                     appendTerminalLines(listOf("[CANCELLED] Command was not run."))
                 }
 
@@ -302,7 +516,8 @@ class MainActivity : ComponentActivity() {
                                     TabItem("Settings", Icons.Filled.Settings),
                                     TabItem("Wallet", Icons.Filled.AccountBalanceWallet),
                                     TabItem("Browser", Icons.Filled.Language),
-                                    TabItem("Heartbeat", Icons.Filled.Psychology)
+                                    TabItem("Heartbeat", Icons.Filled.Psychology),
+                                    TabItem("Work", Icons.Filled.Build)
                                 )
                             )
 
@@ -389,6 +604,7 @@ class MainActivity : ComponentActivity() {
                                                             "wallet" -> 4
                                                             "browser" -> 5
                                                             "heartbeat" -> 6
+                                                            "workflow", "workflows" -> 7
                                                             else -> 0
                                                         }
                                                         appendTerminalLines(listOf("[PANEL] Opening Lucifer's ${route.panel} panel."))
@@ -427,7 +643,8 @@ class MainActivity : ComponentActivity() {
                                 )
                                 2 -> AnimatedSkillsPanel(
                                     modifier = Modifier.fillMaxSize(),
-                                    skills = skills
+                                    skills = skills,
+                                    library = referenceSkillLibrary
                                 )
                                 3 -> AnimatedSettingsPanel(
                                     modifier = Modifier.fillMaxSize(),
@@ -454,6 +671,26 @@ class MainActivity : ComponentActivity() {
                                             withContext(Dispatchers.Main) { settingsToast = result.joinToString(" ").take(300) }
                                         }
                                     },
+                                    onShizukuAudit = { packageName ->
+                                        if (!shizukuAuditBusy) {
+                                            shizukuAuditBusy = true
+                                            shizukuAuditOutput = "Running read-only package and AppOps inspection…"
+                                            scope.launch(Dispatchers.IO) {
+                                                val result = try {
+                                                    ShizukuTerminal.inspectPackageReadOnly(this@MainActivity, packageName)
+                                                } catch (e: Exception) {
+                                                    listOf("[ERROR] ${e.message ?: "Read-only package inspection failed."}")
+                                                }
+                                                withContext(Dispatchers.Main) {
+                                                    shizukuAuditOutput = result.joinToString("\n").take(12_000)
+                                                    shizukuAuditBusy = false
+                                                    settingsToast = "Read-only audit finished for $packageName; results remain local to this screen."
+                                                }
+                                            }
+                                        }
+                                    },
+                                    shizukuAuditOutput = shizukuAuditOutput,
+                                    shizukuAuditBusy = shizukuAuditBusy,
                                     onKaiHealthCheck = {
                                         scope.launch(Dispatchers.IO) {
                                             val connected = KaiBridge(this@MainActivity).connect()
@@ -518,6 +755,68 @@ class MainActivity : ComponentActivity() {
                                         saveKnowledgeUrl(url)
                                         reasoner.updateBaseUrl(url)
                                     },
+                                    savedMemoryMcpUrl = savedMemoryMcpUrl,
+                                    memoryMcpStatus = memoryMcpStatus,
+                                    onMemoryMcpTest = {
+                                        scope.launch(Dispatchers.IO) {
+                                            val status = DriveMemoryMcpClient(this@MainActivity).testConnection()
+                                            withContext(Dispatchers.Main) {
+                                                memoryMcpStatus = if (status.startsWith("No valid") || status.startsWith("MCP check failed") || status.startsWith("MCP URL") || status.startsWith("MCP bearer")) "NOT CONNECTED · $status" else "CONNECTED · READ ONLY"
+                                                settingsToast = status.take(500)
+                                            }
+                                        }
+                                    },
+                                    memoryMcpTokenConfigured = memoryMcpTokenConfigured,
+                                    onMemoryMcpSave = { url, token ->
+                                        val client = DriveMemoryMcpClient(this@MainActivity)
+                                        val normalized = client.validateLoopbackEndpoint(url.trim())
+                                        when {
+                                            url.isBlank() -> settingsToast = "Enter the local Termux MCP URL, or use Remove to disable memory retrieval."
+                                            normalized == null -> settingsToast = "MCP URL must be http://127.0.0.1:8031/mcp or http://localhost:8031/mcp."
+                                            token.isNotBlank() && token.length < 24 -> settingsToast = "MCP token must contain at least 24 characters."
+                                            token.isNotBlank() && !SecretStore.write(this@MainActivity, "config/drive_memory_mcp_token.txt", token.trim()) -> settingsToast = "Could not encrypt the MCP token in Android Keystore storage."
+                                            !token.isNotBlank() && !memoryMcpTokenConfigured -> settingsToast = "Paste the bearer token printed once when the Termux server was configured."
+                                            else -> {
+                                                if (!saveMemoryMcpUrl(normalized)) {
+                                                    settingsToast = "Could not save the MCP endpoint in app-private storage."
+                                                } else {
+                                                    savedMemoryMcpUrl = normalized
+                                                    if (token.isNotBlank()) memoryMcpTokenConfigured = true
+                                                    memoryMcpStatus = "CONFIGURED · NOT TESTED"
+                                                    settingsToast = "Drive-memory retrieval configured for the same-device Termux MCP server. Termux:Boot/runit can restart it after setup; retrieval fails open if unavailable."
+                                                }
+                                            }
+                                        }
+                                    },
+                                    onMemoryMcpRemove = {
+                                        saveMemoryMcpUrl("")
+                                        SecretStore.delete(this@MainActivity, "config/drive_memory_mcp_token.txt")
+                                        savedMemoryMcpUrl = ""
+                                        memoryMcpTokenConfigured = false
+                                        memoryMcpStatus = "DISABLED"
+                                        settingsToast = "Drive-memory retrieval disabled and its local bearer token removed."
+                                    },
+                                    localMemoryEnabled = localMemoryEnabled,
+                                    localMemoryCount = localMemoryCount,
+                                    localMemoryBytes = localMemoryBytes,
+                                    onLocalMemoryToggle = { enabled ->
+                                        getSharedPreferences(LocalConversationMemory.PREFS, MODE_PRIVATE).edit()
+                                            .putBoolean(LocalConversationMemory.KEY_ENABLED, enabled).apply()
+                                        localMemoryEnabled = enabled
+                                        settingsToast = if (enabled) "Local episodic memory saving resumed." else "Local memory saving paused; existing entries remain until expiry or deletion."
+                                    },
+                                    onLocalMemoryClear = {
+                                        scope.launch(Dispatchers.IO) {
+                                            localMemoryStore.clearAll()
+                                            val count = localMemoryStore.count()
+                                            val bytes = localMemoryStore.storageBytes()
+                                            withContext(Dispatchers.Main) {
+                                                localMemoryCount = count
+                                                localMemoryBytes = bytes
+                                                settingsToast = "Local episodic memories deleted. This does not change the private Drive file."
+                                            }
+                                        }
+                                    },
                                     voiceEnabled = voiceEnabled,
                                     knowledgeStatus = if (reasoner.knowledgeServerAlive()) "EMBEDDED" else "…",
                                     corpusInfo = "54 Lean volumes · axioms · book (in-APK)",
@@ -557,6 +856,42 @@ class MainActivity : ComponentActivity() {
                                     onStart = { requestHeartbeatStart() },
                                     onStop = { stopHeartbeat() },
                                     onEnableCamera = { requestHeartbeatCamera() }
+                                )
+                                7 -> WorkflowControlPanel(
+                                    modifier = Modifier.fillMaxSize(),
+                                    tasks = workflowTasks,
+                                    selectedTaskId = selectedWorkflowTaskId,
+                                    busy = workflowBusy || isProcessing || pendingTerminalAction != null || !workflowStoreHealthy,
+                                    statusMessage = workflowMessage,
+                                    onSelectTask = { selectedWorkflowTaskId = it },
+                                    onCreateTask = { blueprintId, goal, target -> createWorkflowTask(blueprintId, goal, target) },
+                                    onRunStep = { taskId, stepId, instruction -> runWorkflowStep(taskId, stepId, instruction) },
+                                    onRecordObservation = { taskId, stepId, observation ->
+                                        updateWorkflowTask(taskId) { WorkflowTransitions.recordObservation(it, stepId, observation) }
+                                        workflowMessage = if (workflowStoreHealthy) "User observation recorded. Reflect on the updated evidence before continuing."
+                                        else "Observation could not be saved; workflow actions are disabled."
+                                    },
+                                    onReflect = { reflectWorkflowTask(it) },
+                                    onAcceptReview = { taskId ->
+                                        updateWorkflowTask(taskId) { WorkflowTransitions.acceptReview(it) }
+                                        workflowMessage = "Review accepted. Inspect the next suggested step, or explicitly complete the task."
+                                    },
+                                    onRetryStep = { taskId, stepId ->
+                                        updateWorkflowTask(taskId) { WorkflowTransitions.retry(it, stepId) }
+                                        workflowMessage = "Step reset for another user-started attempt."
+                                    },
+                                    onPauseResume = { taskId ->
+                                        updateWorkflowTask(taskId) { WorkflowTransitions.pauseResume(it) }
+                                        workflowMessage = "Workflow state updated. No background work is running."
+                                    },
+                                    onComplete = { taskId ->
+                                        updateWorkflowTask(taskId) { WorkflowTransitions.complete(it) }
+                                        workflowMessage = "Task completion recorded after user review."
+                                    },
+                                    onDelete = { taskId ->
+                                        saveWorkflowTasks(workflowTasks.filterNot { it.id == taskId })
+                                        workflowMessage = "Workflow task deleted from local app storage."
+                                    }
                                 )
                             }
                         }
@@ -795,7 +1130,26 @@ class MainActivity : ComponentActivity() {
                 }
             } catch (_: Exception) {}
         }
-        return items.takeLast(30)
+        try {
+            val store = LocalConversationMemory(this)
+            try {
+                store.recent(40).filter { query.isBlank() || it.title.contains(query, true) || it.body.contains(query, true) }
+                    .forEach { entry ->
+                        items.add(
+                            com.lucifer.mobile.ui.components.MemoryItem(
+                                id = "local-${entry.createdAt}-${entry.title.hashCode()}",
+                                content = "${entry.title}: ${entry.body}".take(240),
+                                timestamp = entry.createdAt,
+                                tags = listOf("local episodic", entry.horizon),
+                                relevance = entry.importance / 100f
+                            )
+                        )
+                    }
+            } finally {
+                store.close()
+            }
+        } catch (_: Exception) {}
+        return items.sortedByDescending { it.timestamp }.take(30)
     }
 
     /** A truthful catalog of implemented controls and their current limitations. */
@@ -806,6 +1160,12 @@ class MainActivity : ComponentActivity() {
                 description = "Understands requests before routing to chat, shell, apps, or Android Settings; non-read-only shell commands require confirmation.",
                 category = "Control", isEnabled = true, status = "READY",
                 icon = Icons.Filled.Psychology
+            ),
+            com.lucifer.mobile.ui.components.SkillItem(
+                id = "workflow_runner", name = "User-led iterative workflows",
+                description = "Four reusable blueprints with bounded persisted plans, user-started terminal/chat steps, manual observations, model reflection, pause/retry, and explicit completion. No background loop; only terminal/chat actions are routed here. Source is implemented but not yet compiled or device-tested.",
+                category = "Automation", isEnabled = true, status = "USER-LED · UNVALIDATED",
+                icon = Icons.Filled.Build
             ),
             com.lucifer.mobile.ui.components.SkillItem(
                 id = "app_control", name = "Installed-app launcher",
@@ -826,6 +1186,18 @@ class MainActivity : ComponentActivity() {
                 icon = Icons.Filled.Terminal
             ),
             com.lucifer.mobile.ui.components.SkillItem(
+                id = "shizuku_user_service", name = "Shizuku AIDL UserService bridge",
+                description = "Checks Shizuku Binder/grant/version and UID, supports bounded terminal actions plus a validated read-only package/AppOps report, and blocks recognizable PMX permission mutations. It uses UserService shell execution, not direct PackageManager/AppOps Binder wrappers.",
+                category = "Device access", isEnabled = true, status = "USER-GRANTED · LIMITED",
+                icon = Icons.Filled.Build
+            ),
+            com.lucifer.mobile.ui.components.SkillItem(
+                id = "pixel_android_diagnostics", name = "Pixel 8a / Android process diagnostics",
+                description = "Locally reports runtime build/API, process/power state, Usage Access for Lucifer, and active VPN status. Detects Pixel 8a by akita/model; does not capture traffic or promise process survival.",
+                category = "Device access", isEnabled = true, status = "LOCAL · READ ONLY",
+                icon = Icons.Filled.Build
+            ),
+            com.lucifer.mobile.ui.components.SkillItem(
                 id = "evm_wallet", name = "EVM wallet manager",
                 description = "Creates EVM addresses, encrypts keys at rest, and checks native-token balances. No recovery phrase/export or transaction sending is implemented; do not fund wallets yet.",
                 category = "Wallet", isEnabled = false, status = "LIMITED",
@@ -838,8 +1210,14 @@ class MainActivity : ComponentActivity() {
                 icon = Icons.Filled.Language
             ),
             com.lucifer.mobile.ui.components.SkillItem(
+                id = "drive_memory_mcp", name = "Private Google Drive memory retrieval (MCP)",
+                description = "Optional pre-prompt retrieval through a token-protected, loopback-only Termux MCP service. Reads the user's private Lucifer_Memory.md through rclone; local llama.cpp embeddings are fused with BM25, with lexical fallback. Retrieved passages are untrusted context, not policy or authorization.",
+                category = "Memory", isEnabled = false, status = "OPTIONAL · USER CONFIGURED",
+                icon = Icons.Filled.Memory
+            ),
+            com.lucifer.mobile.ui.components.SkillItem(
                 id = "memory", name = "Local activity memory",
-                description = "Searches recent app-launch events and terminal history; this is a lightweight log viewer, not semantic long-term memory.",
+                description = "Searches recent app-launch events and terminal history; this is a lightweight local log viewer, separate from optional Drive-backed retrieval.",
                 category = "Memory", isEnabled = true, status = "READY",
                 icon = Icons.Filled.Memory
             ),
@@ -1018,5 +1396,19 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             Log.e("MainActivity", "saveKnowledgeUrl failed", e)
         }
+    }
+
+    private fun loadMemoryMcpUrl(): String = try {
+        File(filesDir, "config/drive_memory_mcp_url.txt").takeIf { it.isFile }?.readText()?.trim().orEmpty()
+    } catch (_: Exception) { "" }
+
+    private fun saveMemoryMcpUrl(url: String): Boolean = try {
+        val configDir = File(filesDir, "config")
+        configDir.mkdirs()
+        File(configDir, "drive_memory_mcp_url.txt").writeText(url.trim(), Charsets.UTF_8)
+        true
+    } catch (error: Exception) {
+        Log.e("MainActivity", "Could not save memory MCP URL", error)
+        false
     }
 }

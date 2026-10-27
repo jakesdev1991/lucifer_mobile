@@ -120,7 +120,7 @@ class NaturalLanguageRouter(context: Context) {
         if (settingsSection != null) return ChatRoute.OpenSettings(settingsSection)
 
         val panelRequest = Regex(
-            "^(?:please\\s+)?(?:open|show(?:\\s+me)?|go to|switch to|view|take me to)\\s+(?:the\\s+)?(?:lucifer\\s+)?(wallet|browser|terminal|memory|skills|settings|heartbeat)(?:\\s+(?:panel|tab))?(?:\\s+in lucifer)?[.!?]*$",
+            "^(?:please\\s+)?(?:open|show(?:\\s+me)?|go to|switch to|view|take me to)\\s+(?:the\\s+)?(?:lucifer\\s+)?(wallet|browser|terminal|memory|skills|settings|heartbeat|workflows?)(?:\\s+(?:panel|tab))?(?:\\s+in lucifer)?[.!?]*$",
             RegexOption.IGNORE_CASE
         ).find(normalized)?.groupValues?.get(1)?.lowercase()
         if (panelRequest != null && panelRequest in CONTROL_PANELS) return ChatRoute.OpenPanel(panelRequest)
@@ -239,7 +239,7 @@ class NaturalLanguageRouter(context: Context) {
 
     private companion object {
         val SETTINGS_SECTIONS = setOf("general", "wifi", "bluetooth", "location", "display", "sound", "notifications", "battery", "apps", "app_permissions")
-        val CONTROL_PANELS = setOf("wallet", "browser", "terminal", "memory", "skills", "settings", "heartbeat")
+        val CONTROL_PANELS = setOf("wallet", "browser", "terminal", "memory", "skills", "settings", "heartbeat", "workflow", "workflows")
         val SAFE_READ_ONLY_COMMANDS = setOf("pwd", "ls", "df", "free", "uptime", "whoami", "hostname", "date", "uname", "id", "ps")
         val SHELL_COMMANDS = setOf(
             "ls", "cd", "cat", "echo", "pwd", "uname", "df", "ps", "grep", "whoami", "hostname", "id",
@@ -251,12 +251,13 @@ class NaturalLanguageRouter(context: Context) {
         val ROUTER_PROMPT = """
             You are the intent router for a mobile assistant that can chat, run Linux terminal commands,
             open installed apps, or open Android Settings. Understand the user's intent first.
-            Return ONLY one JSON object: {"intent":"chat|execute|clarify|open_app|open_settings|open_panel","target":"selected|local|termux|vm|shizuku","command":"","app":"","section":"general|wifi|bluetooth|location|display|sound|notifications|battery|apps|app_permissions","panel":"wallet|browser|terminal|memory|skills|settings|heartbeat","message":""}.
+            Return ONLY one JSON object: {"intent":"chat|execute|clarify|open_app|open_settings|open_panel","target":"selected|local|termux|vm|shizuku","command":"","app":"","section":"general|wifi|bluetooth|location|display|sound|notifications|battery|apps|app_permissions","panel":"wallet|browser|terminal|memory|skills|settings|heartbeat|workflows","message":""}.
             Use chat for explanations, questions about commands, hypothetical requests, and ordinary conversation.
             Use open_app when the user clearly requests launching an installed app; put its concise name in app.
             Use open_settings for Android controls; choose the closest supported section. Android may require
             the user to toggle radios or permissions in Settings—do not claim to change them yourself.
-            Use open_panel when the user asks to open Lucifer's wallet, browser, terminal, memory, skills, settings, or heartbeat screen.
+            Use open_panel when the user asks to open Lucifer's wallet, browser, terminal, memory, skills, settings, heartbeat, or workflows screen.
+            Shizuku is a user-authorized ADB-shell (UID 2000) or root (UID 0) route, not automatic root or a universal permission grant. Questions about Shizuku/Android internals are chat unless a terminal action is explicit. For a read-only package permission/AppOps audit, open Settings so the user can use the validated inspection field; do not invent a mutating command. Never produce a command that grants, revokes, or changes Permission Manager X permissions; the owner manages those grants outside Lucifer.
             Use execute only when the user clearly wants a terminal action performed or status checked. Translate
             natural language diagnostics into one simple Linux command (examples: disk space=df -h,
             memory=free -h, uptime=uptime, files=ls -la, current folder=pwd, processes=ps -ef).

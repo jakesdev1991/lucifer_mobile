@@ -63,6 +63,7 @@ import com.lucifer.mobile.launcher.ChatRoute
 import com.lucifer.mobile.launcher.CommandTarget
 import com.lucifer.mobile.launcher.NaturalLanguageRouter
 import com.lucifer.mobile.launcher.TerminalAction
+import com.lucifer.mobile.memory.LocalConversationMemory
 import com.lucifer.mobile.omni_bridge.knowledge.ToEReasoningEngine
 import com.lucifer.mobile.ui.theme.LuciferColors
 import com.lucifer.mobile.ui.theme.LuciferTheme
@@ -87,6 +88,7 @@ internal data class OverlayState(
  * the owner, requires Android's draw-over-apps grant, and has a Stop notification. */
 class FloatingChatService : LifecycleService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val localMemory by lazy { LocalConversationMemory(applicationContext) }
     private lateinit var windowManager: WindowManager
     private var overlay: ComposeView? = null
     private var params: WindowManager.LayoutParams? = null
@@ -269,6 +271,7 @@ class FloatingChatService : LifecycleService() {
                     } catch (error: Exception) {
                         "I couldn't complete that reply: ${error.message ?: "assistant unavailable"}"
                     }
+                    localMemory.rememberExchange(text, answer)
                     append(answer, fromUser = false)
                     uiState = uiState.copy(busy = false)
                 }
@@ -322,6 +325,11 @@ class FloatingChatService : LifecycleService() {
             } catch (error: Exception) {
                 listOf("[ERROR] ${error.message ?: "terminal request failed"}")
             }
+            localMemory.rememberFinding(
+                "${action.target.displayName} command result",
+                result.joinToString("\n").take(1_800),
+                importance = 70
+            )
             append("${action.target.displayName} · ${action.command}\n${result.joinToString("\n")}".takeLast(3_000), false, terminal = true)
             uiState = uiState.copy(busy = false)
         }

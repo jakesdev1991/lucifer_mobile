@@ -46,6 +46,9 @@ class TerminalExecutor(private val context: Context) {
     }
 
     suspend fun execute(command: String, target: Int): List<String> = withContext(Dispatchers.IO) {
+        TerminalCommandPolicy.refusalReason(command)?.let { reason ->
+            return@withContext listOf("[BLOCKED] $reason")
+        }
         return@withContext when (target) {
             LOCAL -> executeLocal(command)
             TERMUX -> if (TermuxInteractiveSession.hasSession(context)) {
