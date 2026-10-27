@@ -3,6 +3,7 @@ package com.lucifer.mobile.omni_bridge.knowledge
 import android.content.Context
 import com.lucifer.mobile.omni_bridge.equirouter.Horseman
 import com.lucifer.mobile.omni_bridge.four_horsemen.FourHorsemenOrchestrator
+import com.lucifer.mobile.memory.LocalConversationMemory
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -23,6 +24,7 @@ class ToEReasoningEngine(
 
     private val embedded = EmbeddedToE(context)
     private val remote = OmegaKnowledgeClient()
+    private val localMemory = LocalConversationMemory(context.applicationContext)
 
     init {
         // Warm the embedded index at startup — instant intuition, no I/O wait later.
@@ -79,7 +81,13 @@ class ToEReasoningEngine(
         }
 
         // 2. DECIDE + ACT: synthesize with the Four Horsemen over ToE evidence.
-        val deliberation = horsemen.deliberate(input)
+        val deliberation = horsemen.deliberate(input, evidence.toString())
+        val offlineMemory = if (deliberation.startsWith("Council offline")) {
+            try { localMemory.search(input) } catch (_: Exception) { "" }
+        } else ""
+        if (offlineMemory.isNotBlank()) {
+            return "$deliberation\n\n$offlineMemory"
+        }
 
         return if (evidence.isNotBlank()) {
             val citationList = evidence.lines()

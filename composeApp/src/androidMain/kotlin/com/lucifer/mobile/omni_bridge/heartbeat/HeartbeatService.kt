@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.lucifer.mobile.data.browser.LuciferBrowser
 import com.lucifer.mobile.omni_bridge.llm.NemotronClient
+import com.lucifer.mobile.memory.LocalConversationMemory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -25,6 +26,7 @@ class HeartbeatSessionEngine(context: Context) {
     private val appContext = context.applicationContext
     private val llm = NemotronClient(appContext)
     private val browser = LuciferBrowser(appContext)
+    private val localMemory = LocalConversationMemory(appContext)
     private val root = File(appContext.filesDir, "heartbeat")
 
     suspend fun runSession(cameraJpeg: ByteArray? = null): String = withContext(Dispatchers.IO) {
@@ -122,6 +124,11 @@ class HeartbeatSessionEngine(context: Context) {
         }
         File(root, "sessions.jsonl").appendText(record.toString() + "\n")
         File(root, "latest.json").writeText(record.toString())
+        localMemory.rememberFinding(
+            "Heartbeat project: $title",
+            "Importance $importance/100; status $status. $summary Next step: $nextStep",
+            importance = importance
+        )
         Log.i(TAG, "session saved: ${artifact.name} priority=$importance status=$status")
         "Session complete: $title · importance $importance · $status · saved to ${artifact.name}"
     }

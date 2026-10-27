@@ -7,10 +7,13 @@ Lucifer Mobile is an Android launcher and assistant with natural-language chat, 
 - **Natural-language-first input:** launcher chat/bar and the MainActivity terminal route text before action. Requests can be answered, clarified, routed to LOCAL/TERMUX/VM, used to open an installed app, or used to open a supported Android Settings page. Tapping an app tile remains an explicit direct launch.
 - **Terminal:** LOCAL app shell, Termux commands, configured VM SSH, Shizuku UserService, and a Termux interactive PTY mode. Termux can run a persistent tmux session with Lucifer's draggable chat overlay; chat commands enter that same session after any required confirmation, and the visible pane can be inspected. In TERMUX, **STAGE STATIC** and **STAGE API** create starter projects under `~/lucifer-sites/` and launch loopback-only previews on ports 8765/8766; **STOP PREVIEWS** stops them. These are local demos, not public deployments. Existing site files are preserved instead of overwritten. The optional toolkit installer is explicit and runs visibly in Termux. Non-read-only commands require confirmation; confirmation is not a sandbox.
 - **Android control:** open Wi-Fi, Bluetooth, location, display, sound, notifications, battery, app, or Lucifer permission settings. Android keeps protected toggles user-controlled; Lucifer opens the relevant settings screen rather than claiming to change the switch.
+- **Shizuku bridge:** checks server/grant/version and reports whether the authorized process is ADB shell (UID 2000) or root (UID 0), then binds Lucifer's bounded AIDL UserService. Settings offers a validated, read-only package/permission/AppOps report; it does not edit grants or upload the output. This build currently executes shell commands rather than direct system-service Binder wrappers; each platform operation remains version/SELinux dependent. Lucifer will not change Permission Manager X grants; recognizable PM/AppOps permission mutations targeting PMX are blocked. See [SHIZUKU_ANDROID_ACCESS.md](SHIZUKU_ANDROID_ACCESS.md).
+- **Pixel/Android diagnostics:** local snapshot identifies Pixel 8a (`akita`) when the running build reports it, and reads OS/build, process/power, Usage Access-for-Lucifer, and active VPN status. It does not read other-app usage history or capture network traffic. See [PIXEL8A_ANDROID_SYSTEMS.md](PIXEL8A_ANDROID_SYSTEMS.md).
 - **Wallet panel:** create EVM addresses, list/copy addresses, and query native-token balances on Ethereum, Arbitrum, Optimism, Base, or Polygon. Private-key material is stored encrypted with Android Keystore-backed AES-GCM. Legacy raw-hash signing requests are rejected; there is no configured spending policy or transaction-send flow.
 - **Read-only browser panel:** fetch HTTPS pages and extract text. It does not execute JavaScript, click, type, sign in, submit forms, or purchase; local/private/reserved hosts are rejected as defense-in-depth.
-- **Memory and skills panels:** search recent local app/terminal logs and inspect an honest capability/limitation catalog.
-- **Credential storage:** user-provided NVIDIA and VM secrets are stored encrypted, not embedded in the current source.
+- **Memory and skills panels:** maintain compact, redacted local memories in app-private SQLite with importance-ranked retrieval (no age-based expiry; 2 GiB disk cap), retrieve them before model calls, and retain local/static recall when offline. Automatic low-value compaction/offload to the separately selected summary-only long-term server is not yet implemented; local entries remain until manually cleared or the database reaches its cap. Optional private Drive retrieval remains read-only and separate, served by a native C++ Termux MCP service with llama.cpp Q4 embeddings plus BM25 fallback. Termux:Boot + runit supports best-effort automatic restart. Python is test-only, not part of the memory runtime. See [the MCP setup, local-memory, and data-flow notes](mcp/DRIVE_MEMORY_MCP.md).
+- **Workflow blueprints and runner (implemented, not yet compiled/device-tested):** choose a software-change, research, local-site, authorization-gated bug bounty, formal-verification, or Pixel 8a system/permission audit recipe; Lucifer plans, runs one user-started terminal/chat step or accepts a user-entered observation from another panel, reflects, and proposes at most one next step. The task target is fixed, non-read-only terminal commands still use the existing exact-command confirmation, and completion requires a separate user action. There is no background workflow loop. Task goals and observations may be sent to the configured NVIDIA model; saved task text is in app-private storage but is not encrypted. Common token/password patterns are redacted from captured output, not every possible secret format. See [WORKFLOW_BLUEPRINTS.md](WORKFLOW_BLUEPRINTS.md) and the [bug bounty workflow and its current limits](BUG_BOUNTY_WORKFLOW.md).
+- **Credential storage:** user-provided NVIDIA, VM, and Drive-memory MCP bearer secrets are stored encrypted with Android Keystore, not embedded in the current source. Termux's separate MCP token is kept in a mode-600 user config file.
 
 ### Important limitations
 
@@ -27,6 +30,10 @@ Lucifer Mobile is an Android launcher and assistant with natural-language chat, 
 - Browser URL/DNS checks are not a hardened defense against DNS rebinding. Treat fetched web content as untrusted.
 - See [APP_CAPABILITY_AUDIT.md](APP_CAPABILITY_AUDIT.md) for the broader capability map, risks, and prioritized follow-up list. See [SECURITY.md](SECURITY.md) for credential-handling notes.
 
+## Reference skill library
+
+The Skills tab keeps implemented/partial controls in a separate operational registry and adds a searchable library of 100 reference-only skills across ten packs. Guidance entries show prerequisites, safety boundaries, verification notes, and source links; they are not executable tools and cannot grant authorization. Retrieval is schema-validated and bounded before it can ground assistant/workflow prompts. See [SKILL_LIBRARY.md](SKILL_LIBRARY.md), and validate the checked-in catalog with `python3 scripts/validate_skill_library.py`.
+
 ## Using chat and the terminal
 
 Open **CHAT** from the launcher or type into the launcher bar. The request is understood before routing. Examples:
@@ -34,7 +41,7 @@ Open **CHAT** from the launcher or type into the launcher bar. The request is un
 - “Show disk space on my VM”
 - “List files in Termux”
 - “Open Chrome”
-- “Open wallet” or “Open the browser panel”
+- “Open wallet,” “Open the browser panel,” or “Open workflows”
 - “Open Bluetooth settings” (Android will ask you to make protected changes there)
 - “What is entropy?”
 - “Run `git status` on the VM”
@@ -62,8 +69,9 @@ composeApp/
   build.gradle.kts                    # Android application plugin/source configuration
   src/androidMain/AndroidManifest.xml
   src/androidMain/kotlin/com/lucifer/mobile/
-    MainActivity.kt                   # Terminal, memory, skills, settings, wallet, browser, heartbeat tabs
+    MainActivity.kt                   # Terminal, memory, skills, settings, wallet, browser, heartbeat, workflow tabs
     launcher/                         # Home launcher, chat, natural-language routing, voice
+    workflows/                        # Bounded workflow plans, task persistence, and state transitions
     terminal/                         # Local, Termux PTY/overlay, VM, and Shizuku execution
     data/wallet/                      # Native EVM wallet and encrypted persistence
     data/browser/                     # Read-only HTTPS fetch/extract

@@ -10,3 +10,10 @@ captures/
 
 # API keys never enter git
 phone_secrets/
+.venv/
+mcp/.venv/
+mcp/.cache/
+mcp/.env
+mcp/models/
+mcp/memory/Lucifer_Memory.md
+__pycache__/

@@ -1,6 +1,7 @@
 package com.lucifer.mobile.shizuku
 
 import androidx.annotation.Keep
+import com.lucifer.mobile.terminal.TerminalCommandPolicy
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
@@ -20,6 +21,7 @@ class ShizukuCommandUserService : IShizukuCommandService.Stub() {
         if (request.isBlank() || request.length > MAX_COMMAND_LENGTH || request.contains('\u0000')) {
             return "[ERROR] Empty or oversized Shizuku command."
         }
+        TerminalCommandPolicy.refusalReason(request)?.let { reason -> return "[BLOCKED] $reason" }
 
         var process: Process? = null
         val output = ByteArrayOutputStream()

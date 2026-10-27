@@ -1,0 +1,2 @@
+# Host-side protocol test client only. Termux runtime is native C++/llama.cpp; Python is not installed by bootstrap.
+mcp==1.30.0
