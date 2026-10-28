@@ -215,6 +215,30 @@ fun main() {
         expect(runtime.usage().lines == 0, "no billable lines")
     }
 
+    test("Lucifer can call his own server without a token, and is still metered as internal") {
+        val host = RecordingHost()
+        val runtime = runtime(executor = host)
+        val body = """{"jsonrpc":"2.0","id":"owner","method":"tools/call","params":{"name":"lean.check",""" +
+            """"arguments":{"project":"toe","module":"ToE","source":"theorem lucifer : True := trivial"}}}"""
+        val handling = runtime.ownerCall(body)
+        expect(handling.status == 200, handling.body)
+        expect(host.jobs.size == 1, "the job ran")
+        expect(handling.charge == 0, "internal is free")
+        val key = runtime.keys().single()
+        expect(key.plan == Plan.INTERNAL, key.plan.name)
+        expect(key.scopes.contains(Scope.BUILD), "internal scope is complete")
+
+        val unknown = runtime.ownerCall(
+            """{"jsonrpc":"2.0","id":"owner","method":"tools/call","params":{"name":"lean.check",""" +
+                """"arguments":{"project":"not-configured","source":"theorem a : True := trivial"}}}"""
+        )
+        expect(unknown.status == 422, "the owner is screened too")
+        expect(host.jobs.size == 1, "and nothing ran")
+
+        val handshake = runtime.ownerCall("""{"jsonrpc":"2.0","id":1,"method":"tools/list"}""")
+        expect(handshake.status == 200, "the owner can list tools")
+    }
+
     // ── the command tripwire ────────────────────────────────────────
     test("the tripwire accepts every planned command and refuses a tampered one") {
         val project = LeanProject("toe", "Omega", "/srv/lean/omega", "ToE")

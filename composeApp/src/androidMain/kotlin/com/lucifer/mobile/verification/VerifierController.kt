@@ -3,6 +3,7 @@ package com.lucifer.mobile.verification
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.lucifer.mobile.resilience.JsonLite
 import com.lucifer.mobile.security.SecretStore
 
 /**
@@ -111,6 +112,41 @@ object VerifierController {
 
     fun setProjectRoot(context: Context, root: String): Boolean =
         runtime(context).setProjectRoot(VerifierDefaults.toe.id, root)
+
+    /**
+     * Lucifer checking something with his own identity and no token — the path a bounty reproduction, a
+     * workflow gate, or a theory-of-everything change uses. It is the same pipeline as a customer call:
+     * planning, the source screen, the quota rule and the executor all run; only authentication is
+     * internal, and the tool is free on the internal plan.
+     */
+    fun ownerTool(
+        context: Context,
+        tool: VerifierTool,
+        project: String = VerifierDefaults.toe.id,
+        module: String? = null,
+        source: String? = null,
+        declarations: List<String> = emptyList(),
+        timeoutSeconds: Int? = null
+    ): JobResult? {
+        val arguments = linkedMapOf<String, Any?>("project" to project)
+        if (module != null) arguments["module"] = module
+        if (source != null) arguments["source"] = source
+        if (declarations.isNotEmpty()) arguments["declarations"] = declarations
+        if (timeoutSeconds != null) arguments["timeout_seconds"] = timeoutSeconds
+        val body = JsonLite.stringify(
+            linkedMapOf<String, Any?>(
+                "jsonrpc" to "2.0",
+                "id" to "owner",
+                "method" to "tools/call",
+                "params" to linkedMapOf<String, Any?>("name" to tool.wireName, "arguments" to arguments)
+            )
+        )
+        return runtime(context).ownerCall(body).result
+    }
+
+    /** The common case: check a theorem Lucifer just wrote, against his own project. */
+    fun ownerCheck(context: Context, source: String, module: String? = null): JobResult? =
+        ownerTool(context, VerifierTool.CHECK, module = module, source = source)
 
     /**
      * The command that would publish the loopback endpoint. It is returned as text, never executed

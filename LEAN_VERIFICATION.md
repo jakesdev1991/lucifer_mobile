@@ -75,6 +75,12 @@ attached later without renegotiating semantics.
 Lucifer's internal key is what he uses for **bug-bounty reproduction**, **workflow verification**, and
 **the theory-of-everything proofs**. It is never blocked and never billed.
 
+He does not need the token to use it. `VerifierRuntime.ownerCall` resolves his internal key record
+directly, so the owner path skips authentication but not planning, source screening, quota or the
+executor — `VerifierController.ownerTool(...)` and `ownerCheck(...)` are the entry points a workflow or
+a bounty run would use. That is also why the internal token can stay shown-once: nothing has to keep it
+around to call in.
+
 ## Keys
 
 - Format `lvs_<key id>_<24-char secret>`, ids `k` + 8 characters.
@@ -140,7 +146,7 @@ declarations, source on `build`); timeout clamping both ways; the command is bou
 contains no raw source; per-tool command shapes; base64 round-trip including multibyte text; result
 parsing; project registry validation; the tunnel token never on the command line.
 
-**Runtime and transport (15 checks)** — keys persist as hashes only and survive reload; a corrupt key
+**Runtime and transport (16 checks)** — keys persist as hashes only and survive reload; a corrupt key
 file resurrects nothing; ledger/project codecs round-trip and reject nonsense; the handshake is free
 and everything else needs a key; a metered key is charged once and the meter and ledger survive a
 restart; a job that never reached a host is not billed; refused requests and exhausted quota never
@@ -148,7 +154,8 @@ touch the host; a revoked key is refused everywhere; the internal key is unbound
 command tripwire accepts every planned command and refuses tampered ones (missing timeout, no temp
 dir, no cleanup, unpinned root); a **real loopback socket** serves `/mcp` and `/health`, refuses
 unknown paths with 404 and `GET /mcp` with 405, and refuses an oversized body with 413 before reading
-it; framing rejects junk and chunked bodies; the panel state never carries a token it was not handed.
+it; framing rejects junk and chunked bodies; the panel state never carries a token it was not handed;
+and Lucifer can call his own server through the same gates without presenting a token.
 
 **Adapter type-check** — `VerificationService`, `VerifierController`, `VmJobExecutor` and the runtime
 compile against stubs of the Android surface they use.

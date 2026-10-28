@@ -330,9 +330,27 @@ class VerifierRuntime(
      * (`transport == "none"`) is never charged at all.
      */
     fun handle(raw: String, authorization: String?): McpProtocol.Handling {
-        val now = clock()
         val token = ApiKeys.tokenFromHeader(authorization)
         val key = token?.let { presented -> synchronized(lock) { ApiKeys.find(keys, presented) } }
+        return dispatch(raw, key)
+    }
+
+    /**
+     * Lucifer's own path through the same gates.
+     *
+     * The owner process does not present a bearer token to itself: it resolves its internal key record
+     * directly, so the planner, the source screen, the quota rule and the executor all still apply. That
+     * is also why the internal token can stay shown-once — nothing needs to keep it around to call in.
+     */
+    fun ownerCall(raw: String): McpProtocol.Handling {
+        val record = synchronized(lock) {
+            keys.firstOrNull { it.plan == Plan.INTERNAL && !it.revoked }
+        } ?: ensureInternalKey()?.record
+        return dispatch(raw, record)
+    }
+
+    private fun dispatch(raw: String, key: ApiKeyRecord?): McpProtocol.Handling {
+        val now = clock()
         val handling = McpProtocol.handle(
             raw = raw,
             caller = key?.let { record ->
