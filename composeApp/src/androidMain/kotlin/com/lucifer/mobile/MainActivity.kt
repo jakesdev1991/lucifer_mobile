@@ -27,6 +27,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Memory
@@ -75,6 +76,11 @@ import com.lucifer.mobile.ui.components.AnimatedSkillsPanel
 import com.lucifer.mobile.ui.components.AnimatedTabBar
 import com.lucifer.mobile.ui.components.AnimatedTerminal
 import com.lucifer.mobile.ui.components.BrowserControlPanel
+import com.lucifer.mobile.agents.android.ObservationBus
+import com.lucifer.mobile.agents.android.PromptStore
+import com.lucifer.mobile.agents.android.TacticianService
+import com.lucifer.mobile.tactician.ObservationKind
+import com.lucifer.mobile.ui.components.AgentsPanel
 import com.lucifer.mobile.ui.components.HeartbeatControlPanel
 import com.lucifer.mobile.ui.components.WalletControlPanel
 import com.lucifer.mobile.ui.components.WorkflowControlPanel
@@ -278,6 +284,9 @@ class MainActivity : ComponentActivity() {
                     onDispose { Shizuku.removeRequestPermissionResultListener(permissionListener) }
                 }
                 var heartbeatPermissionAction by remember { mutableStateOf("start") }
+                // Shared launcher: the tactician asks only for POST_NOTIFICATIONS, and this flag
+                // decides which foreground service to start once the grant returns.
+                var tacticianPermissionRequested by remember { mutableStateOf(false) }
                 val heartbeatPermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestMultiplePermissions()
                 ) { _ ->
@@ -287,8 +296,20 @@ class MainActivity : ComponentActivity() {
                     val notificationsGranted = Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(
                         this@MainActivity, Manifest.permission.POST_NOTIFICATIONS
                     ) == PackageManager.PERMISSION_GRANTED
-                    val cameraRequired = heartbeatPermissionAction == "camera"
-                    if (notificationsGranted && (!cameraRequired || cameraGranted)) {
+                    val cameraRequired = heartbeatPermissionAction == "camera" && !tacticianPermissionRequested
+                    if (tacticianPermissionRequested) {
+                        tacticianPermissionRequested = false
+                        settingsToast = if (!notificationsGranted) {
+                            "The General was not started: allow notifications so its foreground status stays visible."
+                        } else {
+                            try {
+                                TacticianService.start(this@MainActivity)
+                                "The General is watching. One bounded pass every ~60 minutes; stop it from the notification or the Agents panel."
+                            } catch (e: Exception) {
+                                "Could not start the tactician: ${e.message ?: "system denied foreground service"}"
+                            }
+                        }
+                    } else if (notificationsGranted && (!cameraRequired || cameraGranted)) {
                         try {
                             if (heartbeatPermissionAction == "camera") LuciferHeartbeatService.enableCamera(this@MainActivity)
                             else LuciferHeartbeatService.start(this@MainActivity)
@@ -382,6 +403,16 @@ class MainActivity : ComponentActivity() {
                         } catch (e: Exception) {
                             null
                         }
+                        // The General's view of what actually ran. Summary only; output stays in the terminal.
+                        ObservationBus.record(
+                            this@MainActivity,
+                            ObservationKind.TERMINAL,
+                            "ran on ${action.target.displayName}: ${action.command.take(160)}",
+                            detail = result.takeLast(6).joinToString("\n"),
+                            source = "terminal",
+                            severity = if (failure != null) 2 else 0,
+                            tags = listOf(action.target.name.lowercase())
+                        )
                         if (recoveryMove != null) {
                             resilience.recordAttempt(
                                 recoveryMove,
@@ -616,6 +647,30 @@ class MainActivity : ComponentActivity() {
                     settingsToast = "Heartbeat stopped."
                 }
 
+                // The General runs as a foreground service, so it needs the same notification grant.
+                fun startTactician() {
+                    try {
+                        TacticianService.start(this@MainActivity)
+                        settingsToast = "The General is watching. One bounded pass every ~60 minutes; stop it from the notification or this panel."
+                    } catch (e: Exception) {
+                        settingsToast = "Could not start the tactician: ${e.message ?: "system denied foreground service"}"
+                    }
+                }
+
+                fun requestTacticianStart() {
+                    val missing = if (Build.VERSION.SDK_INT >= 33) {
+                        listOf(Manifest.permission.POST_NOTIFICATIONS).filter {
+                            ContextCompat.checkSelfPermission(this@MainActivity, it) != PackageManager.PERMISSION_GRANTED
+                        }
+                    } else emptyList()
+                    if (missing.isNotEmpty()) {
+                        tacticianPermissionRequested = true
+                        heartbeatPermissionLauncher.launch(missing.toTypedArray())
+                    } else {
+                        startTactician()
+                    }
+                }
+
                 var selectedTab by remember { mutableStateOf(intent?.getIntExtra("lucifer_tab", 0) ?: 0) }
 
                 LaunchedEffect(selectedTab) {
@@ -651,7 +706,8 @@ class MainActivity : ComponentActivity() {
                                     TabItem("Browser", Icons.Filled.Language),
                                     TabItem("Heartbeat", Icons.Filled.Psychology),
                                     TabItem("Work", Icons.Filled.Build),
-                                    TabItem("Recover", Icons.Filled.Autorenew)
+                                    TabItem("Recover", Icons.Filled.Autorenew),
+                                    TabItem("Agents", Icons.Filled.Face)
                                 )
                             )
 
@@ -738,6 +794,7 @@ class MainActivity : ComponentActivity() {
                                                             "wallet" -> 4
                                                             "browser" -> 5
                                                             "heartbeat" -> 6
+                                                            "agents", "general", "tactician" -> 9
                                                             "workflow", "workflows" -> 7
                                                             "recover", "recovery" -> 8
                                                             else -> 0
@@ -795,6 +852,7 @@ class MainActivity : ComponentActivity() {
                                 3 -> AnimatedSettingsPanel(
                                     modifier = Modifier.fillMaxSize(),
                                     onSoulMdEdit = { saveSoulPrompt(it) },
+                                    onAgentPanelOpen = { selectedTab = 9 },
                                     onManageWallets = { selectedTab = 4 },
                                     onHeartbeatOpen = { selectedTab = 6 },
                                     shizukuStatus = shizukuStatus.message,
@@ -1184,6 +1242,16 @@ class MainActivity : ComponentActivity() {
                                         onForgetSignature = { resilience.forgetCurrentSignature() }
                                     )
                                 }
+                                9 -> AgentsPanel(
+                                    modifier = Modifier.fillMaxSize(),
+                                    statusMessage = settingsToast,
+                                    onStartGeneral = { requestTacticianStart() },
+                                    onStopGeneral = {
+                                        TacticianService.stop(this@MainActivity)
+                                        settingsToast = "The General stopped watching."
+                                    },
+                                    onNotify = { message -> settingsToast = message }
+                                )
                             }
                         }
                     }
@@ -1635,13 +1703,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun saveSoulPrompt(prompt: String) {
-        try {
-            val file = File(filesDir, "soul.md")
-            FileOutputStream(file).use { output -> output.write(prompt.toByteArray()) }
-        } catch (e: Exception) {
-            Log.e("MainActivity", "saveSoulPrompt failed", e)
-        }
+    fun saveSoulPrompt(prompt: String): Boolean {
+        // Settings edits use the same validation as the Agents editor: minimum length, no
+        // credentials, atomic write. A rejected edit leaves the previous soul.md intact.
+        val result = PromptStore(this).saveSoul(prompt)
+        if (!result.saved) Log.w("MainActivity", "saveSoulPrompt rejected: ${result.message}")
+        return result.saved
     }
 
     fun saveVmPassword(password: String) {

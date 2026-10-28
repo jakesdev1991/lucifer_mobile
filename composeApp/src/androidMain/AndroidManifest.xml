@@ -111,6 +111,12 @@
             android:exported="false"
             android:foregroundServiceType="dataSync|camera" />
 
+        <!-- The General: user-enabled, notification-visible, proposes only. No execution path. -->
+        <service
+            android:name=".agents.android.TacticianService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <receiver
             android:name=".omni_bridge.heartbeat.HeartbeatBootReceiver"
             android:enabled="true"

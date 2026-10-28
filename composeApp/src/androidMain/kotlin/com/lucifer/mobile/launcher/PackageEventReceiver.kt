@@ -1,6 +1,8 @@
 package com.lucifer.mobile.launcher
 
 import android.content.BroadcastReceiver
+import com.lucifer.mobile.agents.android.ObservationBus
+import com.lucifer.mobile.tactician.ObservationKind
 import android.content.Context
 import android.content.Intent
 import android.util.Log
@@ -25,6 +27,16 @@ class PackageEventReceiver : BroadcastReceiver() {
             else -> return
         }
         LuciferState.log("[$verb] $pkg")
+        try {
+            ObservationBus.record(
+                context, ObservationKind.APP_EVENT,
+                "app ${verb.lowercase()}: $pkg",
+                detail = "Package change recorded by Lucifer's launcher receiver.",
+                source = "package-receiver", tags = listOf(pkg)
+            )
+        } catch (_: Exception) {
+            // Sensing must never break the receiver.
+        }
         try {
             val dir = File(context.filesDir, "memory")
             dir.mkdirs()

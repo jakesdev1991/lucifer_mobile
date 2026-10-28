@@ -58,7 +58,8 @@ import androidx.compose.ui.unit.sp
 @Composable
 fun AnimatedSettingsPanel(
     modifier: Modifier = Modifier,
-    onSoulMdEdit: (String) -> Unit = {},
+    onSoulMdEdit: (String) -> Boolean = { true },
+    onAgentPanelOpen: () -> Unit = {},
     onManageWallets: () -> Unit = {},
     onHeartbeatOpen: () -> Unit = {},
     onShizukuRequest: () -> Unit = {},
@@ -125,6 +126,13 @@ fun AnimatedSettingsPanel(
     }
     var shizukuPackageText by remember { mutableStateOf("com.mirfatif.permissionmanagerx") }
     var soulMdText by remember { mutableStateOf("") }
+    var soulSaved by remember { mutableStateOf(0) }
+    // Show the soul that is actually in force, not an empty box that would overwrite it.
+    LaunchedEffect(context) {
+        soulMdText = withContext(Dispatchers.IO) {
+            com.lucifer.mobile.agents.android.PromptStore(context).soul().body
+        }
+    }
     var vmPasswordText by remember { mutableStateOf("") }
     var knowledgeUrlText by remember { mutableStateOf(savedKnowledgeUrl) }
     var memoryMcpUrlText by remember { mutableStateOf(savedMemoryMcpUrl) }
@@ -148,10 +156,16 @@ fun AnimatedSettingsPanel(
         }
 
         // Soul.md Editor
-        SettingsCard(title = "SOUL.MD", icon = { Icon(Icons.Filled.Info, contentDescription = "Soul", tint = Color(0xFF8B0000), modifier = Modifier.size(24.dp)) }) {
+        SettingsCard(title = "SOUL.MD + HEARTBEAT.MD", icon = { Icon(Icons.Filled.Info, contentDescription = "Soul", tint = Color(0xFF8B0000), modifier = Modifier.size(24.dp)) }) {
+            Text(
+                "His identity. This overrides the copy shipped in the APK for chat, heartbeat sessions, and the cognitive router. " +
+                    "Saved explicitly, not on every keystroke, so a half-typed edit cannot reach the model. heartbeat.md and each agent's " +
+                    "agent-class.md are edited in the Agents tab.",
+                color = Color(0xFFB8AEB8), fontSize = 11.sp
+            )
             TextField(
                 value = soulMdText,
-                onValueChange = { soulMdText = it; onSoulMdEdit(it) },
+                onValueChange = { soulMdText = it.take(16_000) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(120.dp),
@@ -167,6 +181,22 @@ fun AnimatedSettingsPanel(
                     disabledIndicatorColor = Color.Transparent
                 ),
                 placeholder = { Text("Edit your Soul.md identity...", color = Color(0xFF443344)) }
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { if (onSoulMdEdit(soulMdText)) soulSaved = soulMdText.length },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B0000), contentColor = Color.White)
+                ) { Text("SAVE SOUL.MD", fontSize = 11.sp) }
+                Button(
+                    onClick = { onAgentPanelOpen() },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2A1533), contentColor = Color(0xFFE2D6FF))
+                ) { Text("AGENTS · HEARTBEAT", fontSize = 11.sp) }
+            }
+            Text(
+                if (soulSaved > 0) "Saved · $soulSaved characters in files/soul.md." else "Not saved yet in this session.",
+                color = if (soulSaved > 0) Color(0xFF00FF88) else Color(0xFF8B7D8B), fontSize = 9.sp
             )
         }
 

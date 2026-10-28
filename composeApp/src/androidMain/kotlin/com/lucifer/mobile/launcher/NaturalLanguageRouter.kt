@@ -280,7 +280,8 @@ class NaturalLanguageRouter(context: Context) {
     private companion object {
         val SETTINGS_SECTIONS = setOf("general", "wifi", "bluetooth", "location", "display", "sound", "notifications", "battery", "apps", "app_permissions")
         val CONTROL_PANELS = setOf(
-            "wallet", "browser", "terminal", "memory", "skills", "settings", "heartbeat", "workflow", "workflows", "recover", "recovery"
+            "wallet", "browser", "terminal", "memory", "skills", "settings", "heartbeat", "workflow", "workflows",
+            "recover", "recovery", "agents", "tactician"
         )
         val SAFE_READ_ONLY_COMMANDS = setOf("pwd", "ls", "df", "free", "uptime", "whoami", "hostname", "date", "uname", "id", "ps")
         val SHELL_COMMANDS = setOf(

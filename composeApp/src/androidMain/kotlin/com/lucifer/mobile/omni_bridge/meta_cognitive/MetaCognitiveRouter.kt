@@ -54,7 +54,11 @@ class MetaCognitiveRouter(private val context: Context) {
     )
     
     private fun loadFrozenPrefix(): String {
+        // files/soul.md (user-edited) wins over the APK asset, exactly like NemotronClient, so the
+        // cognitive router cannot run on a stale identity.
         return try {
+            val override = java.io.File(context.filesDir, "soul.md")
+            if (override.isFile && override.length() > 0L) return override.readText()
             val inputStream = context.assets.open("soul.md")
             BufferedReader(InputStreamReader(inputStream)).use { it.readText() }
         } catch (e: Exception) {
