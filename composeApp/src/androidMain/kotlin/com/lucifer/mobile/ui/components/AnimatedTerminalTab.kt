@@ -35,6 +35,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lucifer.mobile.ui.theme.Morningstar
 
 @Composable
 fun AnimatedTerminal(
@@ -57,7 +58,7 @@ fun AnimatedTerminal(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0A0A0A))
+            .background(Morningstar.Void)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -72,7 +73,7 @@ fun AnimatedTerminal(
                         .weight(1f)
                         .height(36.dp)
                         .background(
-                            if (isSelected) Color(0xFF8B0000) else Color(0xFF1A0A1A),
+                            if (isSelected) Morningstar.Blood else Morningstar.Glass,
                             RoundedCornerShape(8.dp)
                         )
                         .clickable { onTargetSelected(idx) },
@@ -82,8 +83,8 @@ fun AnimatedTerminal(
                         text = label,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        color = if (isSelected) Color(0xFFFFD700) else Color(0xFF8B7D8B)
+                        fontFamily = Morningstar.MonoTail,
+                        color = if (isSelected) Morningstar.Gilded else Morningstar.Ash
                     )
                 }
             }
@@ -95,45 +96,45 @@ fun AnimatedTerminal(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Box(
-                    modifier = Modifier.weight(1f).height(34.dp).background(Color(0xFF164A36), RoundedCornerShape(8.dp)).clickable { onOpenInteractiveTermux() },
+                    modifier = Modifier.weight(1f).height(34.dp).background(Morningstar.SuccessDim, RoundedCornerShape(8.dp)).clickable { onOpenInteractiveTermux() },
                     contentAlignment = Alignment.Center
-                ) { Text("OPEN PTY + CHAT", color = Color(0xFFB8FFD8), fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                ) { Text("OPEN PTY + CHAT", color = Morningstar.Success, fontSize = 10.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold) }
                 Box(
-                    modifier = Modifier.weight(1f).height(34.dp).background(Color(0xFF2A2440), RoundedCornerShape(8.dp)).clickable { onInstallTermuxTools() },
+                    modifier = Modifier.weight(1f).height(34.dp).background(Morningstar.InfoDim, RoundedCornerShape(8.dp)).clickable { onInstallTermuxTools() },
                     contentAlignment = Alignment.Center
-                ) { Text("INSTALL TOOLKIT", color = Color(0xFFD8C8FF), fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+                ) { Text("INSTALL TOOLKIT", color = Morningstar.Info, fontSize = 10.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold) }
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Box(
-                    modifier = Modifier.weight(1f).height(32.dp).background(Color(0xFF182A31), RoundedCornerShape(8.dp)).clickable { onStageStaticSite() },
+                    modifier = Modifier.weight(1f).height(32.dp).background(Morningstar.Whisper, RoundedCornerShape(8.dp)).clickable { onStageStaticSite() },
                     contentAlignment = Alignment.Center
-                ) { Text("STAGE STATIC", color = Color(0xFFB8E8FF), fontSize = 9.sp, fontWeight = FontWeight.Bold) }
+                ) { Text("STAGE STATIC", color = Morningstar.Info, fontSize = 9.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold) }
                 Box(
-                    modifier = Modifier.weight(1f).height(32.dp).background(Color(0xFF182A31), RoundedCornerShape(8.dp)).clickable { onStageApiSite() },
+                    modifier = Modifier.weight(1f).height(32.dp).background(Morningstar.Whisper, RoundedCornerShape(8.dp)).clickable { onStageApiSite() },
                     contentAlignment = Alignment.Center
-                ) { Text("STAGE API", color = Color(0xFFB8E8FF), fontSize = 9.sp, fontWeight = FontWeight.Bold) }
+                ) { Text("STAGE API", color = Morningstar.Info, fontSize = 9.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold) }
             }
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Box(
-                    modifier = Modifier.weight(1f).height(32.dp).background(Color(0xFF3A3020), RoundedCornerShape(8.dp)).clickable { onStagePaymentDemo() },
+                    modifier = Modifier.weight(1f).height(32.dp).background(Morningstar.Whisper, RoundedCornerShape(8.dp)).clickable { onStagePaymentDemo() },
                     contentAlignment = Alignment.Center
-                ) { Text("PAYMENT DEMO", color = Color(0xFFFFD98A), fontSize = 9.sp, fontWeight = FontWeight.Bold) }
+                ) { Text("PAYMENT DEMO", color = Morningstar.Gilded, fontSize = 9.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold) }
                 Box(
-                    modifier = Modifier.weight(1f).height(32.dp).background(Color(0xFF3A2020), RoundedCornerShape(8.dp)).clickable { onStopLocalSites() },
+                    modifier = Modifier.weight(1f).height(32.dp).background(Morningstar.Whisper, RoundedCornerShape(8.dp)).clickable { onStopLocalSites() },
                     contentAlignment = Alignment.Center
-                ) { Text("STOP PREVIEWS", color = Color(0xFFFFCACA), fontSize = 9.sp, fontWeight = FontWeight.Bold) }
+                ) { Text("STOP PREVIEWS", color = Morningstar.Crimson, fontSize = 9.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold) }
             }
         } else if (target == 2) {
             Box(
-                modifier = Modifier.fillMaxWidth().height(34.dp).background(Color(0xFF164A36), RoundedCornerShape(8.dp)).clickable { onOpenAndroidLinux() },
+                modifier = Modifier.fillMaxWidth().height(34.dp).background(Morningstar.SuccessDim, RoundedCornerShape(8.dp)).clickable { onOpenAndroidLinux() },
                 contentAlignment = Alignment.Center
-            ) { Text("OPEN ANDROID LINUX + CHAT", color = Color(0xFFB8FFD8), fontSize = 10.sp, fontWeight = FontWeight.Bold) }
+            ) { Text("OPEN ANDROID LINUX + CHAT", color = Morningstar.Success, fontSize = 10.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold) }
         }
 
         LazyColumn(
@@ -146,15 +147,15 @@ fun AnimatedTerminal(
             items(outputLines) { line ->
                 Text(
                     text = line,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = Morningstar.MonoTail,
                     fontSize = 12.sp,
                     color = when {
-                        line.startsWith("[ERROR]") -> Color(0xFFFF4444)
-                        line.startsWith("[WARN]") -> Color(0xFFFFAA00)
-                        line.startsWith("[SUCCESS]") -> Color(0xFF00FF88)
-                        line.startsWith("[INFO]") -> Color(0xFF88CCFF)
-                        line.startsWith("$") -> Color(0xFFFFD700)
-                        else -> Color(0xFFE0E0E0)
+                        line.startsWith("[ERROR]") -> Morningstar.Crimson
+                        line.startsWith("[WARN]") -> Morningstar.Warning
+                        line.startsWith("[SUCCESS]") -> Morningstar.Success
+                        line.startsWith("[INFO]") -> Morningstar.Info
+                        line.startsWith("$") -> Morningstar.Gilded
+                        else -> Morningstar.Bone
                     },
                     modifier = Modifier.fillMaxWidth(),
                     overflow = TextOverflow.Ellipsis
@@ -165,9 +166,9 @@ fun AnimatedTerminal(
         if (isProcessing) {
             Text(
                 text = "…executing",
-                color = Color(0xFFFFD700),
+                color = Morningstar.Gilded,
                 fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace
+                fontFamily = Morningstar.MonoTail
             )
         }
 
@@ -177,9 +178,9 @@ fun AnimatedTerminal(
         ) {
             Text(
                 text = "$ ",
-                fontFamily = FontFamily.Monospace,
+                fontFamily = Morningstar.MonoTail,
                 fontSize = 14.sp,
-                color = Color(0xFFFFD700)
+                color = Morningstar.Gilded
             )
             TextField(
                 value = cmdText,
@@ -202,14 +203,14 @@ fun AnimatedTerminal(
                 visualTransformation = VisualTransformation.None,
                 colors = TextFieldDefaults.textFieldColors(
                     containerColor = Color.Transparent,
-                    focusedTextColor = Color(0xFFE0E0E0),
-                    unfocusedTextColor = Color(0xFFE0E0E0),
-                    cursorColor = Color(0xFFFFD700),
+                    focusedTextColor = Morningstar.Bone,
+                    unfocusedTextColor = Morningstar.Bone,
+                    cursorColor = Morningstar.Gilded,
                     focusedIndicatorColor = Color.Transparent,
                     unfocusedIndicatorColor = Color.Transparent,
                     disabledIndicatorColor = Color.Transparent
                 ),
-                placeholder = { Text("Ask naturally or enter a command…", color = Color(0xFF665566)) }
+                placeholder = { Text("Ask naturally or enter a command…", color = Morningstar.Ash) }
             )
         }
     }

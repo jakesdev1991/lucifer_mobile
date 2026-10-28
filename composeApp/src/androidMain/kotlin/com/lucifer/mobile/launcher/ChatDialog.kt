@@ -56,6 +56,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lucifer.mobile.ui.theme.Morningstar
 
 data class ChatMessage(
     val text: String,
@@ -114,8 +115,8 @@ fun ChatDialog(
             .imePadding()
             .graphicsLayer { translationY = slideIn.value }
             .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-            .background(Color(0xFF0A030A))
-            .border(1.dp, Color(0xFF8B0000).copy(alpha = 0.35f), RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+            .background(Morningstar.Void)
+            .border(1.dp, Morningstar.Blood.copy(alpha = 0.35f), RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
     ) {
         Column(
             modifier = Modifier
@@ -125,47 +126,47 @@ fun ChatDialog(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF160A16))
+                    .background(Morningstar.Glass)
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "LUCIFER · CHAT",
-                    color = Color(0xFFFFD700),
+                    color = Morningstar.Gilded,
                     fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = Morningstar.MonoTail,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.sp
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
                     text = "default: ${selectedTarget.displayName}",
-                    color = Color(0xFF8B7D8B),
+                    color = Morningstar.Ash,
                     fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = Morningstar.MonoTail
                 )
                 Spacer(Modifier.width(10.dp))
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFF251525))
+                        .background(Morningstar.GlassRaised)
                         .clickable { onToggleVoice() }
                         .padding(horizontal = 8.dp, vertical = 3.dp)
                 ) {
                     Text(
                         if (voiceMuted) "🔇" else "🔊",
-                        fontSize = 11.sp
+                        fontSize = 11.sp, fontFamily = Morningstar.Body
                     )
                 }
                 Spacer(Modifier.width(6.dp))
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFF251525))
+                        .background(Morningstar.GlassRaised)
                         .clickable { onClose() }
                         .padding(horizontal = 10.dp, vertical = 3.dp)
                 ) {
-                    Text("✕", color = Color(0xFFFFD700), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text("✕", color = Morningstar.Gilded, fontSize = 12.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold)
                 }
             }
 
@@ -174,7 +175,7 @@ fun ChatDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .background(Color(0xFF100610))
+                    .background(Morningstar.Void)
                     .padding(horizontal = 12.dp, vertical = 5.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -184,15 +185,15 @@ fun ChatDialog(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(if (selected) Color(0xFF8B0000) else Color(0xFF251525))
+                            .background(if (selected) Morningstar.Blood else Morningstar.GlassRaised)
                             .clickable { onTargetSelected(destination) }
                             .padding(horizontal = 9.dp, vertical = 4.dp)
                     ) {
                         Text(
                             destination.displayName,
-                            color = if (selected) Color(0xFFFFD700) else Color(0xFF8B7D8B),
+                            color = if (selected) Morningstar.Gilded else Morningstar.Ash,
                             fontSize = 9.sp,
-                            fontFamily = FontFamily.Monospace,
+                            fontFamily = Morningstar.MonoTail,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -204,7 +205,7 @@ fun ChatDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF12060F))
+                        .background(Morningstar.Void)
                         .padding(horizontal = 14.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -215,15 +216,15 @@ fun ChatDialog(
                     )
                     Text(
                         "λ ",
-                        color = Color(0xFFFFD700).copy(alpha = 0.4f + shimmer * 0.6f),
+                        color = Morningstar.Gilded.copy(alpha = 0.4f + shimmer * 0.6f),
                         fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = Morningstar.MonoTail
                     )
                     Text(
                         "understanding · routing · responding…",
-                        color = Color(0xFF8B7D8B).copy(alpha = 0.5f + shimmer * 0.5f),
+                        color = Morningstar.Ash.copy(alpha = 0.5f + shimmer * 0.5f),
                         fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = Morningstar.MonoTail
                     )
                 }
             }
@@ -247,20 +248,20 @@ fun ChatDialog(
                                 .width(290.dp)
                                 .clip(RoundedCornerShape(12.dp))
                                 .background(
-                                    if (msg.fromLucifer) Color(0xFF1A0A1A) else Color(0xFF3A0A0A)
+                                    if (msg.fromLucifer) Morningstar.Glass else Morningstar.CrimsonDim
                                 )
                                 .border(
                                     1.dp,
-                                    if (msg.fromLucifer) Color(0xFF8B0000).copy(alpha = 0.3f) else Color(0xFFFFD700).copy(alpha = 0.3f),
+                                    if (msg.fromLucifer) Morningstar.Blood.copy(alpha = 0.3f) else Morningstar.Gilded.copy(alpha = 0.3f),
                                     RoundedCornerShape(12.dp)
                                 )
                                 .padding(horizontal = 10.dp, vertical = 8.dp)
                         ) {
                             Text(
                                 text = (if (msg.fromLucifer) "λ " else "» ") + msg.text,
-                                color = if (msg.fromLucifer) Color(0xFFE0E0E0) else Color(0xFFFFE9E9),
+                                color = if (msg.fromLucifer) Morningstar.Bone else Morningstar.Gilded,
                                 fontSize = 12.sp,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = Morningstar.MonoTail,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
@@ -272,25 +273,25 @@ fun ChatDialog(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF24150A))
+                        .background(Morningstar.Whisper)
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
                         "CONFIRM · ${pendingAction.target.displayName}",
-                        color = Color(0xFFFFD700),
+                        color = Morningstar.Gilded,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = Morningstar.MonoTail
                     )
                     pendingDestinationDetails?.let {
-                        Text(it, color = Color(0xFFB8AEB8), fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                        Text(it, color = Morningstar.Ash, fontSize = 9.sp, fontFamily = Morningstar.MonoTail)
                     }
                     Text(
                         pendingAction.command,
-                        color = Color(0xFFE0E0E0),
+                        color = Morningstar.Bone,
                         fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = Morningstar.MonoTail,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -298,20 +299,20 @@ fun ChatDialog(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFF8B0000))
+                                .background(Morningstar.Blood)
                                 .clickable { onConfirmAction() }
                                 .padding(horizontal = 12.dp, vertical = 5.dp)
                         ) {
-                            Text("RUN COMMAND", color = Color(0xFFFFD700), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Text("RUN COMMAND", color = Morningstar.Gilded, fontSize = 10.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold)
                         }
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(Color(0xFF251525))
+                                .background(Morningstar.GlassRaised)
                                 .clickable { onCancelAction() }
                                 .padding(horizontal = 12.dp, vertical = 5.dp)
                         ) {
-                            Text("CANCEL", color = Color(0xFFB8AAB8), fontSize = 10.sp)
+                            Text("CANCEL", color = Morningstar.Bone, fontSize = 10.sp, fontFamily = Morningstar.Body)
                         }
                     }
                 }
@@ -321,23 +322,23 @@ fun ChatDialog(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF0D050D))
+                    .background(Morningstar.Void)
                     .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     "λ ",
-                    color = Color(0xFFFFD700),
+                    color = Morningstar.Gilded,
                     fontSize = 16.sp,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = Morningstar.MonoTail
                 )
                 Box(Modifier.weight(1f)) {
                     if (input.isEmpty()) {
                         Text(
                             "speak to him…",
-                            color = Color(0xFF665566),
+                            color = Morningstar.Ash,
                             fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace
+                            fontFamily = Morningstar.MonoTail
                         )
                     }
                     BasicTextField(
@@ -346,9 +347,9 @@ fun ChatDialog(
                         enabled = !thinking && pendingAction == null,
                         singleLine = true,
                         textStyle = TextStyle(
-                            color = Color(0xFFE0E0E0),
+                            color = Morningstar.Bone,
                             fontSize = 12.sp,
-                            fontFamily = FontFamily.Monospace
+                            fontFamily = Morningstar.MonoTail
                         ),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                         keyboardActions = KeyboardActions(onSend = {
@@ -358,7 +359,7 @@ fun ChatDialog(
                                 input = ""
                             }
                         }),
-                        cursorBrush = Brush.verticalGradient(listOf(Color(0xFFFFD700), Color(0xFF8B0000))),
+                        cursorBrush = Brush.verticalGradient(listOf(Morningstar.Gilded, Morningstar.Blood)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .focusRequester(focusRequester)
@@ -368,7 +369,7 @@ fun ChatDialog(
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF8B0000))
+                        .background(Morningstar.Blood)
                         .clickable(enabled = !thinking && pendingAction == null) {
                             val trimmed = input.trim()
                             if (trimmed.isNotBlank()) {
@@ -378,7 +379,7 @@ fun ChatDialog(
                         }
                         .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
-                    Text("SEND", color = Color(0xFFFFD700), fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    Text("SEND", color = Morningstar.Gilded, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = Morningstar.MonoTail)
                 }
             }
         }

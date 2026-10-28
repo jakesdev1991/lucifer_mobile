@@ -45,6 +45,11 @@ import com.lucifer.mobile.agents.android.TacticianService
 import com.lucifer.mobile.tactician.Opportunity
 import com.lucifer.mobile.tactician.OpportunityCategory
 import com.lucifer.mobile.tactician.TacticianEngine
+import com.lucifer.mobile.ui.effects.Disintegration
+import com.lucifer.mobile.ui.effects.SigilRule
+import com.lucifer.mobile.ui.effects.glassSurface
+import com.lucifer.mobile.ui.effects.shard
+import com.lucifer.mobile.ui.theme.Morningstar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -81,6 +86,7 @@ fun AgentsPanel(
     var section by remember { mutableStateOf(AgentsSection.GENERAL) }
     var refreshTick by remember { mutableStateOf(0) }
     var busy by remember { mutableStateOf(false) }
+    var purge by remember { mutableStateOf(0) }
     var note by remember { mutableStateOf<String?>(null) }
 
     var heartbeatText by remember { mutableStateOf("") }
@@ -153,26 +159,32 @@ fun AgentsPanel(
         }
     }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0D050D))
+            .background(Morningstar.Void)
+    ) {
+    // Erasure: when the ledger is cleared, the data burns away instead of blinking out.
+    Disintegration(trigger = purge, embers = 64)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("AGENT ECOSYSTEM", color = Color(0xFFFFD700), fontSize = 19.sp, fontWeight = FontWeight.Bold)
+        Text("AGENT ECOSYSTEM", color = Morningstar.Gilded, fontSize = 19.sp, fontFamily = Morningstar.Display, fontWeight = FontWeight.SemiBold)
         Text(
             "heartbeat.md and soul.md are yours to edit, and every agent has its own agent-class.md. " +
                 "The General watches what Lucifer already records — app installs, commands and failures, recovery " +
                 "lessons, workflows, heartbeat sessions, camera use, model calls, agent runs — and proposes structural " +
                 "fixes. It cannot edit prompts, run commands, or spend budget on its own: you approve each proposal here.",
-            color = Color(0xFFE0D6E0), fontSize = 12.sp
+            color = Morningstar.Bone, fontSize = 12.sp, fontFamily = Morningstar.Body
         )
 
         (note ?: statusMessage)?.let { message ->
-            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0A1A))) {
-                Text(message, color = Color(0xFFB99DFF), fontSize = 12.sp, modifier = Modifier.padding(10.dp))
+            Card(colors = CardDefaults.cardColors(containerColor = Morningstar.Glass)) {
+                Text(message, color = Morningstar.Gilded, fontSize = 12.sp, fontFamily = Morningstar.Body, modifier = Modifier.padding(10.dp))
             }
         }
 
@@ -182,11 +194,11 @@ fun AgentsPanel(
                     onClick = { section = entry },
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (entry == section) Color(0xFF8066B3) else Color(0xFF22152A),
-                        contentColor = if (entry == section) Color.White else Color(0xFF8B7D8B)
+                        containerColor = if (entry == section) Morningstar.Crimson else Morningstar.GlassRaised,
+                        contentColor = if (entry == section) Color.White else Morningstar.Ash
                     ),
                     modifier = Modifier.weight(1f)
-                ) { Text(entry.label, fontSize = 8.sp, maxLines = 1) }
+                ) { Text(entry.label, fontSize = 8.sp, fontFamily = Morningstar.Body, maxLines = 1) }
             }
         }
 
@@ -208,6 +220,7 @@ fun AgentsPanel(
                 },
                 onRunPass = ::runPass,
                 onClearObservations = {
+                    purge += 1
                     scope.launch {
                         withContext(Dispatchers.IO) { com.lucifer.mobile.agents.android.ObservationBus.clear(context) }
                         reload("Observation ledger cleared. Existing lessons and workflow history are untouched.")
@@ -256,7 +269,7 @@ fun AgentsPanel(
                     heartbeatText = PromptDefaults.heartbeat
                     note = "Default restored in the editor. Press SAVE to write it."
                 },
-                accent = Color(0xFF00CCFF)
+                accent = Morningstar.Info
             )
             AgentsSection.SOUL -> EditorSection(
                 title = "SOUL.MD",
@@ -271,7 +284,7 @@ fun AgentsPanel(
                 onResetDefault = {
                     note = "soul.md is never auto-reset; edit it deliberately. Clearing it is not allowed."
                 },
-                accent = Color(0xFFB99DFF)
+                accent = Morningstar.Gilded
             )
             AgentsSection.AGENTS -> AgentsSectionContent(
                 agents = agents,
@@ -346,8 +359,9 @@ fun AgentsPanel(
                 "message bodies, browsing history, or another app's private data. It has no execution path, no " +
                 "permission changes, and no way to spend money or contact anyone. Background passes need the " +
                 "ongoing notification; Android may delay them.",
-            color = Color(0xFF8B7D8B), fontSize = 10.sp
+            color = Morningstar.Ash, fontSize = 10.sp, fontFamily = Morningstar.Body
         )
+    }
     }
 }
 
@@ -364,15 +378,15 @@ private fun GeneralSection(
     onRunPass: () -> Unit,
     onClearObservations: () -> Unit
 ) {
-    PanelCard("THE GENERAL · TACTICIAN", Color(0xFFFFD700)) {
+    PanelCard("THE GENERAL · TACTICIAN", Morningstar.Gilded) {
         SystemStatusRow("Watcher", if (generalRunning) "ACTIVE" else if (generalEnabled) "ARMED · NOT RUNNING" else "OFF",
-            if (generalRunning) Color(0xFF00FF88) else if (generalEnabled) Color(0xFFFFAA00) else Color(0xFF8B7D8B))
-        SystemStatusRow("Senses", observationLine.take(120), Color(0xFFB99DFF))
-        SystemStatusRow("Budget", budgetLine.take(120), Color(0xFF00CCFF))
+            if (generalRunning) Morningstar.Success else if (generalEnabled) Morningstar.Warning else Morningstar.Ash)
+        SystemStatusRow("Senses", observationLine.take(120), Morningstar.Gilded)
+        SystemStatusRow("Budget", budgetLine.take(120), Morningstar.Info)
         Text(
             "One pass every ~60 minutes while the notification is visible: ingest new events, score what is " +
                 "actually costing you time, and write a brief plus proposals. Approve them in the Proposals section.",
-            color = Color(0xFFB8AEB8), fontSize = 11.sp
+            color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body
         )
         Spacer(modifier = Modifier.height(8.dp))
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -380,35 +394,35 @@ private fun GeneralSection(
                 onClick = if (generalRunning || generalEnabled) onStop else onStart,
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (generalRunning || generalEnabled) Color(0xFF332233) else Color(0xFF8066B3),
-                    contentColor = Color(0xFFFFE9A8)
+                    containerColor = if (generalRunning || generalEnabled) Morningstar.GlassRaised else Morningstar.Crimson,
+                    contentColor = Morningstar.Gilded
                 )
-            ) { Text(if (generalRunning || generalEnabled) "STOP WATCHER" else "START WATCHER", fontSize = 10.sp) }
+            ) { Text(if (generalRunning || generalEnabled) "STOP WATCHER" else "START WATCHER", fontSize = 10.sp, fontFamily = Morningstar.Body) }
             Button(
                 onClick = onRunPass,
                 enabled = !busy,
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF332244), contentColor = Color(0xFFE2D6FF))
-            ) { Text(if (busy) "RUNNING…" else "RUN ONE PASS", fontSize = 10.sp) }
+                colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
+            ) { Text(if (busy) "RUNNING…" else "RUN ONE PASS", fontSize = 10.sp, fontFamily = Morningstar.Body) }
         }
         Spacer(modifier = Modifier.height(6.dp))
         Button(
             onClick = onClearObservations,
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF221111), contentColor = Color(0xFFFF8899))
-        ) { Text("CLEAR OBSERVATION LEDGER", fontSize = 10.sp) }
+            colors = ButtonDefaults.buttonColors(containerColor = Morningstar.CrimsonDim, contentColor = Morningstar.Crimson)
+        ) { Text("CLEAR OBSERVATION LEDGER", fontSize = 10.sp, fontFamily = Morningstar.Body) }
     }
 
-    PanelCard("LATEST BRIEF", Color(0xFF00CCFF)) {
+    PanelCard("LATEST BRIEF", Morningstar.Info) {
         if (latestReport.isNullOrBlank()) {
             Text(
                 "No tactician pass yet. Run one pass to see what the General concludes from the events Lucifer already recorded.",
-                color = Color(0xFFB8AEB8), fontSize = 11.sp
+                color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body
             )
         } else {
-            Text(latestReport.take(2_400), color = Color(0xFFE0D6E0), fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+            Text(latestReport.take(2_400), color = Morningstar.Bone, fontSize = 11.sp, fontFamily = Morningstar.MonoTail)
             if (latestReport.length > 2_400) {
-                Text("… truncated in the panel; the full brief is in files/tactician/latest.md.", color = Color(0xFF8B7D8B), fontSize = 9.sp)
+                Text("… truncated in the panel; the full brief is in files/tactician/latest.md.", color = Morningstar.Ash, fontSize = 9.sp, fontFamily = Morningstar.Body)
             }
         }
     }
@@ -422,11 +436,11 @@ private fun ProposalsSection(
     onReject: (Opportunity) -> Unit,
     onClearResolved: () -> Unit
 ) {
-    PanelCard("PROPOSALS · PENDING ${proposals.size}", Color(0xFFFFD700)) {
+    PanelCard("PROPOSALS · PENDING ${proposals.size}", Morningstar.Gilded) {
         if (proposals.isEmpty()) {
             Text(
                 "Nothing pending. That is a valid result — the General is instructed to say so rather than invent work.",
-                color = Color(0xFFB8AEB8), fontSize = 11.sp
+                color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body
             )
         }
         proposals.forEach { proposal ->
@@ -434,45 +448,45 @@ private fun ProposalsSection(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 6.dp)
-                    .background(Color(0xFF150A15), RoundedCornerShape(8.dp))
+                    .background(Morningstar.Glass, RoundedCornerShape(8.dp))
                     .padding(10.dp)
             ) {
                 Text(
                     proposal.title,
-                    color = Color(0xFFFFE9A8), fontSize = 12.sp, fontWeight = FontWeight.Bold
+                    color = Morningstar.Gilded, fontSize = 12.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold
                 )
                 Text(
                     "${proposal.category.label} · score ${proposal.score}/100 · ${proposal.autonomy.label}",
-                    color = Color(0xFF8B7D8B), fontSize = 9.sp
+                    color = Morningstar.Ash, fontSize = 9.sp, fontFamily = Morningstar.Body
                 )
-                Text(proposal.why, color = Color(0xFFB8AEB8), fontSize = 11.sp)
+                Text(proposal.why, color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body)
                 if (proposal.evidence.isNotEmpty()) {
-                    Text("evidence: ${proposal.evidence.joinToString(", ")}", color = Color(0xFF00CCFF), fontSize = 9.sp)
+                    Text("evidence: ${proposal.evidence.joinToString(", ")}", color = Morningstar.Info, fontSize = 9.sp, fontFamily = Morningstar.Body)
                 }
-                Text("action: ${proposal.action}", color = Color(0xFFB99DFF), fontSize = 11.sp)
+                Text("action: ${proposal.action}", color = Morningstar.Gilded, fontSize = 11.sp, fontFamily = Morningstar.Body)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { onApprove(proposal) },
                         enabled = !busy,
                         modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8066B3), contentColor = Color.White)
-                    ) { Text("APPROVE", fontSize = 10.sp) }
+                        colors = ButtonDefaults.buttonColors(containerColor = Morningstar.Crimson, contentColor = Color.White)
+                    ) { Text("APPROVE", fontSize = 10.sp, fontFamily = Morningstar.Body) }
                     Button(
                         onClick = { onReject(proposal) },
                         modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF332233), contentColor = Color(0xFFFFAA00))
-                    ) { Text("DISMISS", fontSize = 10.sp) }
+                        colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Warning)
+                    ) { Text("DISMISS", fontSize = 10.sp, fontFamily = Morningstar.Body) }
                 }
                 if (proposal.category == OpportunityCategory.AGENT || proposal.category == OpportunityCategory.SKILL) {
                     Text(
                         "Approving composes a new agent class written by Lucifer, with the same boundaries as every other agent.",
-                        color = Color(0xFF8B7D8B), fontSize = 9.sp
+                        color = Morningstar.Ash, fontSize = 9.sp, fontFamily = Morningstar.Body
                     )
                 }
                 if (proposal.category == OpportunityCategory.MCP_TOOL) {
                     Text(
                         "Approving writes a read-only tool spec and a Termux checklist to files/tactician/mcp-drafts/. Nothing is installed.",
-                        color = Color(0xFF8B7D8B), fontSize = 9.sp
+                        color = Morningstar.Ash, fontSize = 9.sp, fontFamily = Morningstar.Body
                     )
                 }
             }
@@ -481,8 +495,8 @@ private fun ProposalsSection(
         Button(
             onClick = onClearResolved,
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF22152A), contentColor = Color(0xFFB99DFF))
-        ) { Text("CLEAR DISMISSED / EXPIRED", fontSize = 10.sp) }
+            colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Gilded)
+        ) { Text("CLEAR DISMISSED / EXPIRED", fontSize = 10.sp, fontFamily = Morningstar.Body) }
     }
 }
 
@@ -498,7 +512,7 @@ private fun EditorSection(
     accent: Color
 ) {
     PanelCard(title, accent) {
-        Text(hint, color = Color(0xFFB8AEB8), fontSize = 11.sp)
+        Text(hint, color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body)
         Spacer(modifier = Modifier.height(6.dp))
         TextField(
             value = value,
@@ -506,21 +520,21 @@ private fun EditorSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(260.dp),
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
+            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, fontFamily = Morningstar.MonoTail),
             colors = panelFieldColors()
         )
-        Text("${value.length} / $maxChars characters", color = Color(0xFF8B7D8B), fontSize = 9.sp)
+        Text("${value.length} / $maxChars characters", color = Morningstar.Ash, fontSize = 9.sp, fontFamily = Morningstar.Body)
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = onSave,
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8066B3), contentColor = Color.White)
-            ) { Text("SAVE", fontSize = 10.sp) }
+                colors = ButtonDefaults.buttonColors(containerColor = Morningstar.Crimson, contentColor = Color.White)
+            ) { Text("SAVE", fontSize = 10.sp, fontFamily = Morningstar.Body) }
             Button(
                 onClick = onResetDefault,
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF22152A), contentColor = Color(0xFFB99DFF))
-            ) { Text(if (title.startsWith("HEART")) "LOAD DEFAULT" else "WHAT HAPPENS?", fontSize = 10.sp) }
+                colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Gilded)
+            ) { Text(if (title.startsWith("HEART")) "LOAD DEFAULT" else "WHAT HAPPENS?", fontSize = 10.sp, fontFamily = Morningstar.Body) }
         }
     }
 }
@@ -545,9 +559,9 @@ private fun AgentsSectionContent(
     onAuthorChange: (Boolean) -> Unit,
     onCreateAgent: () -> Unit
 ) {
-    PanelCard("ROSTER · ${agents.count { it.enabled }} ENABLED / ${agents.size}", Color(0xFF00FF88)) {
+    PanelCard("ROSTER · ${agents.count { it.enabled }} ENABLED / ${agents.size}", Morningstar.Success) {
         if (agents.isEmpty()) {
-            Text("No agent files yet. The General is seeded automatically on first open.", color = Color(0xFFB8AEB8), fontSize = 11.sp)
+            Text("No agent files yet. The General is seeded automatically on first open.", color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body)
         }
         agents.forEach { agent ->
             Row(
@@ -559,83 +573,83 @@ private fun AgentsSectionContent(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         "${agent.name} · ${agent.id}",
-                        color = if (agent.enabled) Color(0xFFE0D6E0) else Color(0xFF8B7D8B),
-                        fontSize = 12.sp,
+                        color = if (agent.enabled) Morningstar.Bone else Morningstar.Ash,
+                        fontSize = 12.sp, fontFamily = Morningstar.Body,
                         fontWeight = FontWeight.Bold
                     )
-                    Text(agent.oneLine, color = Color(0xFF8B7D8B), fontSize = 9.sp)
+                    Text(agent.oneLine, color = Morningstar.Ash, fontSize = 9.sp, fontFamily = Morningstar.Body)
                     if (agent.skills.isNotEmpty()) {
-                        Text("skills: ${agent.skills.joinToString("/")}", color = Color(0xFFB99DFF), fontSize = 9.sp)
+                        Text("skills: ${agent.skills.joinToString("/")}", color = Morningstar.Gilded, fontSize = 9.sp, fontFamily = Morningstar.Body)
                     }
                     if (agent.triggers.isNotEmpty()) {
-                        Text("triggers: ${agent.triggers.joinToString("/")}", color = Color(0xFF6FA8A8), fontSize = 9.sp)
+                        Text("triggers: ${agent.triggers.joinToString("/")}", color = Morningstar.Ash, fontSize = 9.sp, fontFamily = Morningstar.Body)
                     }
                 }
                 Button(
                     onClick = { onSelect(agent.id) },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF22152A), contentColor = Color(0xFFE2D6FF))
-                ) { Text(if (selectedAgentId == agent.id) "EDITING" else "EDIT", fontSize = 9.sp) }
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
+                ) { Text(if (selectedAgentId == agent.id) "EDITING" else "EDIT", fontSize = 9.sp, fontFamily = Morningstar.Body) }
                 Button(
                     onClick = { onToggleAgent(agent.id, !agent.enabled) },
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (agent.enabled) Color(0xFF0A3A1A) else Color(0xFF332233),
-                        contentColor = if (agent.enabled) Color(0xFF00FF88) else Color(0xFFFFAA00)
+                        containerColor = if (agent.enabled) Morningstar.SuccessDim else Morningstar.GlassRaised,
+                        contentColor = if (agent.enabled) Morningstar.Success else Morningstar.Warning
                     )
-                ) { Text(if (agent.enabled) "ON" else "OFF", fontSize = 9.sp) }
+                ) { Text(if (agent.enabled) "ON" else "OFF", fontSize = 9.sp, fontFamily = Morningstar.Body) }
             }
         }
         if (broken.isNotEmpty()) {
             Spacer(modifier = Modifier.height(6.dp))
-            Text("Files that cannot be used:", color = Color(0xFFFF6677), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text("Files that cannot be used:", color = Morningstar.Crimson, fontSize = 10.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold)
             broken.forEach { pack ->
-                Text("${pack.id}: ${pack.problem}", color = Color(0xFFFF8899), fontSize = 9.sp)
+                Text("${pack.id}: ${pack.problem}", color = Morningstar.Crimson, fontSize = 9.sp, fontFamily = Morningstar.Body)
             }
         }
     }
 
     if (selectedAgentId != null) {
-        PanelCard("EDIT · $selectedAgentId", Color(0xFFB99DFF)) {
+        PanelCard("EDIT · $selectedAgentId", Morningstar.Gilded) {
             TextField(
                 value = editorText,
                 onValueChange = { if (it.length <= PromptRules.MAX_AGENT_CHARS) onEditorChange(it) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(280.dp),
-                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 10.sp, fontFamily = FontFamily.Monospace),
+                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 10.sp, fontFamily = Morningstar.MonoTail),
                 colors = panelFieldColors()
             )
             Text(
                 "Front matter keys: id, name, role, created_by, enabled, skills, triggers. The body is the mandate. " +
                     "A file that fails validation is never written.",
-                color = Color(0xFF8B7D8B), fontSize = 9.sp
+                color = Morningstar.Ash, fontSize = 9.sp, fontFamily = Morningstar.Body
             )
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = { onSaveAgent(selectedAgentId) },
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8066B3), contentColor = Color.White)
-                ) { Text("SAVE AGENT", fontSize = 10.sp) }
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.Crimson, contentColor = Color.White)
+                ) { Text("SAVE AGENT", fontSize = 10.sp, fontFamily = Morningstar.Body) }
                 Button(
                     onClick = { onDeleteAgent(selectedAgentId) },
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF331111), contentColor = Color(0xFFFF6677))
-                ) { Text("DELETE", fontSize = 10.sp) }
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.CrimsonDim, contentColor = Morningstar.Crimson)
+                ) { Text("DELETE", fontSize = 10.sp, fontFamily = Morningstar.Body) }
             }
         }
     }
 
-    PanelCard("NEW AGENT", Color(0xFFFFD700)) {
+    PanelCard("NEW AGENT", Morningstar.Gilded) {
         Text(
             "Compose a specialist from a goal. Written by you or by Lucifer — either way it becomes a file you can edit, " +
                 "and it cannot grant new tools or permissions.",
-            color = Color(0xFFB8AEB8), fontSize = 11.sp
+            color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body
         )
         TextField(
             value = newAgentName,
             onValueChange = { onNewNameChange(it.take(60)) },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            placeholder = { Text("Name, e.g. Disk Medic", color = Color(0xFF443344)) },
+            placeholder = { Text("Name, e.g. Disk Medic", color = Morningstar.Whisper) },
             colors = panelFieldColors()
         )
         TextField(
@@ -644,7 +658,7 @@ private fun AgentsSectionContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(110.dp),
-            placeholder = { Text("What it owns, and what a good result looks like", color = Color(0xFF443344)) },
+            placeholder = { Text("What it owns, and what a good result looks like", color = Morningstar.Whisper) },
             colors = panelFieldColors()
         )
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -652,49 +666,50 @@ private fun AgentsSectionContent(
                 onClick = { onAuthorChange(false) },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (!newAgentByLucifer) Color(0xFF8066B3) else Color(0xFF22152A),
-                    contentColor = Color(0xFFE2D6FF)
+                    containerColor = if (!newAgentByLucifer) Morningstar.Crimson else Morningstar.GlassRaised,
+                    contentColor = Morningstar.Bone
                 )
-            ) { Text("I WRITE IT", fontSize = 10.sp) }
+            ) { Text("I WRITE IT", fontSize = 10.sp, fontFamily = Morningstar.Body) }
             Button(
                 onClick = { onAuthorChange(true) },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (newAgentByLucifer) Color(0xFF8066B3) else Color(0xFF22152A),
-                    contentColor = Color(0xFFE2D6FF)
+                    containerColor = if (newAgentByLucifer) Morningstar.Crimson else Morningstar.GlassRaised,
+                    contentColor = Morningstar.Bone
                 )
-            ) { Text("LUCIFER WRITES IT", fontSize = 10.sp) }
+            ) { Text("LUCIFER WRITES IT", fontSize = 10.sp, fontFamily = Morningstar.Body) }
         }
         Button(
             onClick = onCreateAgent,
             enabled = !busy,
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF332244), contentColor = Color(0xFFFFE9A8))
-        ) { Text(if (busy) "COMPOSING…" else "CREATE AGENT CLASS", fontSize = 10.sp) }
+            colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Gilded)
+        ) { Text(if (busy) "COMPOSING…" else "CREATE AGENT CLASS", fontSize = 10.sp, fontFamily = Morningstar.Body) }
     }
 }
 
 @Composable
 private fun PanelCard(title: String, accent: Color, content: @Composable () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A0A1A)),
-        shape = RoundedCornerShape(12.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassSurface(shard(13.dp), accent.copy(alpha = 0.35f))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(title, color = accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            content()
-        }
+        Text(title, style = Morningstar.overline(10).copy(color = accent))
+        SigilRule()
+        content()
     }
 }
 
 @Composable
 private fun panelFieldColors() = TextFieldDefaults.textFieldColors(
-    containerColor = Color(0xFF0D050D),
-    focusedTextColor = Color(0xFFE0E0E0),
-    unfocusedTextColor = Color(0xFFE0E0E0),
-    cursorColor = Color(0xFFB99DFF),
-    focusedIndicatorColor = Color(0xFF8066B3),
+    containerColor = Morningstar.Void,
+    focusedTextColor = Morningstar.Bone,
+    unfocusedTextColor = Morningstar.Bone,
+    cursorColor = Morningstar.Gilded,
+    focusedIndicatorColor = Morningstar.Crimson,
     unfocusedIndicatorColor = Color.Transparent,
     disabledIndicatorColor = Color.Transparent
 )

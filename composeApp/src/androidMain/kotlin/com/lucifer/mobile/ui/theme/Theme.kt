@@ -13,44 +13,44 @@ import androidx.compose.ui.unit.sp
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // Core Lucifer Palette — Deep obsidian, blood red, ethereal gold
-private val LuciferObsidian = Color(0xFF0A0A0F)        // Deepest void
-private val LuciferVoid = Color(0xFF0F0F1A)            // Night sky
-private val LuciferAbyss = Color(0xFF161622)           // Card surfaces
-private val LuciferEclipse = Color(0xFF1E1E2E)         // Elevated surfaces
+private val LuciferObsidian = Color(0xFF000000)        // OLED true black
+private val LuciferVoid = Color(0xFF070607)            // Lifted black
+private val LuciferAbyss = Color(0xFF0F0E10)           // Glass base
+private val LuciferEclipse = Color(0xFF121114)         // Raised glass
 
 // Blood Red Variations — The signature Lucifer red
-private val LuciferCrimson = Color(0xFFFF1744)         // Primary accent — vibrant, alive
-private val LuciferBlood = Color(0xFFD32F2F)           // Darker red
-private val LuciferEmber = Color(0xFFFF5252)           // Glow state
-private val LuciferRose = Color(0xFFFF8A80)            // Subtle highlights
+private val LuciferCrimson = Color(0xFFD32F2F)         // Crimson — the only living accent
+private val LuciferBlood = Color(0xFF7A0F14)           // Blood
+private val LuciferEmber = Color(0xFFFF4A24)           // Ember
+private val LuciferRose = Color(0xFFE8B4B0)            // Faint rose
 
 // Ethereal Gold — Divine contrast
-private val LuciferGold = Color(0xFFFFD600)            // Pure gold
-private val LuciferAmber = Color(0xFFFFB300)           // Warm amber
-private val LuciferGilded = Color(0xFFFFF176)          // Pale gilded
-private val LuciferDawn = Color(0xFFFFEB3B)            // Dawn light
+private val LuciferGold = Color(0xFFC9A227)            // Gilded (sigil only)
+private val LuciferAmber = Color(0xFFD9A441)           // Amber
+private val LuciferGilded = Color(0xFFE7D9A8)          // Pale gilded
+private val LuciferDawn = Color(0xFF9A7B1C)            // Deep gilt
 
 // Ethereal Cyan/Azure — Magic/tech accent
-private val LuciferAether = Color(0xFF00E5FF)          // Mystical cyan
-private val LuciferArcane = Color(0xFF18FFFF)          // Arcane glow
-private val LuciferVoidBlue = Color(0xFF00B8D4)        // Deep void blue
+private val LuciferAether = Color(0xFF7FA6C9)          // Cool ash-blue
+private val LuciferArcane = Color(0xFF9FC1D9)          // Pale ash-blue
+private val LuciferVoidBlue = Color(0xFF4E6B80)        // Deep slate
 
 // Semantic Colors
-private val LuciferSuccess = Color(0xFF00E676)         // Emerald success
-private val LuciferWarning = Color(0xFFFFD600)         // Gold warning
-private val LuciferError = Color(0xFFFF1744)           // Crimson error
-private val LuciferInfo = Color(0xFF00E5FF)            // Aether info
+private val LuciferSuccess = Color(0xFF3FB27F)         // Muted jade
+private val LuciferWarning = Color(0xFFD9A441)         // Amber warning
+private val LuciferError = Color(0xFFD32F2F)           // Crimson error
+private val LuciferInfo = Color(0xFF7FA6C9)            // Cool info
 
 // Text Colors
-private val LuciferTextPrimary = Color(0xFFFFFFFF)     // Pure white
-private val LuciferTextSecondary = Color(0xFFB0BEC5)   // Muted steel
-private val LuciferTextMuted = Color(0xFF78909C)       // Dimmed
-private val LuciferTextOnAccent = Color(0xFF0A0A0F)    // On red/gold
+private val LuciferTextPrimary = Color(0xFFEDEAE6)     // Bone
+private val LuciferTextSecondary = Color(0xFF8A8480)   // Ash
+private val LuciferTextMuted = Color(0xFF55504D)       // Smoke
+private val LuciferTextOnAccent = Color(0xFF0B0A0B)    // On crimson
 
 // Borders & Dividers
-private val LuciferBorder = Color(0xFF2C2C3E)          // Subtle borders
-private val LuciferBorderGlow = Color(0x33FF1744)      // Glowing border (20% opacity)
-private val LuciferBorderGold = Color(0x33FFD600)      // Gold border (20% opacity)
+private val LuciferBorder = Color(0x1FFFFFFF)          // Hairline
+private val LuciferBorderGlow = Color(0x33D32F2F)      // Crimson edge (20%)
+private val LuciferBorderGold = Color(0x2EC9A227)      // Gilded edge (18%)
 
 private val DarkColorScheme = darkColorScheme(
     primary = LuciferCrimson,
@@ -61,14 +61,14 @@ private val DarkColorScheme = darkColorScheme(
     tertiaryContainer = LuciferVoidBlue,
     surface = LuciferAbyss,
     surfaceContainer = LuciferEclipse,
-    surfaceContainerHigh = Color(0xFF232336),
-    surfaceContainerHighest = Color(0xFF2A2A3E),
+    surfaceContainerHigh = Color(0xFF151417),
+    surfaceContainerHighest = Color(0xFF1A181C),
     onSurface = LuciferTextPrimary,
     onSurfaceVariant = LuciferTextSecondary,
     outline = LuciferBorder,
-    outlineVariant = Color(0xFF1E1E2E),
+    outlineVariant = Color(0xFF151417),
     error = LuciferError,
-    errorContainer = Color(0xFF3E0D12),
+    errorContainer = Color(0xFF2A0709),
     onError = LuciferTextPrimary,
     onErrorContainer = LuciferRose,
     scrim = Color.Black,
@@ -103,136 +103,24 @@ private val LightColorScheme = lightColorScheme(
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// TYPOGRAPHY — ANIME INSPIRED TYPE SCALE
+// TYPOGRAPHY — CINZEL FOR NAMES, INTER FOR EVERYTHING READABLE
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-val Typography = androidx.compose.material3.Typography(
-    // Display — Bold, dramatic, anime title card style
-    displayLarge = androidx.compose.ui.text.TextStyle(
-        fontFamily = androidx.compose.ui.text.font.FontFamily.Default,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
-        fontSize = 56.sp,
-        lineHeight = 64.sp,
-        letterSpacing = -1.5.sp
-    ),
-    displayMedium = androidx.compose.ui.text.TextStyle(
-        fontFamily = androidx.compose.ui.text.font.FontFamily.Default,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
-        fontSize = 44.sp,
-        lineHeight = 52.sp,
-        letterSpacing = -1.sp
-    ),
-    displaySmall = androidx.compose.ui.text.TextStyle(
-        fontFamily = androidx.compose.ui.text.font.FontFamily.Default,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-        fontSize = 36.sp,
-        lineHeight = 44.sp,
-        letterSpacing = -0.5.sp
-    ),
-    
-    // Headlines — Sharp, decisive
-    headlineLarge = androidx.compose.ui.text.TextStyle(
-        fontFamily = androidx.compose.ui.text.font.FontFamily.Default,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-        fontSize = 30.sp,
-        lineHeight = 38.sp,
-        letterSpacing = 0.sp
-    ),
-    headlineMedium = androidx.compose.ui.text.TextStyle(
-        fontFamily = androidx.compose.ui.text.font.FontFamily.Default,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-        fontSize = 26.sp,
-        lineHeight = 34.sp,
-        letterSpacing = 0.sp
-    ),
-    headlineSmall = androidx.compose.ui.text.TextStyle(
-        fontFamily = androidx.compose.ui.text.font.FontFamily.Default,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-        fontSize = 22.sp,
-        lineHeight = 30.sp,
-        letterSpacing = 0.sp
-    ),
-    
-    // Titles — Clean, readable
-    titleLarge = androidx.compose.ui.text.TextStyle(
-        fontFamily = androidx.compose.ui.text.font.FontFamily.Default,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-        fontSize = 20.sp,
-        lineHeight = 28.sp,
-        letterSpacing = 0.1.sp
-    ),
-    titleMedium = androidx.compose.ui.text.TextStyle(
-        fontFamily = androidx.compose.ui.text.font.FontFamily.Default,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-        fontSize = 16.sp,
-        lineHeight = 24.sp,
-        letterSpacing = 0.15.sp
-    ),
-    titleSmall = androidx.compose.ui.text.TextStyle(
-        fontFamily = androidx.compose.ui.text.font.FontFamily.Default,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
-        letterSpacing = 0.1.sp
-    ),
-    
-    // Body — Clean, readable for terminal/code
-    bodyLarge = androidx.compose.ui.text.TextStyle(
-        fontFamily = androidx.compose.ui.text.font.FontFamily.Default,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.Normal,
-        fontSize = 16.sp,
-        lineHeight = 24.sp,
-        letterSpacing = 0.5.sp
-    ),
-    bodyMedium = androidx.compose.ui.text.TextStyle(
-        fontFamily = androidx.compose.ui.text.font.FontFamily.Default,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.Normal,
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
-        letterSpacing = 0.25.sp
-    ),
-    bodySmall = androidx.compose.ui.text.TextStyle(
-        fontFamily = androidx.compose.ui.text.font.FontFamily.Default,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.Normal,
-        fontSize = 12.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.4.sp
-    ),
-    
-    // Labels — UI elements
-    labelLarge = androidx.compose.ui.text.TextStyle(
-        fontFamily = androidx.compose.ui.text.font.FontFamily.Default,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
-        letterSpacing = 0.1.sp
-    ),
-    labelMedium = androidx.compose.ui.text.TextStyle(
-        fontFamily = androidx.compose.ui.text.font.FontFamily.Default,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-        fontSize = 12.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.5.sp
-    ),
-    labelSmall = androidx.compose.ui.text.TextStyle(
-        fontFamily = androidx.compose.ui.text.font.FontFamily.Default,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-        fontSize = 11.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.5.sp
-    )
-)
+/** Kept as a name so existing imports keep working; the scale lives in [Morningstar]. */
+val Typography: androidx.compose.material3.Typography = MorningstarTypography
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // SHAPES — SHARP, ANGULAR, ANIME MECHA AESTHETIC
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// Every Material surface inherits the chamfer, so a Card, a dialog, and a chip all read as the
+// same obsidian material without per-call-site shapes.
 val Shapes = androidx.compose.material3.Shapes(
-    extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(2.dp),   // Sharp
-    small = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),        // Slightly rounded
-    medium = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),      // Cards
-    large = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),       // Modals
-    extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)   // Sheets
+    extraSmall = ShardShape(3.dp),
+    small = ShardShape(5.dp),
+    medium = ShardShape(9.dp),
+    large = ShardShape(13.dp),
+    extraLarge = ShardShape(17.dp)
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -305,7 +193,7 @@ fun LuciferTheme(
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = Typography,
+        typography = MorningstarTypography,
         shapes = Shapes,
         content = content
     )

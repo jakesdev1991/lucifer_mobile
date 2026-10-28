@@ -14,6 +14,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lucifer.mobile.ui.theme.LuciferColors
+import com.lucifer.mobile.ui.theme.Morningstar
 import com.lucifer.mobile.ui.theme.Typography
 
 @Composable
@@ -83,15 +84,15 @@ fun LuciferSearchField(
         onValueChange = onValueChange,
         modifier = modifier.fillMaxWidth(),
         placeholder = { Text(text = placeholder, color = LuciferColors.OnSurfaceVariant.copy(alpha = 0.6f)) },
-        leadingIcon = { Text(text = "🔍", color = LuciferColors.OnSurfaceVariant, fontSize = 24.sp) },
+        leadingIcon = { Text(text = "🔍", color = LuciferColors.OnSurfaceVariant, fontSize = 24.sp, fontFamily = Morningstar.Body) },
         trailingIcon = if (value.isNotEmpty() && onClear != null) {
             { 
                 androidx.compose.material3.IconButton(onClick = { onClear?.invoke() }, modifier = Modifier.size(24.dp)) {
-                    Text(text = "✕", color = LuciferColors.OnSurfaceVariant, fontSize = 24.sp)
+                    Text(text = "✕", color = LuciferColors.OnSurfaceVariant, fontSize = 24.sp, fontFamily = Morningstar.Body)
                 }
             }
         } else {
-            { Text(text = "🔍", color = LuciferColors.OnSurfaceVariant, fontSize = 24.sp) }
+            { Text(text = "🔍", color = LuciferColors.OnSurfaceVariant, fontSize = 24.sp, fontFamily = Morningstar.Body) }
         },
         singleLine = true,
         enabled = true

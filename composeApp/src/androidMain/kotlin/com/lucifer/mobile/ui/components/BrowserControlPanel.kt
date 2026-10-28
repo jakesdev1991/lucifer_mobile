@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.lucifer.mobile.data.browser.LuciferBrowser
+import com.lucifer.mobile.ui.theme.Morningstar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -45,10 +46,10 @@ fun BrowserControlPanel(
         modifier = modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text("READ-ONLY WEB", color = Color(0xFFFFD700))
+        Text("READ-ONLY WEB", color = Morningstar.Gilded)
         Text(
             "Lucifer can retrieve public pages and extract text. No JavaScript, clicks, form submissions, sign-ins, or purchases.",
-            color = Color(0xFFB8AEB8)
+            color = Morningstar.Ash
         )
         OutlinedTextField(
             value = url,
@@ -80,19 +81,19 @@ fun BrowserControlPanel(
             },
             enabled = !loading && url.isNotBlank()
         ) { Text(if (loading) "Loading…" else "Open page") }
-        Text(message, color = Color(0xFF8B7D8B))
-        if (title.isNotBlank()) Text(title, color = Color(0xFFFFD700))
+        Text(message, color = Morningstar.Ash)
+        if (title.isNotBlank()) Text(title, color = Morningstar.Gilded)
         if (pageText.isNotBlank()) {
             Card(
                 modifier = Modifier.fillMaxWidth().weight(1f),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF160A16))
+                colors = CardDefaults.cardColors(containerColor = Morningstar.Glass)
             ) {
                 LazyColumn(modifier = Modifier.fillMaxSize().padding(12.dp)) {
                     item {
                         Text(
                             pageText,
-                            color = Color(0xFFE0E0E0),
-                            fontFamily = FontFamily.SansSerif
+                            color = Morningstar.Bone,
+                            style = Morningstar.body(12)
                         )
                     }
                 }

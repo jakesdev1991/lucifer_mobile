@@ -47,6 +47,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -54,21 +55,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
-import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.ViewTreeLifecycleOwner
 import com.lucifer.mobile.MainActivity
 import com.lucifer.mobile.launcher.ChatMessage
 import com.lucifer.mobile.launcher.ChatRoute
-import com.lucifer.mobile.launcher.ResilienceRequest
-import com.lucifer.mobile.resilience.ResilienceEngine
 import com.lucifer.mobile.launcher.CommandTarget
 import com.lucifer.mobile.launcher.NaturalLanguageRouter
+import com.lucifer.mobile.launcher.ResilienceRequest
 import com.lucifer.mobile.launcher.TerminalAction
 import com.lucifer.mobile.memory.LocalConversationMemory
 import com.lucifer.mobile.omni_bridge.knowledge.ToEReasoningEngine
+import com.lucifer.mobile.resilience.ResilienceEngine
 import com.lucifer.mobile.ui.theme.LuciferColors
 import com.lucifer.mobile.ui.theme.LuciferTheme
+import com.lucifer.mobile.ui.theme.Morningstar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -425,7 +426,7 @@ private fun FloatingChatPanel(service: FloatingChatService) {
             contentAlignment = Alignment.Center
         ) {
             androidx.compose.material3.TextButton(onClick = { service.setExpanded(true) }) {
-                Text("L", color = LuciferColors.Gold, fontWeight = FontWeight.Black, fontSize = 24.sp)
+                Text("L", color = LuciferColors.Gold, fontWeight = FontWeight.Black, fontSize = 24.sp, fontFamily = Morningstar.Display)
             }
         }
         return
@@ -455,10 +456,10 @@ private fun FloatingChatPanel(service: FloatingChatService) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("LUCIFER · ${CommandTarget.fromLauncherIndex(state.target).displayName}", color = LuciferColors.Gold, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                Text("LUCIFER · ${CommandTarget.fromLauncherIndex(state.target).displayName}", color = LuciferColors.Gold, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = Morningstar.MonoTail)
                 Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                    androidx.compose.material3.TextButton(onClick = { service.toggleLiveMonitor() }) { Text(if (state.liveMonitor) "LIVE ●" else "LIVE ○", fontSize = 9.sp, color = if (state.liveMonitor) LuciferColors.Aether else LuciferColors.TextSecondary) }
-                    androidx.compose.material3.TextButton(onClick = { service.refreshTerminal() }) { Text("↻", fontSize = 16.sp, color = LuciferColors.Aether) }
+                    androidx.compose.material3.TextButton(onClick = { service.toggleLiveMonitor() }) { Text(if (state.liveMonitor) "LIVE ●" else "LIVE ○", fontSize = 9.sp, fontFamily = Morningstar.Body, color = if (state.liveMonitor) LuciferColors.Aether else LuciferColors.TextSecondary) }
+                    androidx.compose.material3.TextButton(onClick = { service.refreshTerminal() }) { Text("↻", fontSize = 16.sp, fontFamily = Morningstar.Body, color = LuciferColors.Aether) }
                     androidx.compose.material3.TextButton(onClick = { service.setExpanded(false) }) { Text("—", color = LuciferColors.Gold) }
                     androidx.compose.material3.TextButton(onClick = { service.closeOverlay() }) { Text("×", color = LuciferColors.Gold) }
                 }
@@ -475,7 +476,7 @@ private fun FloatingChatPanel(service: FloatingChatService) {
                         line.text,
                         color = when { line.fromUser -> LuciferColors.Gold; line.terminal -> LuciferColors.Aether; else -> LuciferColors.TextPrimary },
                         fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
+                        fontFamily = Morningstar.MonoTail,
                         lineHeight = 14.sp
                     )
                 }
@@ -483,8 +484,8 @@ private fun FloatingChatPanel(service: FloatingChatService) {
             state.pending?.let { pending ->
                 Card(colors = CardDefaults.cardColors(containerColor = LuciferColors.Surface)) {
                     Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("Confirm ${pending.target.displayName}?", color = LuciferColors.Gold, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                        Text(pending.command, color = LuciferColors.TextPrimary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        Text("Confirm ${pending.target.displayName}?", color = LuciferColors.Gold, fontWeight = FontWeight.Bold, fontSize = 11.sp, fontFamily = Morningstar.Body)
+                        Text(pending.command, color = LuciferColors.TextPrimary, fontSize = 10.sp, fontFamily = Morningstar.MonoTail)
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Button(onClick = { service.confirmPending() }) { Text("RUN") }
                             Button(onClick = { service.cancelPending() }, colors = ButtonDefaults.buttonColors(containerColor = LuciferColors.Surface)) { Text("CANCEL") }
@@ -493,7 +494,7 @@ private fun FloatingChatPanel(service: FloatingChatService) {
                 }
             }
             OverlayComposer(enabled = !state.busy, onSend = service::sendMessage)
-            if (state.busy) Text("Lucifer is working…", color = LuciferColors.Aether, fontSize = 10.sp)
+            if (state.busy) Text("Lucifer is working…", color = LuciferColors.Aether, fontSize = 10.sp, fontFamily = Morningstar.Body)
             Spacer(Modifier.height(1.dp))
         }
     }
@@ -520,7 +521,7 @@ private fun OverlayComposer(enabled: Boolean, onSend: (String) -> Unit) {
             }),
             decorationBox = { inner ->
                 Box {
-                    if (text.isEmpty()) Text("Talk or ask to run…", color = LuciferColors.TextSecondary, fontSize = 11.sp)
+                    if (text.isEmpty()) Text("Talk or ask to run…", color = LuciferColors.TextSecondary, fontSize = 11.sp, fontFamily = Morningstar.Body)
                     inner()
                 }
             }
@@ -529,6 +530,6 @@ private fun OverlayComposer(enabled: Boolean, onSend: (String) -> Unit) {
             enabled = enabled && text.isNotBlank(),
             onClick = { val message = text.trim(); if (message.isNotEmpty()) { onSend(message); text = "" } },
             modifier = Modifier.height(40.dp)
-        ) { Text("SEND", fontSize = 10.sp) }
+        ) { Text("SEND", fontSize = 10.sp, fontFamily = Morningstar.Body) }
     }
 }

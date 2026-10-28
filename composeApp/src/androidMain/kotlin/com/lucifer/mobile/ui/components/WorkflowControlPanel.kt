@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lucifer.mobile.launcher.CommandTarget
+import com.lucifer.mobile.ui.theme.Morningstar
 import com.lucifer.mobile.workflows.WorkflowBlueprints
 import com.lucifer.mobile.workflows.WorkflowStepStatus
 import com.lucifer.mobile.workflows.WorkflowTask
@@ -72,25 +73,25 @@ fun WorkflowControlPanel(
     }.orEmpty()
 
     LazyColumn(
-        modifier = modifier.fillMaxSize().background(Color(0xFF0D050D)).padding(horizontal = 14.dp),
+        modifier = modifier.fillMaxSize().background(Morningstar.Void).padding(horizontal = 14.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("ITERATIVE WORKFLOWS", color = Color(0xFFFFD700), fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                Text("ITERATIVE WORKFLOWS", color = Morningstar.Gilded, fontSize = 19.sp, fontFamily = Morningstar.Display, fontWeight = FontWeight.SemiBold)
                 Text(
                     "Create a bounded task, run one step, inspect its evidence, then reflect and adapt. Task goals, step outputs, and manual observations may be sent to the configured NVIDIA model for planning/review. Saved task text is private to this app but not encrypted; common token/password patterns are redacted from captured output, not every possible secret. No background task loop; terminal actions remain on the selected target and writes still require Lucifer's existing confirmation.",
-                    color = Color(0xFFB8AEB8), fontSize = 12.sp
+                    color = Morningstar.Ash, fontSize = 12.sp, fontFamily = Morningstar.Body
                 )
-                Text(statusMessage, color = Color(0xFFFFCC88), fontSize = 12.sp)
+                Text(statusMessage, color = Morningstar.Warning, fontSize = 12.sp, fontFamily = Morningstar.Body)
             }
         }
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF1B111B))) {
+            Card(colors = CardDefaults.cardColors(containerColor = Morningstar.Glass)) {
                 Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    Text("NEW WORKFLOW", color = Color(0xFFFFD700), fontWeight = FontWeight.Bold)
+                    Text("NEW WORKFLOW", color = Morningstar.Gilded, fontWeight = FontWeight.Bold)
                     TextButton(onClick = { blueprintMenu = true }, enabled = !busy) {
-                        Text("${blueprint?.title ?: "Choose a blueprint"} ▾", color = Color(0xFFE0D6E0))
+                        Text("${blueprint?.title ?: "Choose a blueprint"} ▾", color = Morningstar.Bone)
                     }
                     DropdownMenu(expanded = blueprintMenu, onDismissRequest = { blueprintMenu = false }) {
                         WorkflowBlueprints.all.forEach { item ->
@@ -100,12 +101,12 @@ fun WorkflowControlPanel(
                             )
                         }
                     }
-                    Text(blueprint?.summary.orEmpty(), color = Color(0xFFB8AEB8), fontSize = 11.sp)
+                    Text(blueprint?.summary.orEmpty(), color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body)
                     TextField(
                         value = goal,
                         onValueChange = { goal = it.take(1_000) },
                         modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("What outcome should Lucifer work toward?", color = Color(0xFF746574)) },
+                        placeholder = { Text("What outcome should Lucifer work toward?", color = Morningstar.Ash) },
                         minLines = 2,
                         maxLines = 4,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
@@ -120,13 +121,13 @@ fun WorkflowControlPanel(
                             ) {
                                 Text(
                                     target.displayName,
-                                    color = if (selectedTarget == target) Color(0xFFFFD700) else Color(0xFFB8AEB8),
-                                    fontSize = 10.sp
+                                    color = if (selectedTarget == target) Morningstar.Gilded else Morningstar.Ash,
+                                    fontSize = 10.sp, fontFamily = Morningstar.Body
                                 )
                             }
                         }
                     }
-                    Text("New task target: ${selectedTarget.displayName}", color = Color(0xFFB8AEB8), fontSize = 11.sp)
+                    Text("New task target: ${selectedTarget.displayName}", color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body)
                     Button(
                         onClick = {
                             val text = goal.trim()
@@ -137,45 +138,45 @@ fun WorkflowControlPanel(
                         },
                         enabled = !busy && goal.isNotBlank() && tasks.size < 20,
                         modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5C4600), contentColor = Color.White)
+                        colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GildedDim, contentColor = Color.White)
                     ) { Text(if (busy) "WORKING…" else "PLAN TASK") }
-                    if (tasks.size >= 20) Text("Task limit reached (20). Delete an old task to create another.", color = Color(0xFFFFAA88), fontSize = 11.sp)
+                    if (tasks.size >= 20) Text("Task limit reached (20). Delete an old task to create another.", color = Morningstar.Crimson, fontSize = 11.sp, fontFamily = Morningstar.Body)
                 }
             }
         }
         if (selected != null) {
             item {
-                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF211621))) {
+                Card(colors = CardDefaults.cardColors(containerColor = Morningstar.GlassRaised)) {
                     Column(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(selected.goal, color = Color(0xFFEDE3ED), fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(selected.goal, color = Morningstar.Bone, fontWeight = FontWeight.Bold, fontSize = 15.sp, fontFamily = Morningstar.Display)
                         Text(
                             "${WorkflowBlueprints.get(selected.blueprintId)?.title ?: selected.blueprintId} · ${selected.status.name.replace('_', ' ')} · ${selected.target.displayName} · plan ${selected.planSource}",
-                            color = Color(0xFFFFCC88), fontSize = 11.sp
+                            color = Morningstar.Warning, fontSize = 11.sp, fontFamily = Morningstar.Body
                         )
-                        Text("${selected.summary}  Iteration ${selected.iteration + 1}.", color = Color(0xFFB8AEB8), fontSize = 12.sp)
+                        Text("${selected.summary}  Iteration ${selected.iteration + 1}.", color = Morningstar.Ash, fontSize = 12.sp, fontFamily = Morningstar.Body)
                         selected.steps.filter { it.status == WorkflowStepStatus.COMPLETE }.forEach { finished ->
-                            Text("✓ ${finished.title} · complete", color = Color(0xFF91D2A5), fontSize = 11.sp)
-                            if (finished.result.isNotBlank()) Text(finished.result.takeLast(700), color = Color(0xFF9B929B), fontSize = 10.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                            Text("✓ ${finished.title} · complete", color = Morningstar.Success, fontSize = 11.sp, fontFamily = Morningstar.Body)
+                            if (finished.result.isNotBlank()) Text(finished.result.takeLast(700), color = Morningstar.Ash, fontSize = 10.sp, fontFamily = Morningstar.Body, maxLines = 3, overflow = TextOverflow.Ellipsis)
                         }
                         if (queuedSteps.isNotEmpty()) {
-                            Text(if (currentStep == null) "UNRUN STEPS" else "QUEUED STEPS", color = Color(0xFFB8AEB8), fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                            queuedSteps.forEach { queued -> Text("○ ${queued.title}", color = Color(0xFF9B929B), fontSize = 10.sp) }
+                            Text(if (currentStep == null) "UNRUN STEPS" else "QUEUED STEPS", color = Morningstar.Ash, fontWeight = FontWeight.Bold, fontSize = 11.sp, fontFamily = Morningstar.Body)
+                            queuedSteps.forEach { queued -> Text("○ ${queued.title}", color = Morningstar.Ash, fontSize = 10.sp, fontFamily = Morningstar.Body) }
                         }
                         currentStep?.let { step ->
-                            Text("STEP ${selected.steps.indexOf(step) + 1}: ${step.title}", color = Color(0xFFFFD700), fontWeight = FontWeight.Bold)
-                            Text(step.instruction, color = Color(0xFFE0D6E0), fontSize = 13.sp)
-                            if (step.acceptance.isNotBlank()) Text("Evidence sought: ${step.acceptance}", color = Color(0xFFB8AEB8), fontSize = 11.sp)
+                            Text("STEP ${selected.steps.indexOf(step) + 1}: ${step.title}", color = Morningstar.Gilded, fontWeight = FontWeight.Bold)
+                            Text(step.instruction, color = Morningstar.Bone, fontSize = 13.sp, fontFamily = Morningstar.Body)
+                            if (step.acceptance.isNotBlank()) Text("Evidence sought: ${step.acceptance}", color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body)
                             if (step.result.isNotBlank()) {
-                                Text("Latest result (${step.status.name})", color = Color(0xFFFFCC88), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                Text(step.result.takeLast(1_800), color = Color(0xFFD6CDD6), fontSize = 11.sp, maxLines = 12, overflow = TextOverflow.Ellipsis)
+                                Text("Latest result (${step.status.name})", color = Morningstar.Warning, fontSize = 11.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold)
+                                Text(step.result.takeLast(1_800), color = Morningstar.Bone, fontSize = 11.sp, fontFamily = Morningstar.Body, maxLines = 12, overflow = TextOverflow.Ellipsis)
                             }
                             if (step.status in setOf(WorkflowStepStatus.READY, WorkflowStepStatus.REVIEW) && selected.status != WorkflowTaskStatus.PAUSED && selected.status != WorkflowTaskStatus.COMPLETE) {
-                                Text("Add an observation from another Lucifer panel or work you performed manually. It will be included in reflection.", color = Color(0xFFB8AEB8), fontSize = 10.sp)
+                                Text("Add an observation from another Lucifer panel or work you performed manually. It will be included in reflection.", color = Morningstar.Ash, fontSize = 10.sp, fontFamily = Morningstar.Body)
                                 TextField(
                                     value = observation,
                                     onValueChange = { observation = it.take(1_000) },
                                     modifier = Modifier.fillMaxWidth(),
-                                    placeholder = { Text("What did you observe?", color = Color(0xFF746574)) },
+                                    placeholder = { Text("What did you observe?", color = Morningstar.Ash) },
                                     minLines = 2,
                                     maxLines = 4,
                                     colors = workflowFieldColors()
@@ -187,14 +188,14 @@ fun WorkflowControlPanel(
                                         observation = ""
                                     },
                                     enabled = !busy && observation.isNotBlank()
-                                ) { Text("RECORD OBSERVATION", color = Color(0xFFFFCC88)) }
+                                ) { Text("RECORD OBSERVATION", color = Morningstar.Warning) }
                             }
                             if (step.status == WorkflowStepStatus.READY) {
                                 TextField(
                                     value = extraContext,
                                     onValueChange = { extraContext = it.take(500) },
                                     modifier = Modifier.fillMaxWidth(),
-                                    placeholder = { Text("Optional context for this step", color = Color(0xFF746574)) },
+                                    placeholder = { Text("Optional context for this step", color = Morningstar.Ash) },
                                     singleLine = true,
                                     colors = workflowFieldColors()
                                 )
@@ -214,21 +215,21 @@ fun WorkflowControlPanel(
                                 ) { Text("REFLECT") }
                             }
                             if (selected.review.isNotBlank()) {
-                                Text("REVIEW · ${selected.reviewSource}", color = Color(0xFFFFD700), fontWeight = FontWeight.Bold)
-                                Text(selected.review, color = Color(0xFFE0D6E0), fontSize = 12.sp)
+                                Text("REVIEW · ${selected.reviewSource}", color = Morningstar.Gilded, fontWeight = FontWeight.Bold)
+                                Text(selected.review, color = Morningstar.Bone, fontSize = 12.sp, fontFamily = Morningstar.Body)
                                 selected.proposedStep?.let { next ->
-                                    Text("Proposed next: ${next.title} — ${next.instruction}", color = Color(0xFFB8AEB8), fontSize = 11.sp)
+                                    Text("Proposed next: ${next.title} — ${next.instruction}", color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body)
                                 }
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(onClick = { onAcceptReview(selected.id) }, enabled = !busy) { Text("ACCEPT & CONTINUE") }
-                                    TextButton(onClick = { onRetryStep(selected.id, step.id) }, enabled = !busy) { Text("RETRY STEP", color = Color(0xFFFFCC88)) }
+                                    TextButton(onClick = { onRetryStep(selected.id, step.id) }, enabled = !busy) { Text("RETRY STEP", color = Morningstar.Warning) }
                                 }
                             }
                         } ?: Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("No pending step. Review the task or complete it.", color = Color(0xFFB8AEB8))
+                            Text("No pending step. Review the task or complete it.", color = Morningstar.Ash)
                             if (selected.review.isNotBlank()) {
-                                Text("FINAL REVIEW · ${selected.reviewSource}", color = Color(0xFFFFD700), fontWeight = FontWeight.Bold)
-                                Text(selected.review, color = Color(0xFFE0D6E0), fontSize = 12.sp)
+                                Text("FINAL REVIEW · ${selected.reviewSource}", color = Morningstar.Gilded, fontWeight = FontWeight.Bold)
+                                Text(selected.review, color = Morningstar.Bone, fontSize = 12.sp, fontFamily = Morningstar.Body)
                             }
                         }
 
@@ -242,39 +243,39 @@ fun WorkflowControlPanel(
                                 onClick = { onComplete(selected.id) },
                                 enabled = !busy && (selected.status == WorkflowTaskStatus.READY_TO_COMPLETE || selected.steps.all { it.status == WorkflowStepStatus.COMPLETE })
                             ) { Text("COMPLETE TASK") }
-                            TextButton(onClick = { onDelete(selected.id) }, enabled = !busy) { Text("DELETE", color = Color(0xFFFF8888)) }
+                            TextButton(onClick = { onDelete(selected.id) }, enabled = !busy) { Text("DELETE", color = Morningstar.Crimson) }
                         }
                     }
                 }
             }
         }
         item {
-            Text("SAVED TASKS", color = Color(0xFFFFD700), fontWeight = FontWeight.Bold)
+            Text("SAVED TASKS", color = Morningstar.Gilded, fontWeight = FontWeight.Bold)
         }
         items(tasks, key = { it.id }) { task ->
             val isSelected = task.id == selectedTaskId
             Card(
                 modifier = Modifier.fillMaxWidth().clickable { onSelectTask(task.id) },
                 shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = if (isSelected) Color(0xFF332733) else Color(0xFF1B111B))
+                colors = CardDefaults.cardColors(containerColor = if (isSelected) Morningstar.Whisper else Morningstar.Glass)
             ) {
                 Column(modifier = Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(task.goal, color = Color(0xFFE0D6E0), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text("${task.status.name.replace('_', ' ')} · ${task.target.displayName} · ${task.steps.count { it.status == WorkflowStepStatus.COMPLETE }}/${task.steps.size} steps", color = Color(0xFFB8AEB8), fontSize = 10.sp)
+                    Text(task.goal, color = Morningstar.Bone, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text("${task.status.name.replace('_', ' ')} · ${task.target.displayName} · ${task.steps.count { it.status == WorkflowStepStatus.COMPLETE }}/${task.steps.size} steps", color = Morningstar.Ash, fontSize = 10.sp, fontFamily = Morningstar.Body)
                 }
             }
         }
-        item { Text("Tasks persist in app-private, unencrypted files. Avoid sensitive notes and delete tasks when finished.", color = Color(0xFF807480), fontSize = 10.sp, modifier = Modifier.padding(bottom = 12.dp)) }
+        item { Text("Tasks persist in app-private, unencrypted files. Avoid sensitive notes and delete tasks when finished.", color = Morningstar.Smoke, fontSize = 10.sp, fontFamily = Morningstar.Body, modifier = Modifier.padding(bottom = 12.dp)) }
     }
 }
 
 @Composable
 private fun workflowFieldColors() = TextFieldDefaults.textFieldColors(
-    containerColor = Color(0xFF100810),
-    focusedTextColor = Color(0xFFE0D6E0),
-    unfocusedTextColor = Color(0xFFE0D6E0),
-    cursorColor = Color(0xFFFFD700),
-    focusedIndicatorColor = Color(0xFF8B0000),
+    containerColor = Morningstar.Void,
+    focusedTextColor = Morningstar.Bone,
+    unfocusedTextColor = Morningstar.Bone,
+    cursorColor = Morningstar.Gilded,
+    focusedIndicatorColor = Morningstar.Blood,
     unfocusedIndicatorColor = Color.Transparent,
     disabledIndicatorColor = Color.Transparent
 )

@@ -81,6 +81,7 @@ import com.lucifer.mobile.agents.android.PromptStore
 import com.lucifer.mobile.agents.android.TacticianService
 import com.lucifer.mobile.tactician.ObservationKind
 import com.lucifer.mobile.ui.components.AgentsPanel
+import com.lucifer.mobile.ui.effects.FallIn
 import com.lucifer.mobile.ui.components.HeartbeatControlPanel
 import com.lucifer.mobile.ui.components.WalletControlPanel
 import com.lucifer.mobile.ui.components.WorkflowControlPanel
@@ -711,6 +712,9 @@ class MainActivity : ComponentActivity() {
                                 )
                             )
 
+                            // The Fall: every panel switch enters from above with weight, never a cut.
+                            androidx.compose.runtime.key(selectedTab) {
+                                FallIn(modifier = Modifier.fillMaxSize()) {
                             when (selectedTab) {
                                 0 -> AnimatedTerminal(
                                     modifier = Modifier.fillMaxSize(),
@@ -1252,6 +1256,8 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onNotify = { message -> settingsToast = message }
                                 )
+                            }
+                                }
                             }
                         }
                     }

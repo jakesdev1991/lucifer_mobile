@@ -140,6 +140,7 @@ redacted at construction).
 ```bash
 ./scripts/verify_agents_core.sh   # 50 assertions + adapter type-check; needs java 17+ and kotlinc
 ./scripts/verify_resilience_core.sh
+./scripts/verify_design_core.sh   # 16 assertions on the Morningstar chamfer/sigil/ember math
 ```
 
 The harness (`tools/agents-core/AgentCoreTests.kt`) covers malformed agent files, credential

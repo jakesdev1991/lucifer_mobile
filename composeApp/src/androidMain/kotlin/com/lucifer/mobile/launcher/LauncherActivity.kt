@@ -24,6 +24,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,8 +43,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items as listItems
+import androidx.compose.foundation.lazy.itemsIndexed as listItemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -78,7 +80,17 @@ import com.lucifer.mobile.omni_bridge.four_horsemen.FourHorsemenOrchestrator
 import com.lucifer.mobile.memory.LocalConversationMemory
 import com.lucifer.mobile.omni_bridge.knowledge.ToEReasoningEngine
 import com.lucifer.mobile.terminal.TerminalExecutor
+import com.lucifer.mobile.ui.components.SigilClock
+import com.lucifer.mobile.ui.effects.SigilBackdrop
+import com.lucifer.mobile.ui.effects.SigilNeedle
+import com.lucifer.mobile.ui.effects.SigilRule
+import com.lucifer.mobile.ui.effects.glassSurface
+import com.lucifer.mobile.ui.effects.glowShadow
+import com.lucifer.mobile.ui.effects.pressPulse
+import com.lucifer.mobile.ui.effects.rememberBreathingAmount
 import com.lucifer.mobile.ui.theme.LuciferColors
+import com.lucifer.mobile.ui.theme.Morningstar
+import com.lucifer.mobile.ui.theme.shard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -243,6 +255,14 @@ class LauncherActivity : ComponentActivity() {
         }
         return out.sortedBy { it.label.lowercase(Locale.US) }
     }
+
+    private val dockPackages = setOf(
+        "com.termux",
+        "com.android.virtualization.terminal",
+        "com.ashigaru.wallet",
+        "com.lucifer.mobile",
+        "com.android.dialer"
+    )
 
     // ───────────────────────────── screen ─────────────────────────────
 
@@ -451,154 +471,169 @@ class LauncherActivity : ComponentActivity() {
         }
         val queryIsCommand = query.isNotBlank() && filtered.isEmpty()
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(Color(0xFF0A030A), Color(0xFF0D050D), Color(0xFF050208))
-                    )
-                )
-        ) {
-            SigilWatermark(alpha = 0.055f)
+        Box(modifier = Modifier.fillMaxSize()) {
+            // True black canvas: vignette, compass rings, drifting dust. No wallpaper.
+            SigilBackdrop()
 
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .statusBarsPadding()
                     .navigationBarsPadding()
-                    .padding(horizontal = 12.dp)
+                    .padding(horizontal = 18.dp)
             ) {
-                HeartbeatStrip(tick = beatTick, knowledgeAlive = reasoner.knowledgeServerAlive())
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
 
-                // ── Command bar: speak to Lucifer ──
+                // ── masthead: the sigil on the left, his name and state on the right ──
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SigilClock(size = 146.dp, onClick = { showChat = true })
+                    Spacer(Modifier.width(18.dp))
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Text(
+                            "LUCIFER",
+                            style = Morningstar.title(23).copy(color = Morningstar.Bone),
+                            maxLines = 1
+                        )
+                        Text(
+                            "MORNINGSTAR SHELL",
+                            style = Morningstar.overline(8),
+                            maxLines = 1
+                        )
+                        SigilRule(Modifier.padding(vertical = 3.dp), Morningstar.Edge)
+                        StatusLine(
+                            alive = LuciferState.serviceAlive,
+                            knowledgeAlive = reasoner.knowledgeServerAlive(),
+                            phase = LuciferState.phase,
+                            cycle = LuciferState.cycle
+                        )
+                        Text(
+                            "HOLD THE SIGIL TO SPEAK",
+                            style = Morningstar.caption(8).copy(color = Morningstar.Smoke, letterSpacing = 1.1.sp),
+                            maxLines = 1
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+
+                // ── command bar: a glass shard with a crimson caret ──
+                val barShape = remember { shard(12.dp) }
+                val hint = listOf(
+                    "search apps or ask in plain English",
+                    "try: show disk space on my VM",
+                    "try: list files in Termux",
+                    "commands run through chat understanding"
+                )[beatTick % 4]
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(Color(0xFF1A0A1A))
-                        .border(
-                            1.dp,
-                            if (queryIsCommand) Color(0xFF8B0000) else Color(0xFF332233),
-                            RoundedCornerShape(14.dp)
-                        )
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                        .glassSurface(barShape, if (queryIsCommand) Morningstar.Crimson else Morningstar.CrimsonLine)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("λ ", color = Color(0xFFFFD700), fontSize = 18.sp, fontFamily = FontFamily.Monospace)
+                    Text(
+                        "λ",
+                        style = Morningstar.title(17).copy(color = Morningstar.Crimson),
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
                     Box(Modifier.weight(1f)) {
                         if (query.isEmpty()) {
-                            // Clever: rotating hints teach the language of the bar
-                            val hints = listOf(
-                                "search apps or ask in plain English…",
-                                "try: show disk space on my VM",
-                                "try: list files in Termux",
-                                "commands run through chat understanding"
-                            )
-                            Text(
-                                hints[beatTick % hints.size],
-                                color = Color(0xFF665566), fontSize = 13.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
+                            Text(hint, style = Morningstar.caption(12).copy(color = Morningstar.Smoke), maxLines = 1)
                         }
                         BasicTextField(
                             value = query,
                             onValueChange = { query = it },
                             singleLine = true,
-                            textStyle = TextStyle(
-                                color = Color(0xFFE0E0E0),
-                                fontSize = 13.sp,
-                                fontFamily = FontFamily.Monospace
-                            ),
+                            textStyle = Morningstar.body(13).copy(color = Morningstar.Bone),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(onDone = {
                                 val cmd = query.trim()
                                 if (cmd.isBlank()) return@KeyboardActions
-                                // Text goes through intent understanding first, even when it looks like an app name.
-                                // Tapping an app tile remains a direct, explicit UI action.
                                 showChat = true
                                 sendChatMessage(cmd)
                                 query = ""
                                 kb?.hide()
                             }),
-                            cursorBrush = Brush.verticalGradient(listOf(Color(0xFFFFD700), Color(0xFF8B0000))),
+                            cursorBrush = Brush.verticalGradient(
+                                listOf(Morningstar.Crimson, Morningstar.Ember)
+                            ),
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
-
-                    // ── Target chips: adaptive (labels when idle, letters while typing) ──
                     Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val chipDefs = listOf(
-                            "L" to "LOCAL",
-                            "T" to "TERMUX",
-                            "V" to "VM",
-                            "C" to "CHAT"
-                        )
+                        val chipDefs = listOf("L" to "LOCAL", "T" to "TERMUX", "V" to "VM", "C" to "CHAT")
                         chipDefs.forEachIndexed { i, (short, long) ->
                             val sel = target == i
                             val label = if (query.isBlank()) long else short
-                            Box(
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (sel) Color(0xFF8B0000) else Color(0xFF251525))
                                     .clickable {
-                                        if (short == "C") {
-                                            showChat = true
-                                        } else {
-                                            target = i
-                                        }
+                                        if (short == "C") showChat = true else target = i
                                     }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
                             ) {
                                 Text(
                                     label,
-                                    color = if (sel) Color(0xFFFFD700) else Color(0xFF8B7D8B),
-                                    fontSize = if (query.isBlank()) 9.sp else 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
+                                    style = Morningstar.overline(if (query.isBlank()) 7 else 9).copy(
+                                        color = if (sel) Morningstar.Bone else Morningstar.Smoke
+                                    ),
+                                    maxLines = 1
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .width(if (sel) 18.dp else 0.dp)
+                                        .height(1.dp)
+                                        .background(Morningstar.Crimson)
                                 )
                             }
                         }
                     }
-
                     if (chatThinking) {
                         Spacer(Modifier.width(6.dp))
-                        Text("…", color = Color(0xFFFFD700), fontSize = 14.sp)
+                        Text("…", style = Morningstar.body(13).copy(color = Morningstar.Gilded))
                     }
                 }
 
                 Spacer(Modifier.height(10.dp))
 
-                // ── Live command output (his voice, on-screen) — tap to expand ──
+                // ── his voice: live output, collapsed by default ──
                 if (terminalLines.isNotEmpty()) {
                     var outputExpanded by remember { mutableStateOf(false) }
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(if (outputExpanded) 260.dp else 110.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFF12060F).copy(alpha = 0.85f))
-                            .border(1.dp, Color(0xFF8B0000).copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                            .height(if (outputExpanded) 250.dp else 96.dp)
+                            .glassSurface(shard(10.dp), Morningstar.CrimsonLine)
                             .clickable { outputExpanded = !outputExpanded }
-                            .padding(10.dp)
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
                     ) {
                         LazyColumn {
-                            listItems(if (outputExpanded) terminalLines.takeLast(50) else terminalLines.takeLast(20)) { line ->
+                            listItems(
+                                if (outputExpanded) terminalLines.takeLast(50) else terminalLines.takeLast(16)
+                            ) { line ->
                                 Text(
                                     text = line,
-                                    color = when {
-                                        line.startsWith("[ERROR]") -> Color(0xFFFF4444)
-                                        line.startsWith("[INFO]") -> Color(0xFF88CCFF)
-                                        line.startsWith("$") -> Color(0xFFFFD700)
-                                        line.startsWith("[exit") -> Color(0xFF00FF88)
-                                        else -> Color(0xFFE0E0E0)
-                                    },
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace,
+                                    style = Morningstar.mono(10).copy(
+                                        color = when {
+                                            line.startsWith("[ERROR]") -> Morningstar.Crimson
+                                            line.startsWith("[INFO]") -> Morningstar.Info
+                                            line.startsWith("$") -> Morningstar.Gilded
+                                            line.startsWith("[exit") -> Morningstar.Success
+                                            else -> Morningstar.Bone.copy(alpha = 0.82f)
+                                        }
+                                    ),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.padding(vertical = 1.dp)
@@ -607,10 +642,8 @@ class LauncherActivity : ComponentActivity() {
                         }
                         if (!outputExpanded) {
                             Text(
-                                "⋯ tap to expand",
-                                color = Color(0xFF554455),
-                                fontSize = 8.sp,
-                                fontFamily = FontFamily.Monospace,
+                                "▲ EXPAND",
+                                style = Morningstar.overline(7).copy(color = Morningstar.Smoke),
                                 modifier = Modifier
                                     .align(Alignment.BottomEnd)
                                     .padding(2.dp)
@@ -620,22 +653,63 @@ class LauncherActivity : ComponentActivity() {
                     Spacer(Modifier.height(10.dp))
                 }
 
-                // ── App grid ──
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(4),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .weight(1f)
-                ) {
-                    items(filtered, key = { it.pkg }) { app ->
-                        AppIcon(app = app) { launchApp(app.pkg) }
+                // ── the drawer: typography, not tiles. A wide empty gutter keeps it asymmetric. ──
+                Row(modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)) {
+                    Column(
+                        modifier = Modifier
+                            .width(30.dp)
+                            .fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(34.dp)
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Color.Transparent, Morningstar.Crimson.copy(alpha = 0.5f))
+                                    )
+                                )
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            filtered.size.toString().padStart(2, '0'),
+                            style = Morningstar.overline(8).copy(color = Morningstar.Smoke)
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .weight(1f)
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(Morningstar.EdgeQuiet, Color.Transparent)
+                                    )
+                                )
+                        )
+                    }
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxSize()
+                    ) {
+                        listItemsIndexed(filtered, key = { _, app -> app.pkg }) { position, app ->
+                            AppRow(
+                                app = app,
+                                highlighted = app.pkg in dockPackages,
+                                index = position + 1
+                            ) { launchApp(app.pkg) }
+                        }
                     }
                 }
 
                 Spacer(Modifier.height(10.dp))
-                DockBar(onLaunch = { pkg -> launchApp(pkg) })
+                SovereignDock(
+                    onLaunch = { pkg -> launchApp(pkg) },
+                    onOpenChat = { showChat = true }
+                )
                 Spacer(Modifier.height(8.dp))
             }
 
@@ -644,7 +718,7 @@ class LauncherActivity : ComponentActivity() {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color(0xFF000000).copy(alpha = 0.35f))
+                        .background(Morningstar.Void.copy(alpha = 0.35f))
                         .clickable { showChat = false },
                     contentAlignment = Alignment.BottomCenter
                 ) {
@@ -674,161 +748,146 @@ class LauncherActivity : ComponentActivity() {
 
     // ───────────────────────────── composables ─────────────────────────────
 
+    /** Name, pulse, and cycle: the launcher's only status readout. */
     @Composable
-    private fun HeartbeatStrip(tick: Int, knowledgeAlive: Boolean = false) {
-        val alive = LuciferState.serviceAlive
-        val pulse by animateFloatAsState(
-            targetValue = if (alive) 1f else 0.35f,
-            animationSpec = tween(600)
-        )
+    private fun StatusLine(
+        alive: Boolean,
+        knowledgeAlive: Boolean,
+        phase: String,
+        cycle: Int
+    ) {
+        val breath = rememberBreathingAmount(min = 0.55f, max = 1f, periodMillis = 3_200)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Canvas(modifier = Modifier.size(8.dp)) {
+                drawCircle(
+                    color = (if (alive) Morningstar.Crimson else Morningstar.Smoke).copy(alpha = 0.25f + 0.5f * breath),
+                    radius = 3.2.dp.toPx()
+                )
+                drawCircle(
+                    color = if (alive) Morningstar.Ember else Morningstar.Smoke,
+                    radius = 1.2.dp.toPx()
+                )
+            }
+            Spacer(Modifier.width(7.dp))
+            Text(
+                if (alive) "AWAKE · $phase · CYCLE $cycle" else "DORMANT",
+                style = Morningstar.overline(8).copy(
+                    color = if (alive) Morningstar.Ash else Morningstar.Smoke
+                ),
+                maxLines = 1
+            )
+            if (knowledgeAlive) {
+                Spacer(Modifier.width(7.dp))
+                Text("Σ", style = Morningstar.title(10).copy(color = Morningstar.Info))
+            }
+        }
+    }
+
+    /** One app, as a line of type. Favourites carry a faint bloom; nothing else competes. */
+    @Composable
+    private fun AppRow(
+        app: AppEntry,
+        highlighted: Boolean,
+        index: Int,
+        onClick: () -> Unit
+    ) {
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .background(Color(0xFF160A16).copy(alpha = 0.72f))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .pressPulse(
+                    pressed = pressed,
+                    shape = shard(8.dp),
+                    color = Morningstar.CrimsonDim,
+                    maxSpread = 0.03f
+                )
+                .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+                .background(if (pressed) Morningstar.GlassRaised else Color.Transparent)
+                .padding(horizontal = 10.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Canvas(modifier = Modifier.size(10.dp)) {
-                drawCircle(
-                    color = if (alive) LuciferColors.Crimson else Color(0xFF554455),
-                    radius = 4.dp.toPx() * pulse
-                )
-                drawCircle(
-                    color = if (alive) Color(0xFFFFD700) else Color(0xFF443344),
-                    radius = 2.dp.toPx(),
-                    style = Stroke(width = 1.dp.toPx())
-                )
-            }
-            Spacer(Modifier.width(8.dp))
             Text(
-                text = "LUCIFER ${if (alive) "· ${LuciferState.phase} · CYCLE ${LuciferState.cycle}" else "· DORMANT"}",
-                color = if (alive) Color(0xFFFFD700) else Color(0xFF8B7D8B),
-                fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp
+                index.toString().padStart(2, '0'),
+                style = Morningstar.overline(8).copy(color = Morningstar.Whisper),
+                modifier = Modifier.width(22.dp)
             )
-            // Knowledge link: Σ = his ToE corpus is reachable
-            if (knowledgeAlive) {
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    "Σ",
-                    color = LuciferColors.Aether,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-            Spacer(Modifier.weight(1f))
-            Text(
-                text = "▲$tick",
-                color = Color(0xFF665566),
-                fontSize = 9.sp,
-                fontFamily = FontFamily.Monospace
-            )
-        }
-    }
-
-    @Composable
-    private fun AppIcon(app: AppEntry, onClick: () -> Unit) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .clickable(onClick = onClick)
-                .padding(6.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(52.dp)
-                    .clip(RoundedCornerShape(13.dp))
-                    .background(Color(0xFF1A0A1A))
-                    .border(1.dp, Color(0xFF8B0000).copy(alpha = 0.22f), RoundedCornerShape(13.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (app.icon != null) {
-                    Image(
-                        bitmap = app.icon,
-                        contentDescription = app.label,
-                        modifier = Modifier.size(44.dp)
-                    )
-                } else {
-                    Text(app.label.take(2).uppercase(), color = Color(0xFF8B7D8B), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-            Spacer(Modifier.height(4.dp))
             Text(
                 app.label,
-                color = Color(0xFFC8BCC8),
-                fontSize = 10.sp,
+                style = Morningstar.body(14).copy(
+                    color = if (highlighted) Morningstar.Bone else Morningstar.Bone.copy(alpha = 0.78f),
+                    shadow = if (highlighted) glowShadow(Morningstar.Ember, 12f) else null
+                ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(64.dp),
-                textAlign = TextAlign.Center
+                modifier = Modifier.weight(1f)
+            )
+            if (highlighted) {
+                SigilNeedle(Modifier.padding(start = 8.dp), Morningstar.Crimson, 10.dp)
+            }
+            Box(
+                modifier = Modifier
+                    .width(5.dp)
+                    .height(1.dp)
+                    .background(if (pressed) Morningstar.Crimson else Color.Transparent)
             )
         }
     }
 
+    /** The dock: five circles of glass, no labels shouting. */
     @Composable
-    private fun DockBar(onLaunch: (String) -> Unit) {
+    private fun SovereignDock(onLaunch: (String) -> Unit, onOpenChat: () -> Unit) {
         val dock = listOf(
-            "com.ashigaru.wallet" to "ASHIGARU",
-            "com.android.virtualization.terminal" to "DEBIAN",
             "com.termux" to "TERMUX",
+            "com.android.virtualization.terminal" to "VM",
+            "com.ashigaru.wallet" to "VAULT",
             "com.lucifer.mobile" to "CORE",
-            "com.android.dialer" to "DIALER"
+            "com.android.dialer" to "DIAL"
         )
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .background(Color(0xFF160A16).copy(alpha = 0.85f))
-                .border(1.dp, Color(0xFF332233), RoundedCornerShape(16.dp))
-                .padding(horizontal = 8.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly
+                .glassSurface(shard(16.dp), Morningstar.EdgeQuiet)
+                .padding(horizontal = 10.dp, vertical = 9.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
         ) {
             dock.forEach { (pkg, label) ->
+                val core = pkg == "com.lucifer.mobile"
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
                         .clickable { onLaunch(pkg) }
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .padding(horizontal = 5.dp, vertical = 2.dp)
                 ) {
-                    Canvas(modifier = Modifier.size(30.dp)) {
+                    Canvas(modifier = Modifier.size(28.dp)) {
                         drawCircle(
-                            color = if (pkg == "com.lucifer.mobile") Color(0xFFFFD700) else Color(0xFF8B0000),
-                            radius = 13.dp.toPx(),
-                            style = Stroke(width = 1.6.dp.toPx())
+                            color = if (core) Morningstar.Gilded else Morningstar.Crimson,
+                            radius = 12.dp.toPx(),
+                            style = Stroke(width = 1.dp.toPx())
+                        )
+                        drawCircle(
+                            color = (if (core) Morningstar.Gilded else Morningstar.Crimson).copy(alpha = 0.12f),
+                            radius = 12.dp.toPx()
+                        )
+                        drawCircle(
+                            color = if (core) Morningstar.Gilded else Morningstar.Crimson.copy(alpha = 0.8f),
+                            radius = 1.6.dp.toPx()
                         )
                     }
-                    Text(label, color = Color(0xFF8B7D8B), fontSize = 8.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(3.dp))
+                    Text(label, style = Morningstar.overline(6).copy(color = Morningstar.Smoke))
                 }
             }
-        }
-    }
-
-    @Composable
-    private fun SigilWatermark(alpha: Float) {
-        val transition = rememberInfiniteTransition(label = "sigil")
-        val rot by transition.animateFloat(
-            initialValue = 0f, targetValue = 360f,
-            animationSpec = infiniteRepeatable(tween(120_000, easing = LinearEasing), RepeatMode.Restart),
-            label = "rot"
-        )
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val c = center
-            val r = size.minDimension * 0.36f
-            drawCircle(Color(0xFF8B0000).copy(alpha = alpha * 2f), radius = r, center = c, style = Stroke(width = 1.5.dp.toPx()))
-            val path = androidx.compose.ui.graphics.Path()
-            for (i in 0 until 7) {
-                val ang = Math.toRadians((rot + i * 360.0 / 7.0 - 90.0))
-                val x = (c.x + r * 0.92 * kotlin.math.cos(ang)).toFloat()
-                val y = (c.y + r * 0.92 * kotlin.math.sin(ang)).toFloat()
-                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .clickable { onOpenChat() }
+                    .padding(horizontal = 5.dp, vertical = 2.dp)
+            ) {
+                Text("λ", style = Morningstar.title(17).copy(color = Morningstar.Crimson))
+                Text("SPEAK", style = Morningstar.overline(6).copy(color = Morningstar.Ash))
             }
-            path.close()
-            drawPath(path, Color(0xFFFFD700).copy(alpha = alpha * 1.4f), style = Stroke(width = 1.2.dp.toPx()))
         }
     }
 }
