@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.lucifer.mobile.data.wallet.LuciferWallet
 import com.lucifer.mobile.data.wallet.Wallet
+import com.lucifer.mobile.ui.theme.Morningstar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -65,14 +66,14 @@ fun WalletControlPanel(
         modifier = modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("EVM WALLETS", color = Color(0xFFFFD700))
+        Text("EVM WALLETS", color = Morningstar.Gilded)
         Text(
             "Generate an address or check its native-token balance. This screen cannot send funds or export private keys.",
-            color = Color(0xFFB8AEB8)
+            color = Morningstar.Ash
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             TextButton(onClick = { chainMenuExpanded = true }, enabled = !busy) {
-                Text("Network: $selectedChain ▾", color = Color(0xFFFFD700))
+                Text("Network: $selectedChain ▾", color = Morningstar.Gilded)
             }
             DropdownMenu(expanded = chainMenuExpanded, onDismissRequest = { chainMenuExpanded = false }) {
                 walletChains.forEach { chain ->
@@ -86,10 +87,10 @@ fun WalletControlPanel(
                 Text("Create wallet")
             }
         }
-        Text(status, color = Color(0xFF8B7D8B))
+        Text(status, color = Morningstar.Ash)
 
         if (wallets.isEmpty()) {
-            Text("No local wallets yet.", color = Color(0xFFB8AEB8))
+            Text("No local wallets yet.", color = Morningstar.Ash)
         } else {
             LazyColumn(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -98,18 +99,18 @@ fun WalletControlPanel(
                 items(wallets, key = { "${it.chain}:${it.address}" }) { wallet ->
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF160A16))
+                        colors = CardDefaults.cardColors(containerColor = Morningstar.Glass)
                     ) {
                         Column(
                             modifier = Modifier.fillMaxWidth().padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text("${wallet.chain} · ${wallet.symbol}", color = Color(0xFFFFD700))
-                            Text(wallet.address, color = Color(0xFFE0E0E0))
+                            Text("${wallet.chain} · ${wallet.symbol}", color = Morningstar.Gilded)
+                            Text(wallet.address, color = Morningstar.Bone)
                             Text(
                                 balances["${wallet.chain}:${wallet.address}"]?.let { "Balance: $it ${wallet.symbol}" }
                                     ?: "Balance not checked",
-                                color = Color(0xFFB8AEB8)
+                                color = Morningstar.Ash
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 TextButton(onClick = {

@@ -44,3 +44,18 @@ Use the dedicated Settings → on-device Lean verification flow to prepare a cle
 ## Runtime limits and evidence
 
 The in-app runner stores at most 20 tasks and at most 8 steps per task; step text and observations are length-bounded and the total JSON store is capped at 512 KiB. Tasks remain in Lucifer's private app files until deleted. Completion requires a separate user action after review. Workflow state is not a signed attestation and should not be presented as proof beyond the recorded run. See `ADVERSARIAL_REVIEW.md` for wider app risks and validation limits.
+
+### 7. Recover from a failure
+
+Reproduce the failing step and capture the exact error → run the fixed read-only probe catalog on the
+failing target and record evidence plus the diagnosis (including a hypothesis that challenges the
+current assumption) → research the exact error and record source URLs → choose the smallest remedy
+and let the existing confirmation dialog gate anything that changes the system → re-run the check,
+compare before/after, and record whether the remedy worked.
+
+Steps 2-3 route through Lucifer's recovery loop (`RESILIENCE.md`): the "Inspect the machine" step
+resolves to `ChatRoute.Resilience(INVESTIGATE)` and the "Consult documentation" step to
+`ChatRoute.Resilience(RESEARCH)`, which the workflow runner executes directly because both are read-only.
+Remedies are never auto-applied: the runner only routes them to the router, and non-read-only
+commands still require approval. Probe results and web excerpts are point-in-time and untrusted;
+a recorded "worked" is the user's or a re-run's evidence, not proof of root cause.

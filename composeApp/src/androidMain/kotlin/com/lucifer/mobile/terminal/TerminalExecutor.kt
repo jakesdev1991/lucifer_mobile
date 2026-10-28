@@ -160,7 +160,24 @@ class TerminalExecutor(private val context: Context) {
     internal suspend fun executeVmDirect(command: String): List<String> =
         withContext(Dispatchers.IO) { executeVm(command) }
 
-    private fun executeVm(command: String): List<String> {
+    /**
+     * The same strict SSH path, with the caller's own wall clock. Lean verification jobs legitimately
+     * run for minutes where an interactive command should not, so the timeout is a parameter here and
+     * clamped — never unbounded, and never shorter than the interactive default.
+     */
+    internal suspend fun executeVmDirect(
+        command: String,
+        timeoutMs: Long,
+        maxLines: Int = MAX_LOCAL_OUTPUT_LINES
+    ): List<String> = withContext(Dispatchers.IO) {
+        executeVm(command, timeoutMs.coerceIn(10_000L, 1_900_000L), maxLines.coerceIn(50, 4_000))
+    }
+
+    private fun executeVm(
+        command: String,
+        timeoutMs: Long = VM_COMMAND_TIMEOUT_MS,
+        maxLines: Int = MAX_LOCAL_OUTPUT_LINES
+    ): List<String> {
         val output = mutableListOf<String>()
         val password = loadVmPassword()
         val host = vmHost()
@@ -214,18 +231,18 @@ class TerminalExecutor(private val context: Context) {
                     if (stdout.length < 32_000) stdout.append(String(buffer, 0, bytesRead))
                 }
                 if (channel.isClosed && inputStream.available() == 0) break
-                if (System.currentTimeMillis() - startWait >= VM_COMMAND_TIMEOUT_MS) {
+                if (System.currentTimeMillis() - startWait >= timeoutMs) {
                     timedOut = true
                     channel.disconnect()
                     break
                 }
                 Thread.sleep(40)
             }
-            stdout.toString().lines().filter { it.isNotBlank() }.take(MAX_LOCAL_OUTPUT_LINES).forEach(output::add)
+            stdout.toString().lines().filter { it.isNotBlank() }.take(maxLines).forEach(output::add)
             if (stderr.size() > 0) {
                 stderr.toString().take(8_000).lines().filter { it.isNotBlank() }.forEach { output.add("[stderr] $it") }
             }
-            if (timedOut) output.add("[ERROR] VM command timed out after ${VM_COMMAND_TIMEOUT_MS / 1_000}s")
+            if (timedOut) output.add("[ERROR] VM command timed out after ${timeoutMs / 1_000}s")
             output.add("[exit ${channel.exitStatus}]")
         } catch (e: Exception) {
             output.add("[ERROR] Debian VM SSH failed at $host:$port. Verify host/port, saved password, and the matching verified known_hosts entry.")

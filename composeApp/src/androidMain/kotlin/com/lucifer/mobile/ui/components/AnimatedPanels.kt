@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lucifer.mobile.skills.ReferenceSkill
 import com.lucifer.mobile.skills.SkillLibrary
+import com.lucifer.mobile.ui.theme.Morningstar
 
 data class MemoryItem(
     val id: String,
@@ -76,7 +77,7 @@ fun AnimatedMemoryPanel(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0D050D))
+            .background(Morningstar.Void)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -84,7 +85,7 @@ fun AnimatedMemoryPanel(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Icons.Filled.Search, contentDescription = "Search", tint = Color(0xFF8B7D8B))
+            Icon(Icons.Filled.Search, contentDescription = "Search", tint = Morningstar.Ash)
             TextField(
                 value = searchText,
                 onValueChange = { searchText = it; onSearch(it) },
@@ -94,15 +95,15 @@ fun AnimatedMemoryPanel(
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                 colors = TextFieldDefaults.textFieldColors(
-                    containerColor = Color(0xFF1A0A1A),
-                    focusedTextColor = Color(0xFFE0E0E0),
-                    unfocusedTextColor = Color(0xFFE0E0E0),
-                    cursorColor = Color(0xFFFFD700),
-                    focusedIndicatorColor = Color(0xFF8B0000),
+                    containerColor = Morningstar.Glass,
+                    focusedTextColor = Morningstar.Bone,
+                    unfocusedTextColor = Morningstar.Bone,
+                    cursorColor = Morningstar.Gilded,
+                    focusedIndicatorColor = Morningstar.Blood,
                     unfocusedIndicatorColor = Color.Transparent,
                     disabledIndicatorColor = Color.Transparent
                 ),
-                placeholder = { Text("Semantic search memories...", color = Color(0xFF665566)) }
+                placeholder = { Text("Semantic search memories...", color = Morningstar.Ash) }
             )
         }
 
@@ -120,9 +121,9 @@ fun AnimatedMemoryPanel(
         if (memories.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Filled.Memory, contentDescription = "No memories", tint = Color(0xFF443344), modifier = Modifier.size(48.dp))
-                    Text("No memories found", color = Color(0xFF665566), fontSize = 16.sp)
-                    Text("Search or sync to populate", color = Color(0xFF443344), fontSize = 12.sp)
+                    Icon(Icons.Filled.Memory, contentDescription = "No memories", tint = Morningstar.Whisper, modifier = Modifier.size(48.dp))
+                    Text("No memories found", color = Morningstar.Ash, fontSize = 16.sp, fontFamily = Morningstar.Body)
+                    Text("Search or sync to populate", color = Morningstar.Whisper, fontSize = 12.sp, fontFamily = Morningstar.Body)
                 }
             }
         }
@@ -140,11 +141,11 @@ fun MemoryCard(
             .fillMaxWidth()
             .clickable { onClick() },
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFF1A0A1A),
-            contentColor = Color(0xFFE0E0E0)
+            containerColor = Morningstar.Glass,
+            contentColor = Morningstar.Bone
         ),
         shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, Color(0xFF8B0000).copy(alpha = 0.2f))
+        border = BorderStroke(1.dp, Morningstar.Blood.copy(alpha = 0.2f))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -153,21 +154,21 @@ fun MemoryCard(
             ) {
                 Text(
                     text = java.text.SimpleDateFormat("MMM dd, HH:mm").format(java.util.Date(memory.timestamp)),
-                    fontSize = 11.sp,
-                    color = Color(0xFF8B7D8B)
+                    fontSize = 11.sp, fontFamily = Morningstar.Body,
+                    color = Morningstar.Ash
                 )
                 Text(
                     text = String.format("%.0f%%", memory.relevance * 100),
-                    fontSize = 11.sp,
-                    color = Color(0xFFFFD700),
+                    fontSize = 11.sp, fontFamily = Morningstar.Body,
+                    color = Morningstar.Gilded,
                     fontWeight = FontWeight.Bold
                 )
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = memory.content,
-                fontSize = 13.sp,
-                color = Color(0xFFE0E0E0),
+                fontSize = 13.sp, fontFamily = Morningstar.Body,
+                color = Morningstar.Bone,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis
             )
@@ -204,21 +205,21 @@ fun AnimatedSkillsPanel(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0D050D))
+            .background(Morningstar.Void)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text(
             text = "SKILLS & CAPABILITIES",
-            fontSize = 14.sp,
+            fontSize = 14.sp, fontFamily = Morningstar.Display,
             fontWeight = FontWeight.Bold,
-            color = Color(0xFFFFD700),
+            color = Morningstar.Gilded,
             letterSpacing = 1.5.sp
         )
         Text(
             text = "Operational status is separate from reference guidance. Guidance entries do not add tools, authorization, or executable capability.",
-            fontSize = 11.sp,
-            color = Color(0xFF8B7D8B)
+            fontSize = 11.sp, fontFamily = Morningstar.Body,
+            color = Morningstar.Ash
         )
         TextField(
             value = query,
@@ -226,22 +227,22 @@ fun AnimatedSkillsPanel(
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = "Search skills", tint = Color(0xFF8B7D8B)) },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = "Search skills", tint = Morningstar.Ash) },
             colors = TextFieldDefaults.textFieldColors(
-                containerColor = Color(0xFF1A0A1A),
-                focusedTextColor = Color(0xFFE0E0E0),
-                unfocusedTextColor = Color(0xFFE0E0E0),
-                cursorColor = Color(0xFFFFD700),
-                focusedIndicatorColor = Color(0xFF8B0000),
+                containerColor = Morningstar.Glass,
+                focusedTextColor = Morningstar.Bone,
+                unfocusedTextColor = Morningstar.Bone,
+                cursorColor = Morningstar.Gilded,
+                focusedIndicatorColor = Morningstar.Blood,
                 unfocusedIndicatorColor = Color.Transparent,
                 disabledIndicatorColor = Color.Transparent
             ),
-            placeholder = { Text("Search operational skills and reference guidance…", color = Color(0xFF665566), fontSize = 12.sp) }
+            placeholder = { Text("Search operational skills and reference guidance…", color = Morningstar.Ash, fontSize = 12.sp, fontFamily = Morningstar.Body) }
         )
         Text(
             text = library?.statusSummary ?: "Reference skill library not loaded",
-            fontSize = 10.sp,
-            color = if (library?.isAvailable == true) Color(0xFF8B7D8B) else Color(0xFFFFAA00)
+            fontSize = 10.sp, fontFamily = Morningstar.Body,
+            color = if (library?.isAvailable == true) Morningstar.Ash else Morningstar.Warning
         )
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -249,19 +250,19 @@ fun AnimatedSkillsPanel(
         ) {
             if (operationalMatches.isNotEmpty()) {
                 item {
-                    Text("IMPLEMENTED / OPERATIONAL REGISTRY", color = Color(0xFFFFD700), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("IMPLEMENTED / OPERATIONAL REGISTRY", color = Morningstar.Gilded, fontSize = 11.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold)
                 }
                 items(operationalMatches) { skill -> SkillCard(skill = skill) }
             }
             if (referenceMatches.isNotEmpty()) {
                 item {
-                    Text("REFERENCE LIBRARY · GUIDANCE ONLY", color = Color(0xFFB99DFF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("REFERENCE LIBRARY · GUIDANCE ONLY", color = Morningstar.Gilded, fontSize = 11.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold)
                 }
                 items(referenceMatches) { skill -> ReferenceSkillCard(skill = skill, library = library) }
             }
             if (operationalMatches.isEmpty() && referenceMatches.isEmpty()) {
                 item {
-                    Text("No skills match this search.", color = Color(0xFF8B7D8B), modifier = Modifier.padding(vertical = 16.dp))
+                    Text("No skills match this search.", color = Morningstar.Ash, modifier = Modifier.padding(vertical = 16.dp))
                 }
             }
         }
@@ -274,31 +275,31 @@ private fun ReferenceSkillCard(skill: ReferenceSkill, library: SkillLibrary?) {
     val pack = library?.packFor(skill)
     Card(
         modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF171222), contentColor = Color(0xFFE0E0E0)),
+        colors = CardDefaults.cardColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone),
         shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, Color(0xFF8066B3).copy(alpha = 0.45f))
+        border = BorderStroke(1.dp, Morningstar.Crimson.copy(alpha = 0.45f))
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            Text(skill.name, color = Color(0xFFE2D6FF), fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Text("${pack?.title ?: skill.packId} · ${skill.readiness} · NOT RUNNABLE", color = Color(0xFFB99DFF), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Text(skill.name, color = Morningstar.Bone, fontSize = 14.sp, fontFamily = Morningstar.Display, fontWeight = FontWeight.SemiBold)
+            Text("${pack?.title ?: skill.packId} · ${skill.readiness} · NOT RUNNABLE", color = Morningstar.Gilded, fontSize = 9.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(6.dp))
-            Text(skill.summary, color = Color(0xFFD0C9D8), fontSize = 12.sp, lineHeight = 18.sp)
+            Text(skill.summary, color = Morningstar.Bone, fontSize = 12.sp, fontFamily = Morningstar.Body, lineHeight = 18.sp)
             if (expanded && pack != null) {
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Prerequisites", color = Color(0xFFFFD700), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                Text(pack.prerequisites, color = Color(0xFFCCCCCC), fontSize = 11.sp, lineHeight = 17.sp)
+                Text("Prerequisites", color = Morningstar.Gilded, fontSize = 11.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold)
+                Text(pack.prerequisites, color = Morningstar.Bone, fontSize = 11.sp, fontFamily = Morningstar.Body, lineHeight = 17.sp)
                 Spacer(modifier = Modifier.height(6.dp))
-                Text("Safety boundary", color = Color(0xFFFFD700), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                Text(pack.safetyBoundary, color = Color(0xFFCCCCCC), fontSize = 11.sp, lineHeight = 17.sp)
+                Text("Safety boundary", color = Morningstar.Gilded, fontSize = 11.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold)
+                Text(pack.safetyBoundary, color = Morningstar.Bone, fontSize = 11.sp, fontFamily = Morningstar.Body, lineHeight = 17.sp)
                 Spacer(modifier = Modifier.height(6.dp))
-                Text("Verification / evidence", color = Color(0xFFFFD700), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                Text(pack.verification, color = Color(0xFFCCCCCC), fontSize = 11.sp, lineHeight = 17.sp)
+                Text("Verification / evidence", color = Morningstar.Gilded, fontSize = 11.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold)
+                Text(pack.verification, color = Morningstar.Bone, fontSize = 11.sp, fontFamily = Morningstar.Body, lineHeight = 17.sp)
                 if (pack.references.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(6.dp))
-                    Text("Sources: ${pack.references.joinToString()}", color = Color(0xFF8B7D8B), fontSize = 9.sp, lineHeight = 14.sp)
+                    Text("Sources: ${pack.references.joinToString()}", color = Morningstar.Ash, fontSize = 9.sp, fontFamily = Morningstar.Body, lineHeight = 14.sp)
                 }
             }
-            Text(if (expanded) "Tap to collapse" else "Tap for prerequisites, boundaries and evidence", color = Color(0xFF8B7D8B), fontSize = 9.sp, modifier = Modifier.padding(top = 8.dp))
+            Text(if (expanded) "Tap to collapse" else "Tap for prerequisites, boundaries and evidence", color = Morningstar.Ash, fontSize = 9.sp, fontFamily = Morningstar.Body, modifier = Modifier.padding(top = 8.dp))
         }
     }
 }
@@ -316,11 +317,11 @@ fun SkillCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = Color(0xFF1A0A1A),
-            contentColor = Color(0xFFE0E0E0)
+            containerColor = Morningstar.Glass,
+            contentColor = Morningstar.Bone
         ),
         shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, Color(0xFF8B0000).copy(alpha = 0.2f + toggleAnim * 0.3f))
+        border = BorderStroke(1.dp, Morningstar.Blood.copy(alpha = 0.2f + toggleAnim * 0.3f))
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -332,27 +333,27 @@ fun SkillCard(
                     Icon(
                         imageVector = skill.icon,
                         contentDescription = skill.name,
-                        tint = Color(0xFF8B0000).copy(alpha = 0.5f + toggleAnim * 0.5f),
+                        tint = Morningstar.Blood.copy(alpha = 0.5f + toggleAnim * 0.5f),
                         modifier = Modifier
                             .size(28.dp)
                             .graphicsLayer { scaleX = 0.8f + toggleAnim * 0.2f; scaleY = 0.8f + toggleAnim * 0.2f }
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(horizontalAlignment = Alignment.Start) {
-                        Text(text = skill.name, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = if (skill.isEnabled) Color(0xFFFFD700) else Color(0xFFE0E0E0))
-                        Text(text = skill.category, fontSize = 11.sp, color = Color(0xFF8B7D8B))
+                        Text(text = skill.name, fontSize = 16.sp, fontFamily = Morningstar.Display, fontWeight = FontWeight.SemiBold, color = if (skill.isEnabled) Morningstar.Gilded else Morningstar.Bone)
+                        Text(text = skill.category, fontSize = 11.sp, fontFamily = Morningstar.Body, color = Morningstar.Ash)
                     }
                 }
 
                 Box(
                     modifier = Modifier
-                        .background(if (skill.isEnabled) Color(0xFF173B2D) else Color(0xFF332233), RoundedCornerShape(14.dp))
+                        .background(if (skill.isEnabled) Morningstar.Ash else Morningstar.GlassRaised, RoundedCornerShape(14.dp))
                         .padding(horizontal = 10.dp, vertical = 6.dp)
                 ) {
                     Text(
                         text = skill.status,
-                        color = if (skill.isEnabled) Color(0xFF00FF88) else Color(0xFFFFAA00),
-                        fontSize = 9.sp,
+                        color = if (skill.isEnabled) Morningstar.Success else Morningstar.Warning,
+                        fontSize = 9.sp, fontFamily = Morningstar.Body,
                         fontWeight = FontWeight.Bold
                     )
                 }
@@ -368,16 +369,16 @@ fun SkillCard(
             ) {
                 Column(modifier = Modifier.padding(top = 12.dp).fillMaxWidth()) {
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = skill.description, fontSize = 12.sp, color = Color(0xFFCCCCCC), lineHeight = 20.sp)
+                    Text(text = skill.description, fontSize = 12.sp, fontFamily = Morningstar.Body, color = Morningstar.Bone, lineHeight = 20.sp)
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = "Complexity: ${skill.complexity}/5", fontSize = 10.sp, color = Color(0xFF8B7D8B))
+                    Text(text = "Complexity: ${skill.complexity}/5", fontSize = 10.sp, fontFamily = Morningstar.Body, color = Morningstar.Ash)
                 }
             }
 
             Icon(
                 imageVector = if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
                 contentDescription = if (isExpanded) "Collapse" else "Expand",
-                tint = Color(0xFF8B7D8B),
+                tint = Morningstar.Ash,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp)

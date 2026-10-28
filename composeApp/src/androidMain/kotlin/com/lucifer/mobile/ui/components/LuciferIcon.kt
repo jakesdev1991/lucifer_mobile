@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lucifer.mobile.ui.theme.LuciferColors
+import com.lucifer.mobile.ui.theme.Morningstar
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.min
@@ -186,7 +187,7 @@ fun HeartbeatIndicator(
         }
         Text(
             text = phase,
-            fontSize = 8.sp,
+            fontSize = 8.sp, fontFamily = Morningstar.Body,
             color = if (isActive) LuciferColors.Crimson else LuciferColors.Gold,
             modifier = Modifier.padding(top = 16.dp)
         )

@@ -119,6 +119,17 @@ object WorkflowBlueprints {
             )
         ),
         WorkflowBlueprint(
+            id = "recover_and_fix", title = "Recover from a failure",
+            summary = "Reproduce the failure, inspect the machine with read-only probes, consult public docs, apply the smallest remedy, and verify. Repairs still require confirmation.",
+            steps = listOf(
+                WorkflowStepSpec("Reproduce and capture", "Run the failing step once on the task target and record the exact error text and exit status. Do not change anything yet.", "The error text, tool, and target are recorded for the recovery loop."),
+                WorkflowStepSpec("Inspect the machine", "Ask Lucifer to figure out what's going on so the fixed read-only probe catalog runs on the failing target. Record the evidence highlights and the diagnosis, including any hypothesis that challenges the current assumption.", "Probe evidence and a diagnosis are recorded; nothing was modified."),
+                WorkflowStepSpec("Consult documentation", "Research the exact error and the tool version, and record the confirmed fixes with their source URLs. Separate what the sources say from what the evidence supports.", "At least one traceable source or an explicit 'no usable source' is recorded."),
+                WorkflowStepSpec("Apply the smallest remedy", "Choose the cheapest move that addresses the diagnosed cause. Rehearse the exact command and target; non-read-only commands still require approval in Lucifer's confirmation dialog.", "Either the smallest remedy ran with approval, or it was explicitly blocked with the reason."),
+                WorkflowStepSpec("Verify and learn", "Re-run the original check and compare it with the first error. Record whether the remedy worked so the local lesson ledger learns from it.", "Before/after evidence is recorded and the outcome is written to the recovery ledger.")
+            )
+        ),
+        WorkflowBlueprint(
             id = "formal_verification", title = "Formal verification check",
             summary = "Bind checks to a source SHA and toolchain; report formal results without overclaiming physical validity.",
             steps = listOf(
