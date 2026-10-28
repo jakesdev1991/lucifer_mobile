@@ -168,6 +168,7 @@ class LauncherActivity : ComponentActivity() {
             "wallet" -> 4
             "browser" -> 5
             "workflows", "workflow" -> 7
+            "recover", "recovery" -> 8
             else -> return false
         }
         val intent = Intent().setClassName(packageName, "com.lucifer.mobile.MainActivity")
@@ -261,6 +262,7 @@ class LauncherActivity : ComponentActivity() {
         val executor = remember { TerminalExecutor(this@LauncherActivity) }
         val router = remember { NaturalLanguageRouter(this@LauncherActivity) }
         val localMemory = remember { LocalConversationMemory(this@LauncherActivity) }
+        val resilience = remember { com.lucifer.mobile.resilience.ResilienceEngine(this@LauncherActivity) }
         val kb = LocalSoftwareKeyboardController.current
         var pendingAction by remember { mutableStateOf<TerminalAction?>(null) }
 
@@ -278,6 +280,12 @@ class LauncherActivity : ComponentActivity() {
                     output.joinToString("\n").take(1_800),
                     importance = 70
                 )
+                try {
+                    resilience.captureOutcome(
+                        com.lucifer.mobile.resilience.ResilienceEngine.outcomeOf(action.target, action.command, output)
+                    )
+                } catch (_: Exception) {
+                }
                 withContext(Dispatchers.Main) {
                     val transcript = "${action.target.displayName} · ${executor.destinationDetails(action.target.launcherIndex)} · ${action.command}\n${output.joinToString("\n")}".take(4_000)
                     chatMessages = chatMessages + ChatMessage(transcript, true)
@@ -348,6 +356,48 @@ class LauncherActivity : ComponentActivity() {
                         chatMessages = chatMessages + ChatMessage(message, true)
                         chatThinking = false
                         if (shouldSpeak) voice.speak(message)
+                    }
+                    is ChatRoute.Resilience -> {
+                        val lines = try {
+                            when (route.request) {
+                                ResilienceRequest.INVESTIGATE -> {
+                                    val out = mutableListOf<String>()
+                                    val signal = resilience.state.value.signal
+                                    if (signal == null) {
+                                        out += "No failure captured yet — run something that fails first, or ask me to research a topic."
+                                    } else {
+                                        out += "Investigating ${signal.failureClass.label} on ${signal.target.displayName} with fixed read-only probes."
+                                        resilience.investigate()?.highlights()?.forEach { out += it }
+                                        resilience.diagnose()?.let { diagnosis -> out += diagnosis.render() }
+                                        val moves = resilience.plan()
+                                        if (moves.isNotEmpty()) out += "Next: " + moves.joinToString("; ") { it.title }
+                                        out += "Open Lucifer's Recover tab to try a move or record an outcome."
+                                    }
+                                    out
+                                }
+                                ResilienceRequest.RESEARCH -> {
+                                    val brief = resilience.research(route.query.ifBlank { null })
+                                    brief?.render()?.lines()?.take(20) ?: listOf("Nothing to look up yet.")
+                                }
+                                ResilienceRequest.LESSONS -> resilience.lessonOverview().lines()
+                                ResilienceRequest.PLAN -> {
+                                    if (resilience.state.value.signal == null) {
+                                        listOf("No active failure yet — run something that fails first.")
+                                    } else {
+                                        resilience.plan()
+                                            .mapIndexed { index, move -> "${index + 1}. ${move.title} — ${move.instruction}" }
+                                            .ifEmpty { listOf("Every known tactic has been tried; new context is needed.") }
+                                    }
+                                }
+                            }
+                        } catch (error: Exception) {
+                            listOf("Recovery request failed: ${error.message ?: "unknown error"}")
+                        }
+                        withContext(Dispatchers.Main) {
+                            chatMessages = chatMessages + ChatMessage(lines.joinToString("\n").take(3_500), true)
+                            chatThinking = false
+                            if (shouldSpeak) voice.speak(lines.firstOrNull().orEmpty())
+                        }
                     }
                     is ChatRoute.Execute -> withContext(Dispatchers.Main) {
                         val action = route.action

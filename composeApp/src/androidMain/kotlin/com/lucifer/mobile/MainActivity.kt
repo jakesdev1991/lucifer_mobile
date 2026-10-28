@@ -25,6 +25,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Language
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,7 +55,13 @@ import com.lucifer.mobile.terminal.LocalWebsiteManager
 import com.lucifer.mobile.launcher.ChatRoute
 import com.lucifer.mobile.launcher.CommandTarget
 import com.lucifer.mobile.launcher.NaturalLanguageRouter
+import com.lucifer.mobile.launcher.ResilienceRequest
 import com.lucifer.mobile.launcher.TerminalAction
+import com.lucifer.mobile.resilience.MoveSafety
+import com.lucifer.mobile.resilience.RecoveryKind
+import com.lucifer.mobile.resilience.RecoveryMove
+import com.lucifer.mobile.resilience.ResilienceEngine
+import com.lucifer.mobile.ui.components.RecoveryControlPanel
 import com.lucifer.mobile.security.SecretStore
 import com.lucifer.mobile.memory.DriveMemoryMcpClient
 import com.lucifer.mobile.memory.LocalConversationMemory
@@ -106,6 +114,8 @@ class MainActivity : ComponentActivity() {
                 val terminalExecutor = remember { TerminalExecutor(this@MainActivity) }
                 val router = remember { NaturalLanguageRouter(this@MainActivity) }
                 val reasoner = remember { ToEReasoningEngine(this@MainActivity) }
+                val resilience = remember { ResilienceEngine(this@MainActivity) }
+                val resilienceState by resilience.state.collectAsState()
                 val workflowStore = remember { WorkflowTaskStore(this@MainActivity) }
                 val workflowAgent = remember { WorkflowAgent(this@MainActivity) }
                 val workflowLoad = remember { runCatching { workflowStore.load() } }
@@ -117,6 +127,7 @@ class MainActivity : ComponentActivity() {
                 var workflowMessage by remember { mutableStateOf(workflowLoad.exceptionOrNull()?.message ?: "One step at a time; review output before continuing.") }
                 var pendingWorkflowStep by remember { mutableStateOf<Pair<String, String>?>(null) }
                 var pendingTerminalAction by remember { mutableStateOf<TerminalAction?>(null) }
+                var pendingRecoveryMove by remember { mutableStateOf<RecoveryMove?>(null) }
                 var voiceEnabled by remember { mutableStateOf(loadVoiceEnabled()) }
                 var settingsToast by remember { mutableStateOf<String?>(null) }
                 var showTermuxToolkitDialog by remember { mutableStateOf(false) }
@@ -355,6 +366,8 @@ class MainActivity : ComponentActivity() {
                     pendingTerminalAction = null
                     val workflowRef = pendingWorkflowStep
                     pendingWorkflowStep = null
+                    val recoveryMove = pendingRecoveryMove
+                    pendingRecoveryMove = null
                     isProcessing = true
                     scope.launch(Dispatchers.IO) {
                         val result = try {
@@ -362,15 +375,39 @@ class MainActivity : ComponentActivity() {
                         } catch (e: Exception) {
                             listOf("[ERROR] ${e.message ?: "Command failed"}")
                         }
+                        // Every finished command is classified. Failures become a recovery episode
+                        // so Lucifer can stop, investigate, research, and learn from the outcome.
+                        val failure = try {
+                            resilience.captureOutcome(ResilienceEngine.outcomeOf(action.target, action.command, result))
+                        } catch (e: Exception) {
+                            null
+                        }
+                        if (recoveryMove != null) {
+                            resilience.recordAttempt(
+                                recoveryMove,
+                                succeeded = failure == null,
+                                note = result.takeLast(12).joinToString("\n")
+                            )
+                        }
                         withContext(Dispatchers.Main) {
                             appendTerminalLines(listOf("${action.target.displayName} · ${terminalExecutor.destinationDetails(action.target.launcherIndex)} · ${action.command}") + result)
+                            if (failure != null) {
+                                appendTerminalLines(
+                                    listOf(
+                                        "[RECOVERY] ${failure.failureClass.label} captured on ${failure.target.displayName}.",
+                                        "[RECOVERY] Open the Recover tab, or say \"figure out what's going on\" to run read-only probes and research."
+                                    )
+                                )
+                            }
                             if (workflowRef != null) {
                                 updateWorkflowTask(workflowRef.first) {
                                     WorkflowTransitions.recordOutcome(it, workflowRef.second, result.joinToString("\n"), executed = true)
                                 }
-                                workflowMessage = if (workflowStoreHealthy) {
-                                    "Step output recorded. Review it and request a reflection before continuing."
-                                } else "Command finished, but its result could not be saved; workflow actions are disabled. Check the terminal output."
+                                workflowMessage = when {
+                                    !workflowStoreHealthy -> "Command finished, but its result could not be saved; workflow actions are disabled. Check the terminal output."
+                                    failure != null -> "Step output recorded with a failure. Open the Recover tab to investigate it, or reflect as-is."
+                                    else -> "Step output recorded. Review it and request a reflection before continuing."
+                                }
                             }
                             isProcessing = false
                         }
@@ -430,6 +467,42 @@ class MainActivity : ComponentActivity() {
                                 workflowBusy = false
                                 workflowMessage = "Nothing ran. Add the missing context to the step and retry."
                             }
+                            is ChatRoute.Resilience -> {
+                                val output = try {
+                                    when (route.request) {
+                                        ResilienceRequest.INVESTIGATE -> {
+                                            val signal = resilience.state.value.signal
+                                            if (signal == null) {
+                                                "No failure captured yet. Run the failing step first so there is something to investigate."
+                                            } else {
+                                                val bundle = resilience.investigate()
+                                                resilience.diagnose()
+                                                resilience.plan()
+                                                buildString {
+                                                    append("Read-only investigation of ${signal.failureClass.label} on ${signal.target.displayName}.\n")
+                                                    bundle?.highlights()?.forEach { append("- ").append(it).append('\n') }
+                                                    val diagnosis = resilience.state.value.diagnosis
+                                                    if (diagnosis.isNotBlank()) append(diagnosis)
+                                                }.trim()
+                                            }
+                                        }
+                                        ResilienceRequest.RESEARCH ->
+                                            resilience.research(route.query.ifBlank { null })?.render()
+                                                ?: "No public sources were retrievable for this step."
+                                        ResilienceRequest.LESSONS -> resilience.lessonOverview()
+                                        ResilienceRequest.PLAN ->
+                                            resilience.plan().joinToString("\n") { "- ${it.title}: ${it.instruction}" }
+                                                .ifBlank { "No untried tactic remains; new context is needed." }
+                                    }
+                                } catch (e: Exception) {
+                                    "Recovery step failed: ${e.message ?: "unknown error"}"
+                                }
+                                withContext(Dispatchers.Main) {
+                                    updateWorkflowTask(taskId) { WorkflowTransitions.recordOutcome(it, stepId, output, executed = true) }
+                                    workflowBusy = false
+                                    workflowMessage = "Recovery step recorded. Inspect the evidence, then reflect before continuing."
+                                }
+                            }
                             else -> withContext(Dispatchers.Main) {
                                 updateWorkflowTask(taskId) {
                                     WorkflowTransitions.recordOutcome(it, stepId, "This step resolved to a panel/app/settings action, which the workflow runner does not launch. Use the corresponding Lucifer UI, then add its observed result and retry/review.", executed = false)
@@ -443,6 +516,7 @@ class MainActivity : ComponentActivity() {
 
                 fun cancelPendingTerminalAction() {
                     pendingTerminalAction = null
+                    pendingRecoveryMove = null
                     val workflowRef = pendingWorkflowStep
                     pendingWorkflowStep = null
                     if (workflowRef != null) {
@@ -452,6 +526,65 @@ class MainActivity : ComponentActivity() {
                         workflowMessage = "Cancelled before execution. No terminal command was run."
                     }
                     appendTerminalLines(listOf("[CANCELLED] Command was not run."))
+                }
+
+
+                /**
+                 * Recovery, research, and lesson requests from chat. Read-only by construction:
+                 * probes come from a fixed catalog and web research only performs GET requests.
+                 */
+                suspend fun resilienceLines(request: ResilienceRequest, query: String): List<String> {
+                    val out = mutableListOf<String>()
+                    val current = resilience.state.value.signal
+                    when (request) {
+                        ResilienceRequest.INVESTIGATE -> {
+                            if (current == null) {
+                                out += "[RECOVER] No failure captured yet. Run a failing command first, or ask me to research something."
+                                return out
+                            }
+                            out += "[RECOVER] ${current.failureClass.label} on ${current.target.displayName}. Running the fixed read-only probe catalog only."
+                            val bundle = resilience.investigate()
+                            bundle?.highlights()?.forEach { out += "[EVIDENCE] $it" }
+                            if (bundle != null && bundle.probeCount > 0) {
+                                val diagnosis = resilience.diagnose()
+                                if (diagnosis != null) {
+                                    out += "[DIAGNOSIS · ${diagnosis.source.name.lowercase()} · ${diagnosis.confidence}] ${diagnosis.rootCause}"
+                                    diagnosis.hypotheses.take(3).forEach { hypothesis ->
+                                        out += "  ? ${hypothesis.statement} (${(hypothesis.confidence * 100).toInt()}%)"
+                                    }
+                                }
+                            }
+                            val moves = resilience.plan()
+                            moves.forEachIndexed { index, move ->
+                                val approval = if (move.safety == MoveSafety.REQUIRES_CONFIRMATION) ", needs approval" else ""
+                                out += "[MOVE ${index + 1}] ${move.title} (${move.kind.label}$approval)"
+                            }
+                            out += "[RECOVER] Open the Recover tab to run a move, research the web, or record the outcome."
+                        }
+                        ResilienceRequest.RESEARCH -> {
+                            out += "[RESEARCH] Read-only public web search; robots.txt, rate limits, and a page budget are enforced."
+                            val brief = resilience.research(query.ifBlank { null })
+                            if (brief == null) out += "[RESEARCH] Nothing to look up yet."
+                            else out += brief.render().lines().take(24)
+                        }
+                        ResilienceRequest.LESSONS -> out += resilience.lessonOverview().lines()
+                        ResilienceRequest.PLAN -> {
+                            if (current == null) {
+                                out += "[RECOVER] No active failure. Run something that fails first."
+                                return out
+                            }
+                            val moves = resilience.plan()
+                            if (moves.isEmpty()) {
+                                out += "[RECOVER] Every known tactic has been tried. New context is needed."
+                            } else {
+                                out += "[PLAN] ${moves.size} move(s), cheapest first:"
+                                moves.forEachIndexed { index, move ->
+                                    out += "  ${index + 1}. ${move.title} — ${move.instruction}"
+                                }
+                            }
+                        }
+                    }
+                    return out
                 }
 
                 fun requestHeartbeatPermissions(action: String) {
@@ -517,7 +650,8 @@ class MainActivity : ComponentActivity() {
                                     TabItem("Wallet", Icons.Filled.AccountBalanceWallet),
                                     TabItem("Browser", Icons.Filled.Language),
                                     TabItem("Heartbeat", Icons.Filled.Psychology),
-                                    TabItem("Work", Icons.Filled.Build)
+                                    TabItem("Work", Icons.Filled.Build),
+                                    TabItem("Recover", Icons.Filled.Autorenew)
                                 )
                             )
 
@@ -605,6 +739,7 @@ class MainActivity : ComponentActivity() {
                                                             "browser" -> 5
                                                             "heartbeat" -> 6
                                                             "workflow", "workflows" -> 7
+                                                            "recover", "recovery" -> 8
                                                             else -> 0
                                                         }
                                                         appendTerminalLines(listOf("[PANEL] Opening Lucifer's ${route.panel} panel."))
@@ -623,6 +758,17 @@ class MainActivity : ComponentActivity() {
                                                         } else {
                                                             appendTerminalLines(listOf("[UNDERSTOOD] ${action.explanation}"))
                                                             runTerminalAction(action)
+                                                        }
+                                                    }
+                                                    is ChatRoute.Resilience -> {
+                                                        val lines = try {
+                                                            resilienceLines(route.request, route.query)
+                                                        } catch (e: Exception) {
+                                                            listOf("[RECOVER ERROR] ${e.message ?: "could not complete the recovery request"}")
+                                                        }
+                                                        withContext(Dispatchers.Main) {
+                                                            appendTerminalLines(lines)
+                                                            isProcessing = false
                                                         }
                                                     }
                                                 }
@@ -893,6 +1039,151 @@ class MainActivity : ComponentActivity() {
                                         workflowMessage = "Workflow task deleted from local app storage."
                                     }
                                 )
+                                8 -> {
+                                    val lessonsText = remember(resilienceState.lessonCount, resilienceState.lastUpdated) {
+                                        resilience.lessonOverview()
+                                    }
+                                    RecoveryControlPanel(
+                                        modifier = Modifier.fillMaxSize(),
+                                        state = resilienceState,
+                                        lessonsOverview = lessonsText,
+                                        onInvestigate = {
+                                            scope.launch(Dispatchers.IO) {
+                                                try {
+                                                    resilience.investigate()
+                                                    resilience.diagnose()
+                                                    resilience.plan()
+                                                } catch (_: Exception) {
+                                                    // The panel surfaces the engine's own status text.
+                                                }
+                                            }
+                                        },
+                                        onDiagnose = {
+                                            scope.launch(Dispatchers.IO) {
+                                                try {
+                                                    resilience.diagnose()
+                                                    resilience.plan()
+                                                } catch (_: Exception) {
+                                                }
+                                            }
+                                        },
+                                        onResearch = { query ->
+                                            scope.launch(Dispatchers.IO) {
+                                                try {
+                                                    resilience.research(query.ifBlank { null })
+                                                } catch (_: Exception) {
+                                                }
+                                            }
+                                        },
+                                        onPlan = {
+                                            scope.launch(Dispatchers.IO) {
+                                                try {
+                                                    resilience.plan()
+                                                } catch (_: Exception) {
+                                                }
+                                            }
+                                        },
+                                        onRunMove = { move ->
+                                            if (!isProcessing && pendingTerminalAction == null) {
+                                                isProcessing = true
+                                                appendTerminalLines(listOf("[RECOVER] Working out how to try: ${move.title}"))
+                                                scope.launch(Dispatchers.IO) {
+                                                    // Read-only moves are carried out directly: probes from the
+                                                    // fixed catalog, or a robots-aware public web search.
+                                                    val handled = when (move.kind) {
+                                                        RecoveryKind.DIAGNOSE_ENVIRONMENT,
+                                                        RecoveryKind.READ_LOGS,
+                                                        RecoveryKind.VERIFY_PREREQUISITES -> {
+                                                            val lines = mutableListOf("[RECOVER] ${move.title}")
+                                                            val bundle = resilience.investigate()
+                                                            bundle?.highlights()?.forEach { lines += "[EVIDENCE] $it" }
+                                                            resilience.diagnose()?.let { diagnosis ->
+                                                                lines += "[DIAGNOSIS · ${diagnosis.source.name.lowercase()}] ${diagnosis.rootCause}"
+                                                            }
+                                                            resilience.plan()
+                                                            lines += "[RECOVER] Evidence refreshed — record the outcome only after a change you can observe."
+                                                            lines
+                                                        }
+                                                        RecoveryKind.WEB_RESEARCH -> {
+                                                            val brief = resilience.research()
+                                                            listOf("[RESEARCH] ${move.title}") + (
+                                                                brief?.render()?.lines()?.take(18)
+                                                                    ?: listOf("No sources were retrievable.")
+                                                                )
+                                                        }
+                                                        else -> null
+                                                    }
+                                                    if (handled != null) {
+                                                        withContext(Dispatchers.Main) {
+                                                            appendTerminalLines(handled)
+                                                            isProcessing = false
+                                                        }
+                                                        return@launch
+                                                    }
+                                                    val route = try {
+                                                        router.understand(
+                                                            move.instruction,
+                                                            CommandTarget.fromLauncherIndex(terminalTarget),
+                                                            installedAppNames = installedAppNames()
+                                                        )
+                                                    } catch (_: Exception) {
+                                                        ChatRoute.Clarify("I could not work out how to carry out that move. Add detail and replan.")
+                                                    }
+                                                    when (route) {
+                                                        is ChatRoute.Execute -> withContext(Dispatchers.Main) {
+                                                            pendingRecoveryMove = move
+                                                            isProcessing = false
+                                                            val action = route.action
+                                                            if (action.requiresConfirmation) {
+                                                                pendingTerminalAction = action
+                                                                appendTerminalLines(
+                                                                    listOf(
+                                                                        "[RECOVER CONFIRM] ${action.explanation}",
+                                                                        "[${action.target.displayName}] ${action.command}",
+                                                                        "This move changes the system, so it needs your approval before it runs."
+                                                                    )
+                                                                )
+                                                            } else {
+                                                                runTerminalAction(action)
+                                                            }
+                                                        }
+                                                        ChatRoute.Conversation -> {
+                                                            val advice = try {
+                                                                reasoner.reason(move.instruction)
+                                                            } catch (e: Exception) {
+                                                                "[CHAT ERROR] ${e.message ?: "could not produce advice"}"
+                                                            }
+                                                            withContext(Dispatchers.Main) {
+                                                                appendTerminalLines(
+                                                                    listOf(
+                                                                        "[RECOVER · ADVICE] ${move.title}",
+                                                                        advice,
+                                                                        "Carry it out yourself if it applies, then record the outcome in the Recover tab."
+                                                                    )
+                                                                )
+                                                                isProcessing = false
+                                                            }
+                                                        }
+                                                        is ChatRoute.Clarify -> withContext(Dispatchers.Main) {
+                                                            appendTerminalLines(listOf("[RECOVER] ${route.question}"))
+                                                            isProcessing = false
+                                                        }
+                                                        else -> withContext(Dispatchers.Main) {
+                                                            appendTerminalLines(
+                                                                listOf("[RECOVER] That move needs a Lucifer panel action. Do it there, then record the outcome in Recover.")
+                                                            )
+                                                            isProcessing = false
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        onRecordOutcome = { succeeded -> resilience.recordManualOutcome(succeeded) },
+                                        onReset = { resilience.reset() },
+                                        onClearLessons = { resilience.clearLessons() },
+                                        onForgetSignature = { resilience.forgetCurrentSignature() }
+                                    )
+                                }
                             }
                         }
                     }
@@ -1162,8 +1453,14 @@ class MainActivity : ComponentActivity() {
                 icon = Icons.Filled.Psychology
             ),
             com.lucifer.mobile.ui.components.SkillItem(
+                id = "recovery_loop", name = "Failure recovery + self-learning loop",
+                description = "Classifies a failed command, runs a fixed read-only probe catalog on LOCAL/TERMUX/VM/SHIZUKU, optionally diagnoses with the model, researches public HTTPS docs (robots.txt + page budget), and ranks the next tactic from locally recorded outcomes. Repairs remain confirmation-gated; source is implemented and host-verified but not device-tested.",
+                category = "Autonomy", isEnabled = true, status = "IMPLEMENTED · UNVALIDATED",
+                icon = Icons.Filled.Autorenew
+            ),
+            com.lucifer.mobile.ui.components.SkillItem(
                 id = "workflow_runner", name = "User-led iterative workflows",
-                description = "Four reusable blueprints with bounded persisted plans, user-started terminal/chat steps, manual observations, model reflection, pause/retry, and explicit completion. No background loop; only terminal/chat actions are routed here. Source is implemented but not yet compiled or device-tested.",
+                description = "Seven reusable blueprints (including recover-from-a-failure) with bounded persisted plans, user-started terminal/chat steps, manual observations, model reflection, pause/retry, and explicit completion. No background loop; only terminal/chat actions are routed here. Source is implemented but not yet compiled or device-tested.",
                 category = "Automation", isEnabled = true, status = "USER-LED · UNVALIDATED",
                 icon = Icons.Filled.Build
             ),

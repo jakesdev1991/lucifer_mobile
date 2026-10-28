@@ -60,6 +60,8 @@ import androidx.lifecycle.ViewTreeLifecycleOwner
 import com.lucifer.mobile.MainActivity
 import com.lucifer.mobile.launcher.ChatMessage
 import com.lucifer.mobile.launcher.ChatRoute
+import com.lucifer.mobile.launcher.ResilienceRequest
+import com.lucifer.mobile.resilience.ResilienceEngine
 import com.lucifer.mobile.launcher.CommandTarget
 import com.lucifer.mobile.launcher.NaturalLanguageRouter
 import com.lucifer.mobile.launcher.TerminalAction
@@ -241,6 +243,9 @@ class FloatingChatService : LifecycleService() {
         uiState = uiState.copy(liveMonitor = !uiState.liveMonitor)
     }
 
+    /** Lazily created so the overlay only pays for the recovery stack when it is used. */
+    private val resilienceEngine by lazy { ResilienceEngine(this) }
+
     fun sendMessage(raw: String) {
         val text = raw.trim()
         if (text.isBlank() || uiState.busy || uiState.pending != null) return
@@ -277,6 +282,37 @@ class FloatingChatService : LifecycleService() {
                 }
                 is ChatRoute.Clarify -> {
                     append(route.question, fromUser = false)
+                    uiState = uiState.copy(busy = false)
+                }
+                is ChatRoute.Resilience -> {
+                    val lines = try {
+                        when (route.request) {
+                            ResilienceRequest.INVESTIGATE -> {
+                                val signal = resilienceEngine.state.value.signal
+                                if (signal == null) listOf("No failure captured yet. Run something that fails first.")
+                                else {
+                                    val out = mutableListOf<String>()
+                                    out += "Investigating ${signal.failureClass.label} on ${signal.target.displayName} with read-only probes."
+                                    resilienceEngine.investigate()?.highlights()?.forEach { out += it }
+                                    resilienceEngine.diagnose()?.let { out += it.render() }
+                                    resilienceEngine.plan().take(2).forEach { move -> out += "Next: ${move.title}" }
+                                    out
+                                }
+                            }
+                            ResilienceRequest.RESEARCH -> {
+                                val brief = resilienceEngine.research(route.query.ifBlank { null })
+                                brief?.render()?.lines()?.take(12) ?: listOf("Nothing to look up yet.")
+                            }
+                            ResilienceRequest.LESSONS -> resilienceEngine.lessonOverview().lines().take(12)
+                            ResilienceRequest.PLAN -> {
+                                if (resilienceEngine.state.value.signal == null) listOf("No active failure yet.")
+                                else resilienceEngine.plan().map { move -> "• ${move.title}" }.ifEmpty { listOf("Every known tactic has been tried.") }
+                            }
+                        }
+                    } catch (error: Exception) {
+                        listOf("Recovery request failed: ${error.message ?: "unknown error"}")
+                    }
+                    append(lines.joinToString("\n").take(1_800), fromUser = false)
                     uiState = uiState.copy(busy = false)
                 }
                 is ChatRoute.Execute -> {

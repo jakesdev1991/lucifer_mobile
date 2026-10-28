@@ -5,10 +5,13 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -50,11 +53,15 @@ fun AnimatedTabBar(
         TabItem("Settings", Icons.Filled.Settings)
     )
 ) {
+    // Nine destinations no longer fit as equal slabs on a phone, so scroll once the bar is full.
+    val scrollable = tabs.size > 6
+    val scrollState = rememberScrollState()
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(72.dp)
-            .background(Color(0xFF0D050D)),
+            .background(Color(0xFF0D050D))
+            .then(if (scrollable) Modifier.horizontalScroll(scrollState) else Modifier),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -69,10 +76,9 @@ fun AnimatedTabBar(
             )
             Box(
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxSize()
+                    .then(if (scrollable) Modifier.width(70.dp).fillMaxHeight() else Modifier.weight(1f).fillMaxSize())
                     .clickable { onTabSelected(index) }
-                    .padding(horizontal = 8.dp),
+                    .padding(horizontal = if (scrollable) 2.dp else 8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Column(

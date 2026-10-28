@@ -2,6 +2,8 @@ package com.lucifer.mobile.launcher
 
 import android.content.Context
 import com.lucifer.mobile.omni_bridge.llm.NemotronClient
+import com.lucifer.mobile.resilience.ResilienceIntentKind
+import com.lucifer.mobile.resilience.ResilienceIntents
 import org.json.JSONObject
 
 /** Terminal destination understood from the user's words or the active target chip. */
@@ -23,8 +25,17 @@ data class TerminalAction(
     val requiresConfirmation: Boolean
 )
 
+/** What the user wants from the recovery/self-improvement loop. */
+enum class ResilienceRequest { INVESTIGATE, RESEARCH, LESSONS, PLAN }
+
 sealed interface ChatRoute {
     data object Conversation : ChatRoute
+
+    /**
+     * Recovery, research, or learning requests. Handled by ResilienceEngine; no terminal command
+     * is implied, and any repair it proposes still goes through the normal confirmation boundary.
+     */
+    data class Resilience(val request: ResilienceRequest, val query: String = "") : ChatRoute
     data class Execute(val action: TerminalAction) : ChatRoute
     data class Clarify(val question: String) : ChatRoute
     data class OpenApp(val appName: String) : ChatRoute
@@ -87,6 +98,18 @@ class NaturalLanguageRouter(context: Context) {
                     .takeIf { it in SETTINGS_SECTIONS }?.let { ChatRoute.OpenSettings(it) }
                 "open_panel" -> json.optString("panel").trim().lowercase()
                     .takeIf { it in CONTROL_PANELS }?.let { ChatRoute.OpenPanel(it) }
+                "recover", "investigate", "diagnose", "debug" -> ChatRoute.Resilience(
+                    ResilienceRequest.INVESTIGATE, json.optString("message").take(200)
+                )
+                "research", "web_search", "look_up" -> ChatRoute.Resilience(
+                    ResilienceRequest.RESEARCH, json.optString("query").take(240)
+                )
+                "lessons", "what_learned" -> ChatRoute.Resilience(
+                    ResilienceRequest.LESSONS, json.optString("message").take(200)
+                )
+                "plan", "next_move" -> ChatRoute.Resilience(
+                    ResilienceRequest.PLAN, json.optString("message").take(200)
+                )
                 "execute" -> {
                     val command = json.optString("command").trim()
                     if (command.isBlank() || command.length > 1_000 || command.any { it == '\u0000' }) return null
@@ -120,10 +143,12 @@ class NaturalLanguageRouter(context: Context) {
         if (settingsSection != null) return ChatRoute.OpenSettings(settingsSection)
 
         val panelRequest = Regex(
-            "^(?:please\\s+)?(?:open|show(?:\\s+me)?|go to|switch to|view|take me to)\\s+(?:the\\s+)?(?:lucifer\\s+)?(wallet|browser|terminal|memory|skills|settings|heartbeat|workflows?)(?:\\s+(?:panel|tab))?(?:\\s+in lucifer)?[.!?]*$",
+            "^(?:please\\s+)?(?:open|show(?:\\s+me)?|go to|switch to|view|take me to)\\s+(?:the\\s+)?(?:lucifer\\s+)?(wallet|browser|terminal|memory|skills|settings|heartbeat|workflows?|recover(?:y)?)(?:\\s+(?:panel|tab))?(?:\\s+in lucifer)?[.!?]*$",
             RegexOption.IGNORE_CASE
         ).find(normalized)?.groupValues?.get(1)?.lowercase()
         if (panelRequest != null && panelRequest in CONTROL_PANELS) return ChatRoute.OpenPanel(panelRequest)
+
+        resilienceRoute(normalized)?.let { return it }
 
         val launchRequest = Regex("^(?:(?:please|can you|could you|would you)\\s+)?(?:open|launch|start|switch to|take me to)\\s+(?:the\\s+)?(?:app\\s+)?(.+?)[.!?]*$", RegexOption.IGNORE_CASE)
             .find(normalized)?.groupValues?.get(1)?.trim()
@@ -218,6 +243,21 @@ class NaturalLanguageRouter(context: Context) {
         }
     }
 
+    /**
+     * Offline recovery intents. Checked before app/command parsing so phrases like
+     * "figure out why that failed" never become a shell command.
+     */
+    private fun resilienceRoute(text: String): ChatRoute? {
+        val intent = ResilienceIntents.detect(text) ?: return null
+        val request = when (intent.kind) {
+            ResilienceIntentKind.INVESTIGATE -> ResilienceRequest.INVESTIGATE
+            ResilienceIntentKind.RESEARCH -> ResilienceRequest.RESEARCH
+            ResilienceIntentKind.LESSONS -> ResilienceRequest.LESSONS
+            ResilienceIntentKind.PLAN -> ResilienceRequest.PLAN
+        }
+        return ChatRoute.Resilience(request, intent.query)
+    }
+
     private fun stripTargetSuffix(value: String): String {
         val suffixes = listOf(
             " on my virtual machine", " on virtual machine", " on my vm", " on the vm", " on vm", " in my vm", " in the vm", " in vm",
@@ -239,7 +279,9 @@ class NaturalLanguageRouter(context: Context) {
 
     private companion object {
         val SETTINGS_SECTIONS = setOf("general", "wifi", "bluetooth", "location", "display", "sound", "notifications", "battery", "apps", "app_permissions")
-        val CONTROL_PANELS = setOf("wallet", "browser", "terminal", "memory", "skills", "settings", "heartbeat", "workflow", "workflows")
+        val CONTROL_PANELS = setOf(
+            "wallet", "browser", "terminal", "memory", "skills", "settings", "heartbeat", "workflow", "workflows", "recover", "recovery"
+        )
         val SAFE_READ_ONLY_COMMANDS = setOf("pwd", "ls", "df", "free", "uptime", "whoami", "hostname", "date", "uname", "id", "ps")
         val SHELL_COMMANDS = setOf(
             "ls", "cd", "cat", "echo", "pwd", "uname", "df", "ps", "grep", "whoami", "hostname", "id",
@@ -251,12 +293,15 @@ class NaturalLanguageRouter(context: Context) {
         val ROUTER_PROMPT = """
             You are the intent router for a mobile assistant that can chat, run Linux terminal commands,
             open installed apps, or open Android Settings. Understand the user's intent first.
-            Return ONLY one JSON object: {"intent":"chat|execute|clarify|open_app|open_settings|open_panel","target":"selected|local|termux|vm|shizuku","command":"","app":"","section":"general|wifi|bluetooth|location|display|sound|notifications|battery|apps|app_permissions","panel":"wallet|browser|terminal|memory|skills|settings|heartbeat|workflows","message":""}.
+            Return ONLY one JSON object: {"intent":"chat|execute|clarify|open_app|open_settings|open_panel|recover|research|lessons|plan","target":"selected|local|termux|vm|shizuku","command":"","app":"","section":"general|wifi|bluetooth|location|display|sound|notifications|battery|apps|app_permissions","panel":"wallet|browser|terminal|memory|skills|settings|heartbeat|workflows","message":""}.
             Use chat for explanations, questions about commands, hypothetical requests, and ordinary conversation.
             Use open_app when the user clearly requests launching an installed app; put its concise name in app.
             Use open_settings for Android controls; choose the closest supported section. Android may require
             the user to toggle radios or permissions in Settings—do not claim to change them yourself.
-            Use open_panel when the user asks to open Lucifer's wallet, browser, terminal, memory, skills, settings, heartbeat, or workflows screen.
+            Use open_panel when the user asks to open Lucifer's wallet, browser, terminal, memory, skills, settings, heartbeat, workflows, or recovery screen (panel=recover).
+            Use recover when the user wants to understand or recover from a failure, is stuck, or asks Lucifer to investigate the machine; put context in message.
+            Use research when the user asks Lucifer to look something up on the web; put a concise search query in query.
+            Use lessons when the user asks what Lucifer has learned from past attempts. Use plan when the user asks what to try next or wants options.
             Shizuku is a user-authorized ADB-shell (UID 2000) or root (UID 0) route, not automatic root or a universal permission grant. Questions about Shizuku/Android internals are chat unless a terminal action is explicit. For a read-only package permission/AppOps audit, open Settings so the user can use the validated inspection field; do not invent a mutating command. Never produce a command that grants, revokes, or changes Permission Manager X permissions; the owner manages those grants outside Lucifer.
             Use execute only when the user clearly wants a terminal action performed or status checked. Translate
             natural language diagnostics into one simple Linux command (examples: disk space=df -h,
