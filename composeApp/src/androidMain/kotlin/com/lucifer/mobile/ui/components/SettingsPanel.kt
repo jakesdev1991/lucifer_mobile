@@ -69,6 +69,7 @@ fun AnimatedSettingsPanel(
     onShizukuRequest: () -> Unit = {},
     onOpenShizuku: () -> Unit = {},
     onOpenPermissionManagerX: () -> Unit = {},
+    onWorldPanelOpen: () -> Unit = {},
     onShizukuTest: () -> Unit = {},
     onShizukuAudit: (String) -> Unit = {},
     shizukuAuditOutput: String = "",
@@ -226,6 +227,14 @@ fun AnimatedSettingsPanel(
             Button(onClick = onShizukuRequest, modifier = Modifier.fillMaxWidth()) { Text("REQUEST / REFRESH SHIZUKU ACCESS") }
             Button(onClick = onOpenShizuku, modifier = Modifier.fillMaxWidth()) { Text("OPEN SHIZUKU SETUP") }
             Button(onClick = onOpenPermissionManagerX, modifier = Modifier.fillMaxWidth()) { Text("OPEN PERMISSION MANAGER X") }
+            Button(onClick = onWorldPanelOpen, modifier = Modifier.fillMaxWidth()) { Text("OPEN PRIVILEGE & WORLD") }
+            Text(
+                "The World tab is where Shizuku (shell) and Dhizuku (device owner) turn into actions: create and wake a " +
+                    "managed profile, launch apps inside it, start the VM there, and make owner calls such as hide, suspend " +
+                    "or grant. Each one shows its exact command and waits for you. Lucifer's own tooling, and Permission " +
+                    "Manager X, stay off limits to those calls.",
+                color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body
+            )
             Button(onClick = onShizukuTest, modifier = Modifier.fillMaxWidth()) { Text("TEST SHIZUKU IDENTITY") }
             Text(
                 "Read-only package report: dumpsys package plus cmd appops get. Enter one package; results stay in this screen's memory and are not sent to Lucifer's model. AppOps state and Android runtime permission grants are separate.",

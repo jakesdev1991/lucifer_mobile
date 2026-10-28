@@ -281,7 +281,7 @@ class NaturalLanguageRouter(context: Context) {
         val SETTINGS_SECTIONS = setOf("general", "wifi", "bluetooth", "location", "display", "sound", "notifications", "battery", "apps", "app_permissions")
         val CONTROL_PANELS = setOf(
             "wallet", "browser", "terminal", "memory", "skills", "settings", "heartbeat", "workflow", "workflows",
-            "recover", "recovery", "agents", "tactician"
+            "recover", "recovery", "agents", "tactician", "world", "dhizuku", "privilege"
         )
         val SAFE_READ_ONLY_COMMANDS = setOf("pwd", "ls", "df", "free", "uptime", "whoami", "hostname", "date", "uname", "id", "ps")
         val SHELL_COMMANDS = setOf(
@@ -294,16 +294,16 @@ class NaturalLanguageRouter(context: Context) {
         val ROUTER_PROMPT = """
             You are the intent router for a mobile assistant that can chat, run Linux terminal commands,
             open installed apps, or open Android Settings. Understand the user's intent first.
-            Return ONLY one JSON object: {"intent":"chat|execute|clarify|open_app|open_settings|open_panel|recover|research|lessons|plan","target":"selected|local|termux|vm|shizuku","command":"","app":"","section":"general|wifi|bluetooth|location|display|sound|notifications|battery|apps|app_permissions","panel":"wallet|browser|terminal|memory|skills|settings|heartbeat|workflows","message":""}.
+            Return ONLY one JSON object: {"intent":"chat|execute|clarify|open_app|open_settings|open_panel|recover|research|lessons|plan","target":"selected|local|termux|vm|shizuku","command":"","app":"","section":"general|wifi|bluetooth|location|display|sound|notifications|battery|apps|app_permissions","panel":"wallet|browser|terminal|memory|skills|settings|heartbeat|workflows|world","message":""}.
             Use chat for explanations, questions about commands, hypothetical requests, and ordinary conversation.
             Use open_app when the user clearly requests launching an installed app; put its concise name in app.
             Use open_settings for Android controls; choose the closest supported section. Android may require
             the user to toggle radios or permissions in Settings—do not claim to change them yourself.
-            Use open_panel when the user asks to open Lucifer's wallet, browser, terminal, memory, skills, settings, heartbeat, workflows, or recovery screen (panel=recover).
+            Use open_panel when the user asks to open Lucifer's wallet, browser, terminal, memory, skills, settings, heartbeat, workflows, recovery (panel=recover), or world/privilege/Dhizuku screen (panel=world).
             Use recover when the user wants to understand or recover from a failure, is stuck, or asks Lucifer to investigate the machine; put context in message.
             Use research when the user asks Lucifer to look something up on the web; put a concise search query in query.
             Use lessons when the user asks what Lucifer has learned from past attempts. Use plan when the user asks what to try next or wants options.
-            Shizuku is a user-authorized ADB-shell (UID 2000) or root (UID 0) route, not automatic root or a universal permission grant. Questions about Shizuku/Android internals are chat unless a terminal action is explicit. For a read-only package permission/AppOps audit, open Settings so the user can use the validated inspection field; do not invent a mutating command. Never produce a command that grants, revokes, or changes Permission Manager X permissions; the owner manages those grants outside Lucifer.
+            Shizuku is a user-authorized ADB-shell (UID 2000) or root (UID 0) route; Dhizuku is a borrowed device-owner identity that survives reboots. Both are backends for Lucifer's World panel, not something you can drive from chat: privileged changes (grants, app-ops, hide/suspend, profile creation) are made there, one confirmed action at a time, and you must never emit one as a command or claim to have performed one. For a read-only package permission/AppOps audit, open Settings so the user can use the validated inspection field; do not invent a mutating command. Never produce a command that grants, revokes, or changes Permission Manager X permissions; the owner manages those grants outside Lucifer.
             Use execute only when the user clearly wants a terminal action performed or status checked. Translate
             natural language diagnostics into one simple Linux command (examples: disk space=df -h,
             memory=free -h, uptime=uptime, files=ls -la, current folder=pwd, processes=ps -ef).

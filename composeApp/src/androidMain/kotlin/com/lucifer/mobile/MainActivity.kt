@@ -80,7 +80,19 @@ import com.lucifer.mobile.agents.android.ObservationBus
 import com.lucifer.mobile.agents.android.PromptStore
 import com.lucifer.mobile.agents.android.TacticianService
 import com.lucifer.mobile.tactician.ObservationKind
+import com.lucifer.mobile.privilege.DhizukuBridge
+import com.lucifer.mobile.privilege.PrivilegeCommands
+import com.lucifer.mobile.privilege.PrivilegeLedger
+import com.lucifer.mobile.privilege.PrivilegeOp
+import com.lucifer.mobile.privilege.PrivilegeOutcome
+import com.lucifer.mobile.privilege.PrivilegeRouter
+import com.lucifer.mobile.privilege.Provider
+import com.lucifer.mobile.privilege.ProviderPlan
+import com.lucifer.mobile.world.WorldAction
+import com.lucifer.mobile.world.WorldManager
 import com.lucifer.mobile.ui.components.AgentsPanel
+import com.lucifer.mobile.ui.components.WorldPanel
+import com.lucifer.mobile.ui.components.WorldUiState
 import com.lucifer.mobile.ui.effects.FallIn
 import com.lucifer.mobile.ui.components.HeartbeatControlPanel
 import com.lucifer.mobile.ui.components.WalletControlPanel
@@ -672,7 +684,105 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // ── Lucifer's world: privilege backends, the managed profile, and the audit trail ──
+                val worldManager = remember { WorldManager(this@MainActivity) }
+                val privilegeRouter = remember { PrivilegeRouter(this@MainActivity) }
+                var worldState by remember { mutableStateOf(WorldUiState()) }
+
+                fun publishWorld(message: String?, busy: Boolean = false) {
+                    worldState = worldState.copy(
+                        providers = privilegeRouter.states(),
+                        summary = privilegeRouter.summary(),
+                        ledger = PrivilegeLedger.snapshot(),
+                        busy = busy,
+                        message = message
+                    )
+                }
+
+                fun refreshWorld(message: String? = worldState.message) {
+                    worldState = worldState.copy(busy = true, message = message)
+                    scope.launch(Dispatchers.IO) {
+                        val providers = privilegeRouter.states()
+                        val summary = ProviderPlan.summary(providers)
+                        val snapshot = worldManager.snapshot()
+                        withContext(Dispatchers.Main) {
+                            worldState = WorldUiState(
+                                providers = providers,
+                                summary = summary,
+                                snapshot = snapshot,
+                                ledger = PrivilegeLedger.snapshot(),
+                                busy = false,
+                                message = message
+                            )
+                        }
+                    }
+                }
+
+                fun runWorldAction(action: WorldAction) {
+                    worldState = worldState.copy(busy = true)
+                    scope.launch(Dispatchers.IO) {
+                        val world = worldManager.snapshot().world
+                        val outcome = when (action) {
+                            WorldAction.CREATE_WORLD -> worldManager.createWorld()
+                            WorldAction.OPEN_WORLD -> world?.let { worldManager.wakeWorld(it.id) }
+                                ?: PrivilegeOutcome(false, Provider.NONE, "There is no world to wake yet.")
+                            WorldAction.CLOSE_WORLD -> world?.let { worldManager.sleepWorld(it.id) }
+                                ?: PrivilegeOutcome(false, Provider.NONE, "There is no world to put to sleep yet.")
+                            WorldAction.START_VM -> worldManager.startVm(world?.id)
+                            WorldAction.OPEN_SETTINGS -> PrivilegeOutcome(
+                                worldManager.openWorkProfileSettings(),
+                                Provider.NONE,
+                                "Opened the managed-profile settings."
+                            )
+                            else -> PrivilegeOutcome(false, Provider.NONE, "${action.label} needs no backend action.")
+                        }
+                        val providers = privilegeRouter.states()
+                        val snapshot = worldManager.snapshot()
+                        withContext(Dispatchers.Main) {
+                            worldState = WorldUiState(
+                                providers = providers,
+                                summary = ProviderPlan.summary(providers),
+                                snapshot = snapshot,
+                                ledger = PrivilegeLedger.snapshot(),
+                                busy = false,
+                                message = outcome.headline
+                            )
+                            settingsToast = outcome.headline
+                        }
+                    }
+                }
+
+                fun launchInWorld(pkg: String) {
+                    if (!PrivilegeCommands.validPackage(pkg)) {
+                        settingsToast = "Enter a valid Android package name to launch inside the world."
+                        return
+                    }
+                    scope.launch(Dispatchers.IO) {
+                        val world = worldManager.snapshot().world
+                        val outcome = if (world == null) {
+                            PrivilegeOutcome(false, Provider.NONE, "Create or find a managed profile first.")
+                        } else {
+                            worldManager.launchInWorld(pkg, world.id)
+                        }
+                        withContext(Dispatchers.Main) { settingsToast = outcome.headline }
+                    }
+                }
+
+                fun runOwnerOp(op: PrivilegeOp) {
+                    scope.launch(Dispatchers.IO) {
+                        val outcome = privilegeRouter.run(op, confirmed = true)
+                        withContext(Dispatchers.Main) {
+                            publishWorld(outcome.headline)
+                            settingsToast = outcome.headline
+                        }
+                    }
+                }
+
                 var selectedTab by remember { mutableStateOf(intent?.getIntExtra("lucifer_tab", 0) ?: 0) }
+
+                LaunchedEffect(selectedTab) {
+                    if (selectedTab == 10) refreshWorld(null)
+                }
 
                 LaunchedEffect(selectedTab) {
                     if (selectedTab == 3) {
@@ -708,7 +818,8 @@ class MainActivity : ComponentActivity() {
                                     TabItem("Heartbeat", Icons.Filled.Psychology),
                                     TabItem("Work", Icons.Filled.Build),
                                     TabItem("Recover", Icons.Filled.Autorenew),
-                                    TabItem("Agents", Icons.Filled.Face)
+                                    TabItem("Agents", Icons.Filled.Face),
+                                    TabItem("World", Icons.Filled.Public)
                                 )
                             )
 
@@ -799,6 +910,7 @@ class MainActivity : ComponentActivity() {
                                                                     "browser" -> 5
                                                                     "heartbeat" -> 6
                                                                     "agents", "general", "tactician" -> 9
+                                                                    "world", "dhizuku", "privilege" -> 10
                                                                     "workflow", "workflows" -> 7
                                                                     "recover", "recovery" -> 8
                                                                     else -> 0
@@ -857,6 +969,7 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier.fillMaxSize(),
                                             onSoulMdEdit = { saveSoulPrompt(it) },
                                             onAgentPanelOpen = { selectedTab = 9 },
+                                            onWorldPanelOpen = { selectedTab = 10 },
                                             onManageWallets = { selectedTab = 4 },
                                             onHeartbeatOpen = { selectedTab = 6 },
                                             shizukuStatus = shizukuStatus.message,
@@ -1255,6 +1368,31 @@ class MainActivity : ComponentActivity() {
                                                 settingsToast = "The General stopped watching."
                                             },
                                             onNotify = { message -> settingsToast = message }
+                                        )
+                                        10 -> WorldPanel(
+                                            modifier = Modifier.fillMaxSize(),
+                                            state = worldState,
+                                            onRefresh = { refreshWorld() },
+                                            onConfirmAction = { action -> runWorldAction(action) },
+                                            onConnectDhizuku = {
+                                                val requested = DhizukuBridge.requestPermission(this@MainActivity)
+                                                settingsToast = if (requested) {
+                                                    "Approve Lucifer in the Dhizuku permission prompt, then refresh."
+                                                } else if (DhizukuBridge.openApp(this@MainActivity)) {
+                                                    "Approve Lucifer inside Dhizuku, then refresh this panel."
+                                                } else {
+                                                    "Dhizuku is not installed. Its device-owner powers are unavailable."
+                                                }
+                                            },
+                                            onConnectShizuku = {
+                                                settingsToast = if (ShizukuAccess.requestPermission()) {
+                                                    "Approve Lucifer in the Shizuku permission prompt, then refresh."
+                                                } else {
+                                                    "Start Shizuku through Wireless debugging first, then retry."
+                                                }
+                                            },
+                                            onLaunchInWorld = { pkg -> launchInWorld(pkg) },
+                                            onOwnerOp = { op -> runOwnerOp(op) }
                                         )
                                     }
                                 }

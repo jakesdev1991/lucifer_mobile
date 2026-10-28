@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.lucifer.mobile"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.lucifer.mobile"
@@ -55,7 +55,7 @@ android {
     }
 
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.3"
+        kotlinCompilerExtensionVersion = "1.5.14"
     }
 
     packaging {
@@ -74,8 +74,8 @@ android {
 }
 
 dependencies {
-    // Compose BOM 2024.04.00 provides Compose 1.5.x with Kotlin 1.9.10 / Compose Compiler 1.5.3
-    implementation(platform("androidx.compose:compose-bom:2024.04.00"))
+    // Compose BOM 2024.10.01 provides Compose 1.7.x with Kotlin 1.9.24 / Compose Compiler 1.5.14
+    implementation(platform("androidx.compose:compose-bom:2024.10.01"))
 
     // Compose - versions managed by BOM
     implementation("androidx.compose.runtime:runtime")
@@ -90,40 +90,49 @@ dependencies {
     implementation("androidx.compose.foundation:foundation-layout")
 
     // Activity & Navigation
-    implementation("androidx.activity:activity-compose:1.8.2")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
-    implementation("androidx.navigation:navigation-compose:2.7.6")
+    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.navigation:navigation-compose:2.8.4")
 
     // Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 
     // Serialization
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.5.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
 
     // Ktor
-    implementation("io.ktor:ktor-client-android:2.3.8")
-    implementation("io.ktor:ktor-client-content-negotiation:2.3.8")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.8")
+    implementation("io.ktor:ktor-client-android:2.3.13")
+    implementation("io.ktor:ktor-client-content-negotiation:2.3.13")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.13")
 
     // Crypto
-    implementation("org.bouncycastle:bcprov-jdk18on:1.77")
-    implementation("com.auth0.android:jwtdecode:2.0.1")
+    implementation("org.bouncycastle:bcprov-jdk18on:1.78.1")
+    implementation("com.auth0.android:jwtdecode:2.1.0")
 
     // JSch for VM SSH
-    implementation("com.github.mwiede:jsch:0.2.16")
+    implementation("com.github.mwiede:jsch:0.2.20")
 
     // Shizuku: user-authorized shell/system API bridge (ADB wireless debugging or root).
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
 
+    // Dhizuku: a device-owner identity borrowed from an app the owner provisioned (Maven Central).
+    // Lucifer reaches it by reflection so a missing artifact degrades to "Dhizuku not installed"
+    // instead of a build failure, but the class has to be in the APK for that reflection to find it.
+    implementation("io.github.iamr0s:Dhizuku-API:2.5.4")
+
+    // Hidden-API exemption, needed by DevicePolicyManager calls made as a delegated owner.
+    // Used reflectively; the build does not depend on it being loadable at runtime.
+    implementation("org.lsposed.hiddenapibypass:hiddenapibypass:4.3")
+
     // AndroidX
-    implementation("androidx.core:core-ktx:1.12.0")
-    implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.7.0")
-    implementation("androidx.lifecycle:lifecycle-process:2.7.0")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
-    implementation("androidx.lifecycle:lifecycle-service:2.7.0")
+    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-process:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-service:2.8.7")
 
     // MultiDex
     implementation("androidx.multidex:multidex:2.0.1")

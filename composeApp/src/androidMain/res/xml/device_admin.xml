@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Policies Lucifer's device-admin component declares.
+
+  This is the *no-third-party-app* route to Lucifer's world: if the owner provisions Lucifer with
+  `adb shell dpm set-device-owner com.lucifer.mobile/.privilege.LuciferDeviceAdmin`, the whole World
+  panel works through public DevicePolicyManager calls with no Shizuku, no Dhizuku and no hidden API.
+  Dhizuku exists for owners who prefer to keep that identity in a separate app.
+
+  Everything declared here still needs the owner to provision the app; nothing is granted by
+  declaration alone.
+-->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <limit-password />
+        <watch-login />
+        <reset-password />
+        <force-lock />
+        <wipe-data />
+        <expire-password />
+        <encrypted-storage />
+        <disable-camera />
+        <disable-keyguard-features />
+    </uses-policies>
+</device-admin>

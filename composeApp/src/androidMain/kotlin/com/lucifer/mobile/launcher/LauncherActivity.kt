@@ -182,6 +182,7 @@ class LauncherActivity : ComponentActivity() {
             "workflows", "workflow" -> 7
             "recover", "recovery" -> 8
             "agents", "general", "tactician" -> 9
+            "world", "dhizuku", "privilege" -> 10
             else -> return false
         }
         val intent = Intent().setClassName(packageName, "com.lucifer.mobile.MainActivity")

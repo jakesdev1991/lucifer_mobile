@@ -16,6 +16,37 @@ The current heartbeat is a private foreground service. The user must tap Start a
 
 The **General** is a second user-started foreground service (`agents/android/TacticianService`). It has no execution path: it reads summaries and metadata the app already stores, writes a local brief, and records proposals that only the user can approve in the foreground. It cannot edit prompt files, change permissions, spend money, or contact anyone. Its model calls are capped per day with quiet hours, and its observation ledger is bounded and redacted. Prompt files (`soul.md`, `heartbeat.md`, every `agent-class.md`) are instructions that are sent to the model on each call, so writes reject obvious credentials; they are not a secret store, and the files are unencrypted in app-private storage. Sensing is limited to app-usage events Lucifer itself records — no message content, browsing history, or other apps' private data — and camera sensing is limited to a boolean that a session used the camera, never the image.
 
+## Privileged backends
+
+Lucifer can borrow two identities, and both are bounded on purpose.
+
+**Shizuku** (ADB shell UID 2000, or root UID 0 if the owner started it that way) provides a *shell*.
+Lucifer uses it for the terminal and for `pm`/`cmd`/`am` commands that the World panel builds. It is
+not root by default, it does not survive a reboot, and the owner revokes it by stopping Shizuku or
+removing the grant.
+
+**Dhizuku** provides a borrowed *device-owner* Binder. It survives reboots and is the most powerful
+capability in the app, so:
+
+- Calls are limited to an allowlist of `IDevicePolicyManager` methods; anything else is refused before
+  Binder is touched.
+- Every state-changing call is confirmed by the owner against the literal operation being performed,
+  one call at a time. There is no queue, no batch, no automation hook.
+- Lucifer refuses — before any confirmation dialog — to hide, suspend, uninstall, or change the
+  permission state of itself, Shizuku, Dhizuku, or Permission Manager X.
+- Permission Manager X's own grants remain read-only for Lucifer, and terminal commands that mutate
+  them are blocked by `TerminalCommandPolicy` regardless of backend.
+- Owner calls are logged in a bounded in-memory ledger (label, backend, success, short note) so the
+  owner can see what was done.
+- `wipeData` is on the method allowlist for completeness but has no UI entry point and no caller.
+
+If the owner instead provisions Lucifer directly (`dpm set-device-owner`), the same policy applies but
+the calls go through public `DevicePolicyManager` APIs with no reflection and no hidden API.
+
+The managed profile ("Lucifer's world") is containment for Lucifer's actions, not a security boundary
+against the owner or against a compromised device owner. Cross-profile launches do not grant data
+access to the owner's profile, and freezing the profile freezes whatever Lucifer started there.
+
 Interactive browser automation and external website writes are not yet implemented. The user has selected a human-confirmation boundary before any external submission, post, message, or purchase. Preserve that boundary when building an automation engine; do not treat manifest declarations or prior camera consent as blanket consent for unrelated actions.
 
 ## Remaining hardening work
