@@ -5,6 +5,7 @@ import android.content.Intent
 import android.util.Log
 import com.lucifer.mobile.resilience.JsonLite
 import com.lucifer.mobile.security.SecretStore
+import java.security.SecureRandom
 
 /**
  * The owner's handle on the verifier: one place that knows where state lives, how the endpoint is
@@ -24,6 +25,14 @@ object VerifierController {
     @Volatile
     private var endpointRef: VerifierEndpoint? = null
 
+    @Volatile
+    private var probeRef: HealthProbe? = null
+
+    /** Where the audit-vault deployment lives, plus the shared secret the phone generated for it. */
+    data class VaultConfig(val url: String, val secret: String)
+
+    private const val VAULT_FILE = "verification/vault.json"
+
     /** Where the server listens. Loopback only: exposure is a separate, visible decision. */
     const val PORT = ExposurePlan.DEFAULT_PORT
 
@@ -36,12 +45,96 @@ object VerifierController {
         }
     }
 
+    /**
+     * The runtime, wired to both backends: audit-vault first when it is linked and answering, the
+     * Debian VM otherwise. Keys, scopes, quota and the ledger stay here in either case.
+     */
     fun runtime(context: Context): VerifierRuntime = synchronized(this) {
         val app = context.applicationContext
-        runtimeRef ?: VerifierRuntime(
-            store = AndroidStore(app),
-            executor = VmJobExecutor(app)
-        ).also { runtimeRef = it }
+        runtimeRef ?: run {
+            val vm = VmJobExecutor(app)
+            val vault = vaultConfig(app)?.let { config ->
+                val transport = HttpVaultTransport(config.url)
+                val probe = HealthProbe(HttpVaultTransport(config.url, timeoutMs = 4_000))
+                probeRef = probe
+                AuditVaultExecutor(transport, config.secret) to probe
+            }
+            val executor = if (vault == null) {
+                vm
+            } else {
+                ExecutorRouter(
+                    primary = vault.first,
+                    fallback = vm,
+                    primaryAvailable = { vault.second.available() }
+                )
+            }
+            VerifierRuntime(store = AndroidStore(app), executor = executor).also { runtimeRef = it }
+        }
+    }
+
+    private fun resetRuntime() = synchronized(this) {
+        runtimeRef = null
+        probeRef = null
+    }
+
+    /**
+     * Links an audit-vault deployment. The shared secret is generated **here**, on the phone, and shown
+     * once: the vault is given a way to accept Lucifer's jobs, never a way to spend a customer's credits.
+     */
+    fun linkVault(context: Context, url: String): VaultConfig? = synchronized(this) {
+        val app = context.applicationContext
+        if (!AuditVaultContract.validUrl(url)) return null
+        val normalized = AuditVaultContract.normalizeUrl(url)
+        val existing = vaultConfig(app)?.takeIf { it.url == normalized }
+        val secret = existing?.secret ?: newVaultSecret()
+        val persisted = SecretStore.write(
+            app,
+            VAULT_FILE,
+            JsonLite.stringify(linkedMapOf<String, Any?>("url" to normalized, "secret" to secret))
+        )
+        if (!persisted) {
+            Log.w(TAG, "could not persist the vault link")
+            return null
+        }
+        resetRuntime()
+        VaultConfig(normalized, secret)
+    }
+
+    fun unlinkVault(context: Context) = synchronized(this) {
+        SecretStore.delete(context.applicationContext, VAULT_FILE)
+        resetRuntime()
+    }
+
+    fun vaultConfig(context: Context): VaultConfig? {
+        val raw = SecretStore.read(context.applicationContext, VAULT_FILE) ?: return null
+        val entry = runCatching { JsonLite.parseObject(raw) }.getOrNull() ?: return null
+        val url = (entry["url"] as? String)?.trim().orEmpty()
+        val secret = (entry["secret"] as? String)?.trim().orEmpty()
+        if (!AuditVaultContract.validUrl(url) || secret.length < 32) return null
+        return VaultConfig(AuditVaultContract.normalizeUrl(url), secret)
+    }
+
+    /**
+     * Backend status for the panel. It probes at most once per 30 s, so drawing the panel does not hammer
+     * a host that is already down.
+     */
+    fun vaultStatus(context: Context): String {
+        val config = vaultConfig(context) ?: return "not linked · using the Debian VM"
+        runtime(context)
+        val probe = probeRef ?: return "linked · ${config.url} · unprobed"
+        return probe.describe() + " · " + config.url
+    }
+
+    fun backendStatus(context: Context): String {
+        val config = vaultConfig(context) ?: return "vm-ssh"
+        runtime(context)
+        return if (probeRef?.available() == true) "audit-vault" else "audit-vault down → vm-ssh"
+    }
+
+    private fun newVaultSecret(): String {
+        val random = SecureRandom()
+        val bytes = ByteArray(32).also { random.nextBytes(it) }
+        return bytes.joinToString("") { byte -> ((byte.toInt() and 0xFF) + 0x100).toString(16).substring(1) }
     }
 
     fun start(context: Context) {
@@ -85,13 +178,17 @@ object VerifierController {
         message: String? = null,
         busy: Boolean = false,
         issuedToken: String? = null,
+        vaultSecret: String? = null,
         exposure: String = "loopback only · no tunnel running"
     ): VerifierUiState = VerifierUiState.from(
         runtime = runtime(context),
         running = VerificationService.isRunning && endpointRunning,
         port = endpointRef?.boundPort?.takeIf { it > 0 } ?: PORT,
         exposure = exposure,
+        vault = vaultStatus(context),
+        backend = backendStatus(context),
         issuedToken = issuedToken,
+        vaultSecret = vaultSecret,
         message = message,
         busy = busy
     )

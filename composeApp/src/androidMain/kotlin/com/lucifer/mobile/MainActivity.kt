@@ -787,6 +787,7 @@ class MainActivity : ComponentActivity() {
                 fun refreshVerifier(
                     message: String? = verifierState.message,
                     issuedToken: String? = verifierState.issuedToken,
+                    vaultSecret: String? = verifierState.vaultSecret,
                     busy: Boolean = false
                 ) {
                     verifierState = verifierState.copy(busy = true)
@@ -795,7 +796,8 @@ class MainActivity : ComponentActivity() {
                             context = this@MainActivity,
                             message = message,
                             busy = busy,
-                            issuedToken = issuedToken
+                            issuedToken = issuedToken,
+                            vaultSecret = vaultSecret
                         )
                         withContext(Dispatchers.Main) { verifierState = state }
                     }
@@ -844,6 +846,30 @@ class MainActivity : ComponentActivity() {
                                 issuedToken = null
                             )
                         }
+                        is VerifierUiCommand.LinkVault -> {
+                            scope.launch(Dispatchers.IO) {
+                                val linked = VerifierController.linkVault(this@MainActivity, command.url)
+                                withContext(Dispatchers.Main) {
+                                    refreshVerifier(
+                                        message = if (linked == null) {
+                                            "That is not a vault URL this phone will sign for. Use https, or http on loopback/private."
+                                        } else {
+                                            "Vault linked. Paste the secret below into audit-vault once; it is shown once."
+                                        },
+                                        vaultSecret = linked?.secret,
+                                        issuedToken = null
+                                    )
+                                }
+                            }
+                        }
+                        VerifierUiCommand.UnlinkVault -> {
+                            VerifierController.unlinkVault(this@MainActivity)
+                            refreshVerifier(
+                                message = "Vault unlinked. Jobs run on the Debian VM again.",
+                                vaultSecret = null,
+                                issuedToken = null
+                            )
+                        }
                         is VerifierUiCommand.SetProjectRoot -> {
                             val updated = VerifierController.setProjectRoot(this@MainActivity, command.root)
                             refreshVerifier(
@@ -860,7 +886,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(selectedTab) {
                     if (selectedTab == 10) {
                         refreshWorld(null)
-                        refreshVerifier(message = null, issuedToken = null)
+                        refreshVerifier(message = null, issuedToken = null, vaultSecret = null)
                     }
                 }
 

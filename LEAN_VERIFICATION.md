@@ -16,6 +16,10 @@ process is in a work profile, so the design is explicit:
 | **Lucifer's world (the phone)** | the MCP endpoint, keys, scopes, quota, the ledger, project configuration, the tunnel |
 | **Remote Lean host** | every actual elaboration — `lake build`, `lean`, `#print axioms` |
 
+The remote side can be **audit-vault** (an HTTP job API, preferred when linked and healthy) or the Debian
+VM over SSH (the fallback). Both are behind one `JobExecutor` seam; keys, quota and billing never leave
+the phone in either case. See [AUDIT_VAULT.md](AUDIT_VAULT.md).
+
 The phone is the **control plane**. It never runs Lean, and it never accepts a command from a client.
 
 ## The five tools
@@ -146,7 +150,7 @@ declarations, source on `build`); timeout clamping both ways; the command is bou
 contains no raw source; per-tool command shapes; base64 round-trip including multibyte text; result
 parsing; project registry validation; the tunnel token never on the command line.
 
-**Runtime and transport (16 checks)** — keys persist as hashes only and survive reload; a corrupt key
+**Runtime and transport (23 checks)** — keys persist as hashes only and survive reload; a corrupt key
 file resurrects nothing; ledger/project codecs round-trip and reject nonsense; the handshake is free
 and everything else needs a key; a metered key is charged once and the meter and ledger survive a
 restart; a job that never reached a host is not billed; refused requests and exhausted quota never
@@ -155,7 +159,8 @@ command tripwire accepts every planned command and refuses tampered ones (missin
 dir, no cleanup, unpinned root); a **real loopback socket** serves `/mcp` and `/health`, refuses
 unknown paths with 404 and `GET /mcp` with 405, and refuses an oversized body with 413 before reading
 it; framing rejects junk and chunked bodies; the panel state never carries a token it was not handed;
-and Lucifer can call his own server through the same gates without presenting a token.
+Lucifer can call his own server through the same gates without presenting a token; and the audit-vault
+contract is signed, parsed and distrusted correctly (see [AUDIT_VAULT.md](AUDIT_VAULT.md)).
 
 **Adapter type-check** — `VerificationService`, `VerifierController`, `VmJobExecutor` and the runtime
 compile against stubs of the Android surface they use.
@@ -182,6 +187,7 @@ compile against stubs of the Android surface they use.
 | `verification/VerifierController.kt` | owner-facing facade: start/stop, issue/revoke, project root, exposure command |
 | `verification/VerificationService.kt` | foreground service holding the socket |
 | `verification/VmJobExecutor.kt` | the SSH transport for planned jobs |
+| `verification/AuditVault.kt` | the audit-vault contract, HMAC signing, HTTP executor, backend router, health probe |
 | `ui/components/VerifierCard.kt` | the World-tab panel |
 | `tools/verification-core/` | the two harnesses and the Android stubs |
 | `scripts/verify_verification_core.sh` | runs all of it |

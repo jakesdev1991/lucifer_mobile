@@ -41,6 +41,7 @@ fun VerifierCard(
     var rootInput by remember(state.projects) {
         mutableStateOf(state.projects.firstOrNull()?.substringAfter("→ ")?.trim().orEmpty())
     }
+    var vaultInput by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier
@@ -78,6 +79,24 @@ fun VerifierCard(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
+        Text(
+            "backend · ${state.backend}",
+            style = Morningstar.caption(9).copy(
+                color = if (state.backend.startsWith("audit-vault") && !state.backend.contains("down")) {
+                    Morningstar.Gilded
+                } else {
+                    Morningstar.Smoke
+                }
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            "vault · ${state.vault}",
+            style = Morningstar.caption(9).copy(color = Morningstar.Smoke),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
 
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
             Button(
@@ -108,6 +127,50 @@ fun VerifierCard(
                 Text(
                     if (state.busy) "…" else "REFRESH",
                     style = Morningstar.label(9).copy(color = Morningstar.Bone)
+                )
+            }
+        }
+
+        // ── audit-vault backend ──────────────────────────────────────────────────
+        OutlinedTextField(
+            value = vaultInput,
+            onValueChange = { vaultInput = it },
+            label = { Text("audit-vault base URL (https://…)", style = Morningstar.caption(10)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+            Button(
+                onClick = { onCommand(VerifierUiCommand.LinkVault(vaultInput.trim())) },
+                enabled = !state.busy && vaultInput.trim().length > 9,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Morningstar.GlassRaised,
+                    contentColor = Morningstar.Bone
+                ),
+                modifier = Modifier.weight(1f)
+            ) { Text("LINK VAULT", style = Morningstar.label(9).copy(color = Morningstar.Bone)) }
+            Button(
+                onClick = { onCommand(VerifierUiCommand.UnlinkVault) },
+                enabled = !state.busy && state.backend != "vm-ssh",
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Morningstar.GlassRaised,
+                    contentColor = Morningstar.Bone
+                ),
+                modifier = Modifier.weight(1f)
+            ) { Text("UNLINK", style = Morningstar.label(9).copy(color = Morningstar.Bone)) }
+        }
+        state.vaultSecret?.let { secret ->
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    "PASTE THIS INTO audit-vault ONCE",
+                    style = Morningstar.overline(9).copy(color = Morningstar.Crimson)
+                )
+                SelectionContainer {
+                    Text(secret, style = Morningstar.mono(9).copy(color = Morningstar.Bone))
+                }
+                Text(
+                    "The vault signs nothing; it only proves it ran what this phone sent.",
+                    style = Morningstar.caption(9).copy(color = Morningstar.Smoke)
                 )
             }
         }

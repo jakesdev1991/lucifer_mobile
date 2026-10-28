@@ -418,6 +418,8 @@ sealed interface VerifierUiCommand {
     data class IssueKey(val plan: Plan) : VerifierUiCommand
     data class RevokeKey(val keyId: String) : VerifierUiCommand
     data class SetProjectRoot(val root: String) : VerifierUiCommand
+    data class LinkVault(val url: String) : VerifierUiCommand
+    data object UnlinkVault : VerifierUiCommand
 }
 
 data class VerifierKeyView(
@@ -444,7 +446,10 @@ data class VerifierUiState(
     val billableUsd: Double = 0.0,
     val ledgerLines: Int = 0,
     val exposure: String = "loopback only · no tunnel running",
+    val vault: String = "not linked · using the Debian VM",
+    val backend: String = "vm-ssh",
     val issuedToken: String? = null,
+    val vaultSecret: String? = null,
     val busy: Boolean = false,
     val message: String? = null
 ) {
@@ -456,7 +461,10 @@ data class VerifierUiState(
             running: Boolean,
             port: Int = ExposurePlan.DEFAULT_PORT,
             exposure: String = "loopback only · no tunnel running",
+            vault: String = "not linked · using the Debian VM",
+            backend: String = "vm-ssh",
             issuedToken: String? = null,
+            vaultSecret: String? = null,
             message: String? = null,
             busy: Boolean = false
         ): VerifierUiState {
@@ -482,7 +490,10 @@ data class VerifierUiState(
                 billableUsd = usage.usd,
                 ledgerLines = usage.lines,
                 exposure = exposure,
+                vault = vault,
+                backend = backend,
                 issuedToken = issuedToken,
+                vaultSecret = vaultSecret,
                 busy = busy,
                 message = message
             )

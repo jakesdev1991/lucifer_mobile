@@ -71,6 +71,11 @@ The verifier is the one component that accepts input from off-device, so its bou
 - **The phone does not publish itself.** The listener binds loopback. A tunnel is a separate, visible,
   command-confirmed action; the Cloudflare token is read from a mode-600 file rather than passed as an
   argument, and the SSH form pins the host key.
+- **A remote audit-vault is untrusted compute.** It receives a structured job (never a command), must
+  echo the job id, and must attest the SHA-256 of the source it actually ran. A missing or wrong
+  attestation is `ok = false` / `audit-vault-unverified`, not a pass; requests are HMAC-signed over
+  `timestamp + body` with a phone-generated secret, and the phone refuses to sign for a public `http://`
+  URL. An outage (`transport = "none"`) may fall back to the SSH backend; a verdict may not.
 - **No payment credentials exist.** Metering records credits and dollars in a bounded in-memory-plus-file
   ledger; there is no processor, no card data, and no wallet signing anywhere in this path.
 

@@ -8,6 +8,11 @@
 package com.lucifer.mobile.verification.server.harness
 
 import com.lucifer.mobile.verification.ApiKeys
+import com.lucifer.mobile.verification.AuditVaultContract
+import com.lucifer.mobile.verification.AuditVaultExecutor
+import com.lucifer.mobile.verification.ExecutorRouter
+import com.lucifer.mobile.verification.HealthProbe
+import com.lucifer.mobile.verification.VaultTransport
 import com.lucifer.mobile.verification.HttpFraming
 import com.lucifer.mobile.verification.JobCommandGuard
 import com.lucifer.mobile.verification.JobExecutor
@@ -24,6 +29,7 @@ import com.lucifer.mobile.verification.VerifierEndpoint
 import com.lucifer.mobile.verification.VerifierRuntime
 import com.lucifer.mobile.verification.VerifierTool
 import com.lucifer.mobile.verification.VerifierUiState
+import com.lucifer.mobile.resilience.JsonLite
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -347,6 +353,179 @@ fun main() {
         expect(noLength is HttpFraming.Read.Ok && noLength.request.body.isEmpty(), "empty body accepted")
     }
 
+
+    // ── audit-vault backend ─────────────────────────────────────────
+    test("the vault receives a structured job, never a shell string") {
+        val spec = job(toe(), VerifierTool.CHECK, module = "ToE", source = "theorem lucifer : True := trivial")
+        val body = AuditVaultContract.jobBody(spec)
+        expect(body.contains("\"contract\":1"), body)
+        expect(body.contains("\"tool\":\"lean.check\""), "tool named")
+        expect(body.contains("\"timeout_seconds\":120"), "ceiling sent")
+        expect(body.contains("\"job\":\"${spec.id}\""), "job id echoed for idempotency")
+        expect(body.contains("source_b64"), "source travels as base64")
+        expect(body.contains(com.lucifer.mobile.verification.JobPlanner.encode(spec.source!!)), "base64 payload present")
+        expect(!body.contains("theorem lucifer"), "raw source is not in the request")
+        listOf("base64 -d", "mktemp", "trap ", "sh -c", "lake build", "set -u").forEach { token ->
+            expect(!body.contains(token), "request must not carry shell text: $token")
+        }
+        val json = JsonLite.parseObject(body)!!
+        expect((json["project"] as? Map<*, *>)?.get("root") == "/srv/lean/omega", "root is configuration")
+    }
+
+    test("requests are signed over body, time and secret") {
+        val spec = job(toe(), VerifierTool.CHECK, module = "ToE", source = "theorem a : True := trivial")
+        val headers = AuditVaultContract.headers(spec, "s3cret", 1_700_000_000_000L)
+        expect(headers[AuditVaultContract.HEADER_JOB] == spec.id, "job header")
+        expect(headers[AuditVaultContract.HEADER_CONTRACT] == "1", "contract header")
+        expect(headers[AuditVaultContract.HEADER_TIMESTAMP] == "1700000000000", "timestamp header")
+        val signature = headers[AuditVaultContract.HEADER_SIGNATURE]!!
+        expect(signature.length == 64 && signature.all { it in "0123456789abcdef" }, signature)
+        expect(
+            signature == AuditVaultContract.sign("s3cret", 1_700_000_000_000L, AuditVaultContract.jobBody(spec)),
+            "signature is reproducible"
+        )
+        expect(
+            signature != AuditVaultContract.sign("s3cret", 1_700_000_001_000L, AuditVaultContract.jobBody(spec)),
+            "time is bound"
+        )
+        expect(
+            signature != AuditVaultContract.sign("other", 1_700_000_000_000L, AuditVaultContract.jobBody(spec)),
+            "secret is bound"
+        )
+        val tampered = AuditVaultContract.jobBody(spec).replace("lean.check", "lean.verify")
+        expect(signature != AuditVaultContract.sign("s3cret", 1_700_000_000_000L, tampered), "body is bound")
+        expect(!headers.values.any { it.contains("s3cret") }, "the secret never travels")
+    }
+
+    test("the phone only signs for URLs it can defend") {
+        expect(AuditVaultContract.validUrl("https://vault.example.com"), "https")
+        expect(AuditVaultContract.validUrl("https://vault.example.com/lean"), "https with a path")
+        expect(AuditVaultContract.normalizeUrl("https://vault.example.com/") == "https://vault.example.com", "trailing slash")
+        expect(AuditVaultContract.validUrl("http://127.0.0.1:8080"), "loopback over http")
+        expect(AuditVaultContract.validUrl("http://192.168.1.20:8080"), "private over http")
+        expect(!AuditVaultContract.validUrl("http://vault.example.com"), "public http is refused")
+        expect(!AuditVaultContract.validUrl("https://user:pw@vault.example.com"), "credentials in the URL refused")
+        expect(!AuditVaultContract.validUrl("https://vault.example.com/?x=1"), "query refused")
+        expect(!AuditVaultContract.validUrl("ftp://vault.example.com"), "scheme refused")
+        expect(!AuditVaultContract.validUrl(""), "empty refused")
+    }
+
+    test("the verdict is the phone's, not the vault's") {
+        val spec = job(toe(), VerifierTool.CHECK, module = "ToE", source = "theorem a : True := trivial")
+        val good = AuditVaultContract.parseJob(vaultReply(spec), spec)
+        expect(good.ok && good.transport == "audit-vault", good.transport)
+        expect(good.exitCode == 0 && good.elapsedMs == 1_234L, "primitives carried")
+
+        val failed = AuditVaultContract.parseJob(
+            vaultReply(spec, exit = 1, errors = listOf("unknown identifier 'lucifer'")),
+            spec
+        )
+        expect(!failed.ok && failed.transport == "audit-vault", "a failed proof is still a verdict")
+        expect(failed.errors.single().contains("unknown identifier"), "the reason survives")
+
+        val forged = AuditVaultContract.parseJob(vaultReply(spec, attest = false), spec)
+        expect(!forged.ok, "attestation mismatch is not a pass")
+        expect(forged.transport == "audit-vault-unverified", forged.transport)
+        expect(forged.errors.any { it.contains("attestation") }, forged.errors.toString())
+
+        val wrongJob = AuditVaultContract.parseJob(
+            vaultReply(spec).replace(spec.id, "job-someone-else"),
+            spec
+        )
+        expect(wrongJob.transport == "none" && !wrongJob.ok, "a reply for another job is discarded")
+
+        val wrongContract = AuditVaultContract.parseJob(vaultReply(spec).replace("\"contract\":1", "\"contract\":2"), spec)
+        expect(wrongContract.transport == "none", "unknown contract discarded")
+
+        val liar = AuditVaultContract.parseJob(
+            vaultReply(spec, exit = 1, errors = emptyList()).replace("\"ok\":false", "\"ok\":true"),
+            spec
+        )
+        expect(!liar.ok, "the vault cannot declare a pass over a failing exit")
+        expect(liar.errors.any { it.contains("claimed ok") }, liar.errors.toString())
+
+        val noisy = AuditVaultContract.parseJob(vaultReply(spec, lines = 900), spec)
+        expect(noisy.output.size == AuditVaultContract.MAX_OUTPUT_LINES, noisy.output.size.toString())
+    }
+
+    test("an outage is not a verdict") {
+        val spec = job(toe(), VerifierTool.BUILD, module = "ToE")
+
+        val throwing = FakeVault(onPost = { _, _, _ -> throw java.io.IOException("connection refused") })
+        val result = AuditVaultExecutor(throwing, "secret").execute(spec)
+        expect(result.transport == "none" && !result.ok, result.transport)
+
+        val down = FakeVault(onPost = { _, _, _ -> VaultTransport.Reply(503, "{}") })
+        expect(AuditVaultExecutor(down, "secret").execute(spec).transport == "none", "503 is not a verdict")
+
+        val healthy = FakeVault(onPost = { _, _, _ -> VaultTransport.Reply(200, vaultReply(spec)) })
+        val ok = AuditVaultExecutor(healthy, "secret", clock = { 42L }).execute(spec)
+        expect(ok.transport == "audit-vault" && ok.ok, ok.transport)
+        expect(healthy.posts.single().first == AuditVaultContract.PATH_JOBS, "posted to the job path")
+        expect(healthy.posts.single().second.containsKey(AuditVaultContract.HEADER_SIGNATURE), "signed")
+    }
+
+    test("health is probed at most once per window and parsed properly") {
+        val spec = job(toe(), VerifierTool.CHECK, module = "ToE", source = "theorem a : True := trivial")
+        val vault = FakeVault(
+            onGet = {
+                VaultTransport.Reply(
+                    200,
+                    JsonLite.stringify(
+                        linkedMapOf(
+                            "contract" to 1,
+                            "name" to "audit-vault",
+                            "version" to "0.3.1",
+                            "tools" to listOf("lean.check", "lean.verify"),
+                            "max_timeout_seconds" to 1_200
+                        )
+                    )
+                )
+            }
+        )
+        var now = 1_000L
+        val probe = HealthProbe(vault, ttlMs = 30_000L, clock = { now })
+        expect(probe.available(), "healthy")
+        expect(probe.latest?.maxTimeoutSeconds == 1_200, probe.latest.toString())
+        expect(probe.latest?.supports(spec.tool) == true, "tool supported")
+        expect(probe.describe().startsWith("up"), probe.describe())
+        expect(vault.gets == 1, "one probe")
+        now += 1_000
+        probe.available()
+        expect(vault.gets == 1, "cached within the window")
+        now += 40_000
+        probe.available()
+        expect(vault.gets == 2, "re-probed after the window")
+
+        val broken = HealthProbe(FakeVault(onGet = { VaultTransport.Reply(200, "not json") }))
+        expect(!broken.available(), "garbage health is down")
+        expect(broken.describe() == "down", broken.describe())
+    }
+
+    test("the router falls back only when the backend did not answer") {
+        val spec = job(toe(), VerifierTool.CHECK, module = "ToE", source = "theorem a : True := trivial")
+        val vm = RecordingHost(JobResult(true, 0, listOf("vm ran it"), transport = "vm-ssh"))
+
+        val outage = FakeVault(onPost = { _, _, _ -> VaultTransport.Reply(503, "") })
+        val fellBack = ExecutorRouter(AuditVaultExecutor(outage, "s"), vm).execute(spec)
+        expect(fellBack.transport == "vm-ssh" && fellBack.ok, fellBack.transport)
+        expect(fellBack.output.first().contains("audit-vault"), fellBack.output.first())
+        expect(vm.jobs.size == 1, "the fallback ran")
+
+        val verifier = RecordingHost(JobResult(false, 1, listOf("error"), errors = listOf("bad proof"), transport = "audit-vault"))
+        val notFellBack = ExecutorRouter(verifier, vm).execute(spec)
+        expect(notFellBack.transport == "audit-vault" && !notFellBack.ok, "a verdict is not retried")
+
+        val skipping = RecordingHost(JobResult(true, 0, listOf("unused"), transport = "audit-vault"))
+        val skipped = ExecutorRouter(skipping, vm, primaryAvailable = { false }).execute(spec)
+        expect(skipped.transport == "vm-ssh", skipped.transport)
+        expect(skipping.jobs.isEmpty(), "an unhealthy backend is not called")
+
+        val alone = ExecutorRouter(null, null).execute(spec)
+        expect(alone.transport == "none" && !alone.ok, "no backend is an honest failure")
+        expect(alone.output.first().contains("No fallback"), alone.output.first())
+    }
+
     // ── ui state ────────────────────────────────────────────────────
     test("the panel never renders a secret it was not handed") {
         val runtime = runtime(executor = RecordingHost())
@@ -417,4 +596,58 @@ private fun get(port: Int, path: String): Pair<Int, String> {
     val status = connection.responseCode
     val stream = if (status >= 400) connection.errorStream else connection.inputStream
     return status to stream.readBytes().toString(Charsets.UTF_8)
+}
+
+private fun toe(): LeanProject = LeanProject("toe", "Omega", "/srv/lean/omega", "ToE")
+
+/** A fake audit-vault deployment: records what it was sent, answers whatever the test wants. */
+private class FakeVault(
+    private val onPost: (String, Map<String, String>, String) -> VaultTransport.Reply =
+        { _, _, _ -> VaultTransport.Reply(200, "{}") },
+    private val onGet: (String) -> VaultTransport.Reply = { VaultTransport.Reply(404, "") }
+) : VaultTransport {
+    val posts = mutableListOf<Triple<String, Map<String, String>, String>>()
+    var gets = 0
+        private set
+
+    override fun get(path: String): VaultTransport.Reply {
+        gets++
+        return onGet(path)
+    }
+
+    override fun post(path: String, headers: Map<String, String>, body: String): VaultTransport.Reply {
+        posts += Triple(path, headers, body)
+        return onPost(path, headers, body)
+    }
+}
+
+private fun vaultReply(
+    job: LeanJobSpec,
+    exit: Int = 0,
+    errors: List<String> = emptyList(),
+    attest: Boolean = true,
+    lines: Int = 1
+): String {
+    val attestation = if (attest) {
+        job.source?.let { AuditVaultContract.sha256(it) } ?: "none"
+    } else {
+        "0000000000000000000000000000000000000000000000000000000000000000"
+    }
+    return JsonLite.stringify(
+        linkedMapOf<String, Any?>(
+            "contract" to 1,
+            "job" to job.id,
+            "ok" to (exit == 0 && errors.isEmpty()),
+            "exit" to exit,
+            "output" to (1..lines).map { "line $it" },
+            "errors" to errors,
+            "sorry_count" to 0,
+            "axioms" to emptyList<String>(),
+            "elapsed_ms" to 1_234,
+            "attestation" to linkedMapOf<String, Any?>(
+                "source_sha256" to attestation,
+                "host" to "vault-1"
+            )
+        )
+    )
 }
