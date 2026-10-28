@@ -715,548 +715,548 @@ class MainActivity : ComponentActivity() {
                             // The Fall: every panel switch enters from above with weight, never a cut.
                             androidx.compose.runtime.key(selectedTab) {
                                 FallIn(modifier = Modifier.fillMaxSize()) {
-                            when (selectedTab) {
-                                0 -> AnimatedTerminal(
-                                    modifier = Modifier.fillMaxSize(),
-                                    outputLines = terminalLines,
-                                    isProcessing = isProcessing,
-                                    target = terminalTarget,
-                                    onTargetSelected = { terminalTarget = it },
-                                    onOpenInteractiveTermux = {
-                                        val message = launchTermuxInteractive(installToolkit = false)
-                                        settingsToast = message
-                                        Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
-                                    },
-                                    onInstallTermuxTools = { showTermuxToolkitDialog = true },
-                                    onOpenAndroidLinux = {
-                                        val message = openAndroidLinuxWithOverlay()
-                                        settingsToast = message
-                                        Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
-                                    },
-                                    onStageStaticSite = {
-                                        runLocalSiteOperation("Creating the local static-site starter…") {
-                                            LocalWebsiteManager.stageStatic(this@MainActivity)
-                                        }
-                                    },
-                                    onStageApiSite = {
-                                        runLocalSiteOperation("Creating the local website + API starter…") {
-                                            LocalWebsiteManager.stageApi(this@MainActivity)
-                                        }
-                                    },
-                                    onStagePaymentDemo = {
-                                        runLocalSiteOperation("Creating the no-money USDC checkout demo…") {
-                                            LocalWebsiteManager.stagePaymentDemo(this@MainActivity)
-                                        }
-                                    },
-                                    onStopLocalSites = {
-                                        runLocalSiteOperation("Stopping local preview servers…") {
-                                            LocalWebsiteManager.stop(this@MainActivity)
-                                        }
-                                    },
-                                    onCommand = { cmd ->
-                                        if (!isProcessing && pendingTerminalAction == null) {
-                                            isProcessing = true
-                                            appendTerminalLines(listOf("λ $cmd"))
-                                            val selectedTarget = CommandTarget.fromLauncherIndex(terminalTarget)
-                                            scope.launch(Dispatchers.IO) {
-                                                val route = try {
-                                                    router.understand(cmd, selectedTarget, installedAppNames = installedAppNames())
-                                                } catch (_: Exception) {
-                                                    ChatRoute.Clarify("I couldn't route that request. Rephrase it or choose LOCAL, TERMUX, VM, or SHIZUKU.")
+                                    when (selectedTab) {
+                                        0 -> AnimatedTerminal(
+                                            modifier = Modifier.fillMaxSize(),
+                                            outputLines = terminalLines,
+                                            isProcessing = isProcessing,
+                                            target = terminalTarget,
+                                            onTargetSelected = { terminalTarget = it },
+                                            onOpenInteractiveTermux = {
+                                                val message = launchTermuxInteractive(installToolkit = false)
+                                                settingsToast = message
+                                                Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                                            },
+                                            onInstallTermuxTools = { showTermuxToolkitDialog = true },
+                                            onOpenAndroidLinux = {
+                                                val message = openAndroidLinuxWithOverlay()
+                                                settingsToast = message
+                                                Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                                            },
+                                            onStageStaticSite = {
+                                                runLocalSiteOperation("Creating the local static-site starter…") {
+                                                    LocalWebsiteManager.stageStatic(this@MainActivity)
                                                 }
-                                                when (route) {
-                                                    ChatRoute.Conversation -> {
-                                                        val answer = try {
-                                                            reasoner.reason(cmd)
-                                                        } catch (e: Exception) {
-                                                            "[CHAT ERROR] ${e.message ?: "Could not answer"}"
+                                            },
+                                            onStageApiSite = {
+                                                runLocalSiteOperation("Creating the local website + API starter…") {
+                                                    LocalWebsiteManager.stageApi(this@MainActivity)
+                                                }
+                                            },
+                                            onStagePaymentDemo = {
+                                                runLocalSiteOperation("Creating the no-money USDC checkout demo…") {
+                                                    LocalWebsiteManager.stagePaymentDemo(this@MainActivity)
+                                                }
+                                            },
+                                            onStopLocalSites = {
+                                                runLocalSiteOperation("Stopping local preview servers…") {
+                                                    LocalWebsiteManager.stop(this@MainActivity)
+                                                }
+                                            },
+                                            onCommand = { cmd ->
+                                                if (!isProcessing && pendingTerminalAction == null) {
+                                                    isProcessing = true
+                                                    appendTerminalLines(listOf("λ $cmd"))
+                                                    val selectedTarget = CommandTarget.fromLauncherIndex(terminalTarget)
+                                                    scope.launch(Dispatchers.IO) {
+                                                        val route = try {
+                                                            router.understand(cmd, selectedTarget, installedAppNames = installedAppNames())
+                                                        } catch (_: Exception) {
+                                                            ChatRoute.Clarify("I couldn't route that request. Rephrase it or choose LOCAL, TERMUX, VM, or SHIZUKU.")
                                                         }
-                                                        withContext(Dispatchers.Main) {
-                                                            appendTerminalLines(listOf("[CHAT] $answer"))
-                                                            isProcessing = false
-                                                        }
-                                                    }
-                                                    is ChatRoute.Clarify -> withContext(Dispatchers.Main) {
-                                                        appendTerminalLines(listOf("[NEED CLARIFICATION] ${route.question}"))
-                                                        isProcessing = false
-                                                    }
-                                                    is ChatRoute.OpenApp -> withContext(Dispatchers.Main) {
-                                                        appendTerminalLines(listOf(launchRequestedApp(route.appName)))
-                                                        isProcessing = false
-                                                    }
-                                                    is ChatRoute.OpenSettings -> withContext(Dispatchers.Main) {
-                                                        val opened = launchSystemSettings(route.section)
-                                                        appendTerminalLines(listOf(if (opened) "[SETTINGS] Opened ${route.section}; make protected changes in Android Settings." else "[SETTINGS] Could not open that Settings page."))
-                                                        isProcessing = false
-                                                    }
-                                                    is ChatRoute.OpenPanel -> withContext(Dispatchers.Main) {
-                                                        selectedTab = when (route.panel) {
-                                                            "terminal" -> 0
-                                                            "memory" -> 1
-                                                            "skills" -> 2
-                                                            "settings" -> 3
-                                                            "wallet" -> 4
-                                                            "browser" -> 5
-                                                            "heartbeat" -> 6
-                                                            "agents", "general", "tactician" -> 9
-                                                            "workflow", "workflows" -> 7
-                                                            "recover", "recovery" -> 8
-                                                            else -> 0
-                                                        }
-                                                        appendTerminalLines(listOf("[PANEL] Opening Lucifer's ${route.panel} panel."))
-                                                        isProcessing = false
-                                                    }
-                                                    is ChatRoute.Execute -> withContext(Dispatchers.Main) {
-                                                        val action = route.action
-                                                        if (action.requiresConfirmation) {
-                                                            pendingTerminalAction = action
-                                                            appendTerminalLines(listOf(
-                                                                "[CONFIRM] ${action.explanation}",
-                                                                "[${action.target.displayName}] ${action.command}",
-                                                                "Review and confirm before running."
-                                                            ))
-                                                            isProcessing = false
-                                                        } else {
-                                                            appendTerminalLines(listOf("[UNDERSTOOD] ${action.explanation}"))
-                                                            runTerminalAction(action)
-                                                        }
-                                                    }
-                                                    is ChatRoute.Resilience -> {
-                                                        val lines = try {
-                                                            resilienceLines(route.request, route.query)
-                                                        } catch (e: Exception) {
-                                                            listOf("[RECOVER ERROR] ${e.message ?: "could not complete the recovery request"}")
-                                                        }
-                                                        withContext(Dispatchers.Main) {
-                                                            appendTerminalLines(lines)
-                                                            isProcessing = false
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                )
-                                1 -> AnimatedMemoryPanel(
-                                    modifier = Modifier.fillMaxSize(),
-                                    memories = memoryItems,
-                                    onSearch = { q ->
-                                        scope.launch(Dispatchers.IO) {
-                                            val hits = searchMemories(q)
-                                            withContext(Dispatchers.Main) { memoryItems = hits }
-                                        }
-                                    },
-                                    isSearching = false
-                                )
-                                2 -> AnimatedSkillsPanel(
-                                    modifier = Modifier.fillMaxSize(),
-                                    skills = skills,
-                                    library = referenceSkillLibrary
-                                )
-                                3 -> AnimatedSettingsPanel(
-                                    modifier = Modifier.fillMaxSize(),
-                                    onSoulMdEdit = { saveSoulPrompt(it) },
-                                    onAgentPanelOpen = { selectedTab = 9 },
-                                    onManageWallets = { selectedTab = 4 },
-                                    onHeartbeatOpen = { selectedTab = 6 },
-                                    shizukuStatus = shizukuStatus.message,
-                                    onShizukuRequest = {
-                                        settingsToast = if (ShizukuAccess.requestPermission()) {
-                                            "Approve Lucifer in the Shizuku permission prompt."
-                                        } else {
-                                            "Start the Shizuku server first, then retry."
-                                        }
-                                    },
-                                    onOpenShizuku = {
-                                        settingsToast = if (ShizukuAccess.openShizuku(this@MainActivity)) "Opened Shizuku. Start its Wireless debugging service, then return here." else "Shizuku app not found. Install and configure it first."
-                                    },
-                                    onOpenPermissionManagerX = {
-                                        settingsToast = if (ShizukuAccess.openPermissionManagerX(this@MainActivity)) "Opened Permission Manager X. Manage grants there; Lucifer will not change them." else "Permission Manager X is not installed or has no launch activity."
-                                    },
-                                    onShizukuTest = {
-                                        scope.launch(Dispatchers.IO) {
-                                            val result = ShizukuTerminal.execute(this@MainActivity, "id")
-                                            withContext(Dispatchers.Main) { settingsToast = result.joinToString(" ").take(300) }
-                                        }
-                                    },
-                                    onShizukuAudit = { packageName ->
-                                        if (!shizukuAuditBusy) {
-                                            shizukuAuditBusy = true
-                                            shizukuAuditOutput = "Running read-only package and AppOps inspection…"
-                                            scope.launch(Dispatchers.IO) {
-                                                val result = try {
-                                                    ShizukuTerminal.inspectPackageReadOnly(this@MainActivity, packageName)
-                                                } catch (e: Exception) {
-                                                    listOf("[ERROR] ${e.message ?: "Read-only package inspection failed."}")
-                                                }
-                                                withContext(Dispatchers.Main) {
-                                                    shizukuAuditOutput = result.joinToString("\n").take(12_000)
-                                                    shizukuAuditBusy = false
-                                                    settingsToast = "Read-only audit finished for $packageName; results remain local to this screen."
-                                                }
-                                            }
-                                        }
-                                    },
-                                    shizukuAuditOutput = shizukuAuditOutput,
-                                    shizukuAuditBusy = shizukuAuditBusy,
-                                    onKaiHealthCheck = {
-                                        scope.launch(Dispatchers.IO) {
-                                            val connected = KaiBridge(this@MainActivity).connect()
-                                            withContext(Dispatchers.Main) {
-                                                settingsToast = if (connected) "Kai sandbox responds to ping." else "Kai sandbox unavailable — install the Kai package and its sandbox first."
-                                            }
-                                        }
-                                    },
-                                    onVmPasswordSave = { saveVmPassword(it) },
-                                    onVmUserSave = { user ->
-                                        if (saveVmUser(user)) { savedVmUser = user.trim(); settingsToast = "VM SSH user saved." }
-                                        else settingsToast = "Invalid SSH username."
-                                    },
-                                    onVmPortSave = { port ->
-                                        if (saveVmPort(port)) { savedVmPort = port.trim().toInt(); settingsToast = "VM SSH port saved." }
-                                        else settingsToast = "Port must be between 1 and 65535."
-                                    },
-                                    onVmHostSave = { host ->
-                                        if (saveVmHost(host)) {
-                                            savedVmHost = host.trim()
-                                            settingsToast = "VM host saved."
-                                        } else {
-                                            settingsToast = "Invalid VM hostname/IP; use a host only, without a URL or port."
-                                        }
-                                    },
-                                    onVmKnownHostsSave = { knownHosts ->
-                                        val saved = saveVmKnownHosts(knownHosts)
-                                        if (saved) savedVmKnownHosts = knownHosts.trim()
-                                        settingsToast = when {
-                                            !saved -> "Invalid known_hosts entry; expected a host, key type, and base64 public key."
-                                            knownHosts.isBlank() -> "SSH host key cleared; VM execution is now disabled."
-                                            else -> "SSH known_hosts saved. Lucifer will require an exact host-key match."
-                                        }
-                                    },
-                                    onNvidiaKeySave = { key ->
-                                        scope.launch(Dispatchers.IO) {
-                                            val saved = llmClient.saveRuntimeKey(key)
-                                            val ok = if (saved && key.isNotBlank()) llmClient.healthCheck() else false
-                                            withContext(Dispatchers.Main) {
-                                                llmStatus = when {
-                                                    !saved -> "INVALID KEY"
-                                                    key.isBlank() -> "NO KEY"
-                                                    ok -> "LIVE"
-                                                    else -> "DARK"
-                                                }
-                                            }
-                                        }
-                                    },
-                                    onVoiceToggle = { enabled ->
-                                        voiceEnabled = enabled
-                                        saveVoiceEnabled(enabled)
-                                    },
-                                    onKnowledgeSync = {
-                                        scope.launch(Dispatchers.IO) {
-                                            val result = reasoner.syncFromGithub()
-                                            withContext(Dispatchers.Main) {
-                                                settingsToast = result.take(160)
-                                            }
-                                        }
-                                    },
-                                    onKnowledgeUrlSave = { url ->
-                                        saveKnowledgeUrl(url)
-                                        reasoner.updateBaseUrl(url)
-                                    },
-                                    savedMemoryMcpUrl = savedMemoryMcpUrl,
-                                    memoryMcpStatus = memoryMcpStatus,
-                                    onMemoryMcpTest = {
-                                        scope.launch(Dispatchers.IO) {
-                                            val status = DriveMemoryMcpClient(this@MainActivity).testConnection()
-                                            withContext(Dispatchers.Main) {
-                                                memoryMcpStatus = if (status.startsWith("No valid") || status.startsWith("MCP check failed") || status.startsWith("MCP URL") || status.startsWith("MCP bearer")) "NOT CONNECTED · $status" else "CONNECTED · READ ONLY"
-                                                settingsToast = status.take(500)
-                                            }
-                                        }
-                                    },
-                                    memoryMcpTokenConfigured = memoryMcpTokenConfigured,
-                                    onMemoryMcpSave = { url, token ->
-                                        val client = DriveMemoryMcpClient(this@MainActivity)
-                                        val normalized = client.validateLoopbackEndpoint(url.trim())
-                                        when {
-                                            url.isBlank() -> settingsToast = "Enter the local Termux MCP URL, or use Remove to disable memory retrieval."
-                                            normalized == null -> settingsToast = "MCP URL must be http://127.0.0.1:8031/mcp or http://localhost:8031/mcp."
-                                            token.isNotBlank() && token.length < 24 -> settingsToast = "MCP token must contain at least 24 characters."
-                                            token.isNotBlank() && !SecretStore.write(this@MainActivity, "config/drive_memory_mcp_token.txt", token.trim()) -> settingsToast = "Could not encrypt the MCP token in Android Keystore storage."
-                                            !token.isNotBlank() && !memoryMcpTokenConfigured -> settingsToast = "Paste the bearer token printed once when the Termux server was configured."
-                                            else -> {
-                                                if (!saveMemoryMcpUrl(normalized)) {
-                                                    settingsToast = "Could not save the MCP endpoint in app-private storage."
-                                                } else {
-                                                    savedMemoryMcpUrl = normalized
-                                                    if (token.isNotBlank()) memoryMcpTokenConfigured = true
-                                                    memoryMcpStatus = "CONFIGURED · NOT TESTED"
-                                                    settingsToast = "Drive-memory retrieval configured for the same-device Termux MCP server. Termux:Boot/runit can restart it after setup; retrieval fails open if unavailable."
-                                                }
-                                            }
-                                        }
-                                    },
-                                    onMemoryMcpRemove = {
-                                        saveMemoryMcpUrl("")
-                                        SecretStore.delete(this@MainActivity, "config/drive_memory_mcp_token.txt")
-                                        savedMemoryMcpUrl = ""
-                                        memoryMcpTokenConfigured = false
-                                        memoryMcpStatus = "DISABLED"
-                                        settingsToast = "Drive-memory retrieval disabled and its local bearer token removed."
-                                    },
-                                    localMemoryEnabled = localMemoryEnabled,
-                                    localMemoryCount = localMemoryCount,
-                                    localMemoryBytes = localMemoryBytes,
-                                    onLocalMemoryToggle = { enabled ->
-                                        getSharedPreferences(LocalConversationMemory.PREFS, MODE_PRIVATE).edit()
-                                            .putBoolean(LocalConversationMemory.KEY_ENABLED, enabled).apply()
-                                        localMemoryEnabled = enabled
-                                        settingsToast = if (enabled) "Local episodic memory saving resumed." else "Local memory saving paused; existing entries remain until expiry or deletion."
-                                    },
-                                    onLocalMemoryClear = {
-                                        scope.launch(Dispatchers.IO) {
-                                            localMemoryStore.clearAll()
-                                            val count = localMemoryStore.count()
-                                            val bytes = localMemoryStore.storageBytes()
-                                            withContext(Dispatchers.Main) {
-                                                localMemoryCount = count
-                                                localMemoryBytes = bytes
-                                                settingsToast = "Local episodic memories deleted. This does not change the private Drive file."
-                                            }
-                                        }
-                                    },
-                                    voiceEnabled = voiceEnabled,
-                                    knowledgeStatus = if (reasoner.knowledgeServerAlive()) "EMBEDDED" else "…",
-                                    corpusInfo = "54 Lean volumes · axioms · book (in-APK)",
-                                    savedKnowledgeUrl = savedKnowledgeUrl,
-                                    llmStatus = llmStatus,
-                                    savedVmHost = savedVmHost,
-                                    savedVmUser = savedVmUser,
-                                    savedVmPort = savedVmPort,
-                                    savedVmKnownHosts = savedVmKnownHosts,
-                                    leanVerificationState = leanVerificationState,
-                                    leanVerificationOutput = leanVerificationOutput,
-                                    leanVerificationCommit = leanVerificationCommit,
-                                    leanVerificationToolchain = leanVerificationToolchain,
-                                    leanVerificationBusy = leanVerificationBusy,
-                                    onLeanVerificationPrepare = {
-                                        runLeanVerification { Lean4VerificationRunner.prepare(this@MainActivity) }
-                                    },
-                                    onLeanVerificationStart = {
-                                        if (leanVerificationState == "PREPARED" && leanVerificationCommit != null && leanVerificationToolchain != null) {
-                                            showLeanVerificationConfirmation = true
-                                        }
-                                    },
-                                    onLeanVerificationRefresh = {
-                                        runLeanVerification { Lean4VerificationRunner.refresh(this@MainActivity) }
-                                    },
-                                    onLeanVerificationStop = {
-                                        runLeanVerification { Lean4VerificationRunner.stop(this@MainActivity) }
-                                    },
-                                    statusMessage = settingsToast
-                                )
-                                4 -> WalletControlPanel(this@MainActivity, Modifier.fillMaxSize())
-                                5 -> BrowserControlPanel(this@MainActivity, Modifier.fillMaxSize())
-                                6 -> HeartbeatControlPanel(
-                                    context = this@MainActivity,
-                                    modifier = Modifier.fillMaxSize(),
-                                    statusMessage = settingsToast,
-                                    onStart = { requestHeartbeatStart() },
-                                    onStop = { stopHeartbeat() },
-                                    onEnableCamera = { requestHeartbeatCamera() }
-                                )
-                                7 -> WorkflowControlPanel(
-                                    modifier = Modifier.fillMaxSize(),
-                                    tasks = workflowTasks,
-                                    selectedTaskId = selectedWorkflowTaskId,
-                                    busy = workflowBusy || isProcessing || pendingTerminalAction != null || !workflowStoreHealthy,
-                                    statusMessage = workflowMessage,
-                                    onSelectTask = { selectedWorkflowTaskId = it },
-                                    onCreateTask = { blueprintId, goal, target -> createWorkflowTask(blueprintId, goal, target) },
-                                    onRunStep = { taskId, stepId, instruction -> runWorkflowStep(taskId, stepId, instruction) },
-                                    onRecordObservation = { taskId, stepId, observation ->
-                                        updateWorkflowTask(taskId) { WorkflowTransitions.recordObservation(it, stepId, observation) }
-                                        workflowMessage = if (workflowStoreHealthy) "User observation recorded. Reflect on the updated evidence before continuing."
-                                        else "Observation could not be saved; workflow actions are disabled."
-                                    },
-                                    onReflect = { reflectWorkflowTask(it) },
-                                    onAcceptReview = { taskId ->
-                                        updateWorkflowTask(taskId) { WorkflowTransitions.acceptReview(it) }
-                                        workflowMessage = "Review accepted. Inspect the next suggested step, or explicitly complete the task."
-                                    },
-                                    onRetryStep = { taskId, stepId ->
-                                        updateWorkflowTask(taskId) { WorkflowTransitions.retry(it, stepId) }
-                                        workflowMessage = "Step reset for another user-started attempt."
-                                    },
-                                    onPauseResume = { taskId ->
-                                        updateWorkflowTask(taskId) { WorkflowTransitions.pauseResume(it) }
-                                        workflowMessage = "Workflow state updated. No background work is running."
-                                    },
-                                    onComplete = { taskId ->
-                                        updateWorkflowTask(taskId) { WorkflowTransitions.complete(it) }
-                                        workflowMessage = "Task completion recorded after user review."
-                                    },
-                                    onDelete = { taskId ->
-                                        saveWorkflowTasks(workflowTasks.filterNot { it.id == taskId })
-                                        workflowMessage = "Workflow task deleted from local app storage."
-                                    }
-                                )
-                                8 -> {
-                                    val lessonsText = remember(resilienceState.lessonCount, resilienceState.lastUpdated) {
-                                        resilience.lessonOverview()
-                                    }
-                                    RecoveryControlPanel(
-                                        modifier = Modifier.fillMaxSize(),
-                                        state = resilienceState,
-                                        lessonsOverview = lessonsText,
-                                        onInvestigate = {
-                                            scope.launch(Dispatchers.IO) {
-                                                try {
-                                                    resilience.investigate()
-                                                    resilience.diagnose()
-                                                    resilience.plan()
-                                                } catch (_: Exception) {
-                                                    // The panel surfaces the engine's own status text.
-                                                }
-                                            }
-                                        },
-                                        onDiagnose = {
-                                            scope.launch(Dispatchers.IO) {
-                                                try {
-                                                    resilience.diagnose()
-                                                    resilience.plan()
-                                                } catch (_: Exception) {
-                                                }
-                                            }
-                                        },
-                                        onResearch = { query ->
-                                            scope.launch(Dispatchers.IO) {
-                                                try {
-                                                    resilience.research(query.ifBlank { null })
-                                                } catch (_: Exception) {
-                                                }
-                                            }
-                                        },
-                                        onPlan = {
-                                            scope.launch(Dispatchers.IO) {
-                                                try {
-                                                    resilience.plan()
-                                                } catch (_: Exception) {
-                                                }
-                                            }
-                                        },
-                                        onRunMove = { move ->
-                                            if (!isProcessing && pendingTerminalAction == null) {
-                                                isProcessing = true
-                                                appendTerminalLines(listOf("[RECOVER] Working out how to try: ${move.title}"))
-                                                scope.launch(Dispatchers.IO) {
-                                                    // Read-only moves are carried out directly: probes from the
-                                                    // fixed catalog, or a robots-aware public web search.
-                                                    val handled = when (move.kind) {
-                                                        RecoveryKind.DIAGNOSE_ENVIRONMENT,
-                                                        RecoveryKind.READ_LOGS,
-                                                        RecoveryKind.VERIFY_PREREQUISITES -> {
-                                                            val lines = mutableListOf("[RECOVER] ${move.title}")
-                                                            val bundle = resilience.investigate()
-                                                            bundle?.highlights()?.forEach { lines += "[EVIDENCE] $it" }
-                                                            resilience.diagnose()?.let { diagnosis ->
-                                                                lines += "[DIAGNOSIS · ${diagnosis.source.name.lowercase()}] ${diagnosis.rootCause}"
+                                                        when (route) {
+                                                            ChatRoute.Conversation -> {
+                                                                val answer = try {
+                                                                    reasoner.reason(cmd)
+                                                                } catch (e: Exception) {
+                                                                    "[CHAT ERROR] ${e.message ?: "Could not answer"}"
+                                                                }
+                                                                withContext(Dispatchers.Main) {
+                                                                    appendTerminalLines(listOf("[CHAT] $answer"))
+                                                                    isProcessing = false
+                                                                }
                                                             }
-                                                            resilience.plan()
-                                                            lines += "[RECOVER] Evidence refreshed — record the outcome only after a change you can observe."
-                                                            lines
-                                                        }
-                                                        RecoveryKind.WEB_RESEARCH -> {
-                                                            val brief = resilience.research()
-                                                            listOf("[RESEARCH] ${move.title}") + (
-                                                                brief?.render()?.lines()?.take(18)
-                                                                    ?: listOf("No sources were retrievable.")
-                                                                )
-                                                        }
-                                                        else -> null
-                                                    }
-                                                    if (handled != null) {
-                                                        withContext(Dispatchers.Main) {
-                                                            appendTerminalLines(handled)
-                                                            isProcessing = false
-                                                        }
-                                                        return@launch
-                                                    }
-                                                    val route = try {
-                                                        router.understand(
-                                                            move.instruction,
-                                                            CommandTarget.fromLauncherIndex(terminalTarget),
-                                                            installedAppNames = installedAppNames()
-                                                        )
-                                                    } catch (_: Exception) {
-                                                        ChatRoute.Clarify("I could not work out how to carry out that move. Add detail and replan.")
-                                                    }
-                                                    when (route) {
-                                                        is ChatRoute.Execute -> withContext(Dispatchers.Main) {
-                                                            pendingRecoveryMove = move
-                                                            isProcessing = false
-                                                            val action = route.action
-                                                            if (action.requiresConfirmation) {
-                                                                pendingTerminalAction = action
-                                                                appendTerminalLines(
-                                                                    listOf(
-                                                                        "[RECOVER CONFIRM] ${action.explanation}",
-                                                                        "[${action.target.displayName}] ${action.command}",
-                                                                        "This move changes the system, so it needs your approval before it runs."
-                                                                    )
-                                                                )
-                                                            } else {
-                                                                runTerminalAction(action)
-                                                            }
-                                                        }
-                                                        ChatRoute.Conversation -> {
-                                                            val advice = try {
-                                                                reasoner.reason(move.instruction)
-                                                            } catch (e: Exception) {
-                                                                "[CHAT ERROR] ${e.message ?: "could not produce advice"}"
-                                                            }
-                                                            withContext(Dispatchers.Main) {
-                                                                appendTerminalLines(
-                                                                    listOf(
-                                                                        "[RECOVER · ADVICE] ${move.title}",
-                                                                        advice,
-                                                                        "Carry it out yourself if it applies, then record the outcome in the Recover tab."
-                                                                    )
-                                                                )
+                                                            is ChatRoute.Clarify -> withContext(Dispatchers.Main) {
+                                                                appendTerminalLines(listOf("[NEED CLARIFICATION] ${route.question}"))
                                                                 isProcessing = false
                                                             }
-                                                        }
-                                                        is ChatRoute.Clarify -> withContext(Dispatchers.Main) {
-                                                            appendTerminalLines(listOf("[RECOVER] ${route.question}"))
-                                                            isProcessing = false
-                                                        }
-                                                        else -> withContext(Dispatchers.Main) {
-                                                            appendTerminalLines(
-                                                                listOf("[RECOVER] That move needs a Lucifer panel action. Do it there, then record the outcome in Recover.")
-                                                            )
-                                                            isProcessing = false
+                                                            is ChatRoute.OpenApp -> withContext(Dispatchers.Main) {
+                                                                appendTerminalLines(listOf(launchRequestedApp(route.appName)))
+                                                                isProcessing = false
+                                                            }
+                                                            is ChatRoute.OpenSettings -> withContext(Dispatchers.Main) {
+                                                                val opened = launchSystemSettings(route.section)
+                                                                appendTerminalLines(listOf(if (opened) "[SETTINGS] Opened ${route.section}; make protected changes in Android Settings." else "[SETTINGS] Could not open that Settings page."))
+                                                                isProcessing = false
+                                                            }
+                                                            is ChatRoute.OpenPanel -> withContext(Dispatchers.Main) {
+                                                                selectedTab = when (route.panel) {
+                                                                    "terminal" -> 0
+                                                                    "memory" -> 1
+                                                                    "skills" -> 2
+                                                                    "settings" -> 3
+                                                                    "wallet" -> 4
+                                                                    "browser" -> 5
+                                                                    "heartbeat" -> 6
+                                                                    "agents", "general", "tactician" -> 9
+                                                                    "workflow", "workflows" -> 7
+                                                                    "recover", "recovery" -> 8
+                                                                    else -> 0
+                                                                }
+                                                                appendTerminalLines(listOf("[PANEL] Opening Lucifer's ${route.panel} panel."))
+                                                                isProcessing = false
+                                                            }
+                                                            is ChatRoute.Execute -> withContext(Dispatchers.Main) {
+                                                                val action = route.action
+                                                                if (action.requiresConfirmation) {
+                                                                    pendingTerminalAction = action
+                                                                    appendTerminalLines(listOf(
+                                                                        "[CONFIRM] ${action.explanation}",
+                                                                        "[${action.target.displayName}] ${action.command}",
+                                                                        "Review and confirm before running."
+                                                                    ))
+                                                                    isProcessing = false
+                                                                } else {
+                                                                    appendTerminalLines(listOf("[UNDERSTOOD] ${action.explanation}"))
+                                                                    runTerminalAction(action)
+                                                                }
+                                                            }
+                                                            is ChatRoute.Resilience -> {
+                                                                val lines = try {
+                                                                    resilienceLines(route.request, route.query)
+                                                                } catch (e: Exception) {
+                                                                    listOf("[RECOVER ERROR] ${e.message ?: "could not complete the recovery request"}")
+                                                                }
+                                                                withContext(Dispatchers.Main) {
+                                                                    appendTerminalLines(lines)
+                                                                    isProcessing = false
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 }
                                             }
-                                        },
-                                        onRecordOutcome = { succeeded -> resilience.recordManualOutcome(succeeded) },
-                                        onReset = { resilience.reset() },
-                                        onClearLessons = { resilience.clearLessons() },
-                                        onForgetSignature = { resilience.forgetCurrentSignature() }
-                                    )
-                                }
-                                9 -> AgentsPanel(
-                                    modifier = Modifier.fillMaxSize(),
-                                    statusMessage = settingsToast,
-                                    onStartGeneral = { requestTacticianStart() },
-                                    onStopGeneral = {
-                                        TacticianService.stop(this@MainActivity)
-                                        settingsToast = "The General stopped watching."
-                                    },
-                                    onNotify = { message -> settingsToast = message }
-                                )
-                            }
+                                        )
+                                        1 -> AnimatedMemoryPanel(
+                                            modifier = Modifier.fillMaxSize(),
+                                            memories = memoryItems,
+                                            onSearch = { q ->
+                                                scope.launch(Dispatchers.IO) {
+                                                    val hits = searchMemories(q)
+                                                    withContext(Dispatchers.Main) { memoryItems = hits }
+                                                }
+                                            },
+                                            isSearching = false
+                                        )
+                                        2 -> AnimatedSkillsPanel(
+                                            modifier = Modifier.fillMaxSize(),
+                                            skills = skills,
+                                            library = referenceSkillLibrary
+                                        )
+                                        3 -> AnimatedSettingsPanel(
+                                            modifier = Modifier.fillMaxSize(),
+                                            onSoulMdEdit = { saveSoulPrompt(it) },
+                                            onAgentPanelOpen = { selectedTab = 9 },
+                                            onManageWallets = { selectedTab = 4 },
+                                            onHeartbeatOpen = { selectedTab = 6 },
+                                            shizukuStatus = shizukuStatus.message,
+                                            onShizukuRequest = {
+                                                settingsToast = if (ShizukuAccess.requestPermission()) {
+                                                    "Approve Lucifer in the Shizuku permission prompt."
+                                                } else {
+                                                    "Start the Shizuku server first, then retry."
+                                                }
+                                            },
+                                            onOpenShizuku = {
+                                                settingsToast = if (ShizukuAccess.openShizuku(this@MainActivity)) "Opened Shizuku. Start its Wireless debugging service, then return here." else "Shizuku app not found. Install and configure it first."
+                                            },
+                                            onOpenPermissionManagerX = {
+                                                settingsToast = if (ShizukuAccess.openPermissionManagerX(this@MainActivity)) "Opened Permission Manager X. Manage grants there; Lucifer will not change them." else "Permission Manager X is not installed or has no launch activity."
+                                            },
+                                            onShizukuTest = {
+                                                scope.launch(Dispatchers.IO) {
+                                                    val result = ShizukuTerminal.execute(this@MainActivity, "id")
+                                                    withContext(Dispatchers.Main) { settingsToast = result.joinToString(" ").take(300) }
+                                                }
+                                            },
+                                            onShizukuAudit = { packageName ->
+                                                if (!shizukuAuditBusy) {
+                                                    shizukuAuditBusy = true
+                                                    shizukuAuditOutput = "Running read-only package and AppOps inspection…"
+                                                    scope.launch(Dispatchers.IO) {
+                                                        val result = try {
+                                                            ShizukuTerminal.inspectPackageReadOnly(this@MainActivity, packageName)
+                                                        } catch (e: Exception) {
+                                                            listOf("[ERROR] ${e.message ?: "Read-only package inspection failed."}")
+                                                        }
+                                                        withContext(Dispatchers.Main) {
+                                                            shizukuAuditOutput = result.joinToString("\n").take(12_000)
+                                                            shizukuAuditBusy = false
+                                                            settingsToast = "Read-only audit finished for $packageName; results remain local to this screen."
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            shizukuAuditOutput = shizukuAuditOutput,
+                                            shizukuAuditBusy = shizukuAuditBusy,
+                                            onKaiHealthCheck = {
+                                                scope.launch(Dispatchers.IO) {
+                                                    val connected = KaiBridge(this@MainActivity).connect()
+                                                    withContext(Dispatchers.Main) {
+                                                        settingsToast = if (connected) "Kai sandbox responds to ping." else "Kai sandbox unavailable — install the Kai package and its sandbox first."
+                                                    }
+                                                }
+                                            },
+                                            onVmPasswordSave = { saveVmPassword(it) },
+                                            onVmUserSave = { user ->
+                                                if (saveVmUser(user)) { savedVmUser = user.trim(); settingsToast = "VM SSH user saved." }
+                                                else settingsToast = "Invalid SSH username."
+                                            },
+                                            onVmPortSave = { port ->
+                                                if (saveVmPort(port)) { savedVmPort = port.trim().toInt(); settingsToast = "VM SSH port saved." }
+                                                else settingsToast = "Port must be between 1 and 65535."
+                                            },
+                                            onVmHostSave = { host ->
+                                                if (saveVmHost(host)) {
+                                                    savedVmHost = host.trim()
+                                                    settingsToast = "VM host saved."
+                                                } else {
+                                                    settingsToast = "Invalid VM hostname/IP; use a host only, without a URL or port."
+                                                }
+                                            },
+                                            onVmKnownHostsSave = { knownHosts ->
+                                                val saved = saveVmKnownHosts(knownHosts)
+                                                if (saved) savedVmKnownHosts = knownHosts.trim()
+                                                settingsToast = when {
+                                                    !saved -> "Invalid known_hosts entry; expected a host, key type, and base64 public key."
+                                                    knownHosts.isBlank() -> "SSH host key cleared; VM execution is now disabled."
+                                                    else -> "SSH known_hosts saved. Lucifer will require an exact host-key match."
+                                                }
+                                            },
+                                            onNvidiaKeySave = { key ->
+                                                scope.launch(Dispatchers.IO) {
+                                                    val saved = llmClient.saveRuntimeKey(key)
+                                                    val ok = if (saved && key.isNotBlank()) llmClient.healthCheck() else false
+                                                    withContext(Dispatchers.Main) {
+                                                        llmStatus = when {
+                                                            !saved -> "INVALID KEY"
+                                                            key.isBlank() -> "NO KEY"
+                                                            ok -> "LIVE"
+                                                            else -> "DARK"
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            onVoiceToggle = { enabled ->
+                                                voiceEnabled = enabled
+                                                saveVoiceEnabled(enabled)
+                                            },
+                                            onKnowledgeSync = {
+                                                scope.launch(Dispatchers.IO) {
+                                                    val result = reasoner.syncFromGithub()
+                                                    withContext(Dispatchers.Main) {
+                                                        settingsToast = result.take(160)
+                                                    }
+                                                }
+                                            },
+                                            onKnowledgeUrlSave = { url ->
+                                                saveKnowledgeUrl(url)
+                                                reasoner.updateBaseUrl(url)
+                                            },
+                                            savedMemoryMcpUrl = savedMemoryMcpUrl,
+                                            memoryMcpStatus = memoryMcpStatus,
+                                            onMemoryMcpTest = {
+                                                scope.launch(Dispatchers.IO) {
+                                                    val status = DriveMemoryMcpClient(this@MainActivity).testConnection()
+                                                    withContext(Dispatchers.Main) {
+                                                        memoryMcpStatus = if (status.startsWith("No valid") || status.startsWith("MCP check failed") || status.startsWith("MCP URL") || status.startsWith("MCP bearer")) "NOT CONNECTED · $status" else "CONNECTED · READ ONLY"
+                                                        settingsToast = status.take(500)
+                                                    }
+                                                }
+                                            },
+                                            memoryMcpTokenConfigured = memoryMcpTokenConfigured,
+                                            onMemoryMcpSave = { url, token ->
+                                                val client = DriveMemoryMcpClient(this@MainActivity)
+                                                val normalized = client.validateLoopbackEndpoint(url.trim())
+                                                when {
+                                                    url.isBlank() -> settingsToast = "Enter the local Termux MCP URL, or use Remove to disable memory retrieval."
+                                                    normalized == null -> settingsToast = "MCP URL must be http://127.0.0.1:8031/mcp or http://localhost:8031/mcp."
+                                                    token.isNotBlank() && token.length < 24 -> settingsToast = "MCP token must contain at least 24 characters."
+                                                    token.isNotBlank() && !SecretStore.write(this@MainActivity, "config/drive_memory_mcp_token.txt", token.trim()) -> settingsToast = "Could not encrypt the MCP token in Android Keystore storage."
+                                                    !token.isNotBlank() && !memoryMcpTokenConfigured -> settingsToast = "Paste the bearer token printed once when the Termux server was configured."
+                                                    else -> {
+                                                        if (!saveMemoryMcpUrl(normalized)) {
+                                                            settingsToast = "Could not save the MCP endpoint in app-private storage."
+                                                        } else {
+                                                            savedMemoryMcpUrl = normalized
+                                                            if (token.isNotBlank()) memoryMcpTokenConfigured = true
+                                                            memoryMcpStatus = "CONFIGURED · NOT TESTED"
+                                                            settingsToast = "Drive-memory retrieval configured for the same-device Termux MCP server. Termux:Boot/runit can restart it after setup; retrieval fails open if unavailable."
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            onMemoryMcpRemove = {
+                                                saveMemoryMcpUrl("")
+                                                SecretStore.delete(this@MainActivity, "config/drive_memory_mcp_token.txt")
+                                                savedMemoryMcpUrl = ""
+                                                memoryMcpTokenConfigured = false
+                                                memoryMcpStatus = "DISABLED"
+                                                settingsToast = "Drive-memory retrieval disabled and its local bearer token removed."
+                                            },
+                                            localMemoryEnabled = localMemoryEnabled,
+                                            localMemoryCount = localMemoryCount,
+                                            localMemoryBytes = localMemoryBytes,
+                                            onLocalMemoryToggle = { enabled ->
+                                                getSharedPreferences(LocalConversationMemory.PREFS, MODE_PRIVATE).edit()
+                                                    .putBoolean(LocalConversationMemory.KEY_ENABLED, enabled).apply()
+                                                localMemoryEnabled = enabled
+                                                settingsToast = if (enabled) "Local episodic memory saving resumed." else "Local memory saving paused; existing entries remain until expiry or deletion."
+                                            },
+                                            onLocalMemoryClear = {
+                                                scope.launch(Dispatchers.IO) {
+                                                    localMemoryStore.clearAll()
+                                                    val count = localMemoryStore.count()
+                                                    val bytes = localMemoryStore.storageBytes()
+                                                    withContext(Dispatchers.Main) {
+                                                        localMemoryCount = count
+                                                        localMemoryBytes = bytes
+                                                        settingsToast = "Local episodic memories deleted. This does not change the private Drive file."
+                                                    }
+                                                }
+                                            },
+                                            voiceEnabled = voiceEnabled,
+                                            knowledgeStatus = if (reasoner.knowledgeServerAlive()) "EMBEDDED" else "…",
+                                            corpusInfo = "54 Lean volumes · axioms · book (in-APK)",
+                                            savedKnowledgeUrl = savedKnowledgeUrl,
+                                            llmStatus = llmStatus,
+                                            savedVmHost = savedVmHost,
+                                            savedVmUser = savedVmUser,
+                                            savedVmPort = savedVmPort,
+                                            savedVmKnownHosts = savedVmKnownHosts,
+                                            leanVerificationState = leanVerificationState,
+                                            leanVerificationOutput = leanVerificationOutput,
+                                            leanVerificationCommit = leanVerificationCommit,
+                                            leanVerificationToolchain = leanVerificationToolchain,
+                                            leanVerificationBusy = leanVerificationBusy,
+                                            onLeanVerificationPrepare = {
+                                                runLeanVerification { Lean4VerificationRunner.prepare(this@MainActivity) }
+                                            },
+                                            onLeanVerificationStart = {
+                                                if (leanVerificationState == "PREPARED" && leanVerificationCommit != null && leanVerificationToolchain != null) {
+                                                    showLeanVerificationConfirmation = true
+                                                }
+                                            },
+                                            onLeanVerificationRefresh = {
+                                                runLeanVerification { Lean4VerificationRunner.refresh(this@MainActivity) }
+                                            },
+                                            onLeanVerificationStop = {
+                                                runLeanVerification { Lean4VerificationRunner.stop(this@MainActivity) }
+                                            },
+                                            statusMessage = settingsToast
+                                        )
+                                        4 -> WalletControlPanel(this@MainActivity, Modifier.fillMaxSize())
+                                        5 -> BrowserControlPanel(this@MainActivity, Modifier.fillMaxSize())
+                                        6 -> HeartbeatControlPanel(
+                                            context = this@MainActivity,
+                                            modifier = Modifier.fillMaxSize(),
+                                            statusMessage = settingsToast,
+                                            onStart = { requestHeartbeatStart() },
+                                            onStop = { stopHeartbeat() },
+                                            onEnableCamera = { requestHeartbeatCamera() }
+                                        )
+                                        7 -> WorkflowControlPanel(
+                                            modifier = Modifier.fillMaxSize(),
+                                            tasks = workflowTasks,
+                                            selectedTaskId = selectedWorkflowTaskId,
+                                            busy = workflowBusy || isProcessing || pendingTerminalAction != null || !workflowStoreHealthy,
+                                            statusMessage = workflowMessage,
+                                            onSelectTask = { selectedWorkflowTaskId = it },
+                                            onCreateTask = { blueprintId, goal, target -> createWorkflowTask(blueprintId, goal, target) },
+                                            onRunStep = { taskId, stepId, instruction -> runWorkflowStep(taskId, stepId, instruction) },
+                                            onRecordObservation = { taskId, stepId, observation ->
+                                                updateWorkflowTask(taskId) { WorkflowTransitions.recordObservation(it, stepId, observation) }
+                                                workflowMessage = if (workflowStoreHealthy) "User observation recorded. Reflect on the updated evidence before continuing."
+                                                else "Observation could not be saved; workflow actions are disabled."
+                                            },
+                                            onReflect = { reflectWorkflowTask(it) },
+                                            onAcceptReview = { taskId ->
+                                                updateWorkflowTask(taskId) { WorkflowTransitions.acceptReview(it) }
+                                                workflowMessage = "Review accepted. Inspect the next suggested step, or explicitly complete the task."
+                                            },
+                                            onRetryStep = { taskId, stepId ->
+                                                updateWorkflowTask(taskId) { WorkflowTransitions.retry(it, stepId) }
+                                                workflowMessage = "Step reset for another user-started attempt."
+                                            },
+                                            onPauseResume = { taskId ->
+                                                updateWorkflowTask(taskId) { WorkflowTransitions.pauseResume(it) }
+                                                workflowMessage = "Workflow state updated. No background work is running."
+                                            },
+                                            onComplete = { taskId ->
+                                                updateWorkflowTask(taskId) { WorkflowTransitions.complete(it) }
+                                                workflowMessage = "Task completion recorded after user review."
+                                            },
+                                            onDelete = { taskId ->
+                                                saveWorkflowTasks(workflowTasks.filterNot { it.id == taskId })
+                                                workflowMessage = "Workflow task deleted from local app storage."
+                                            }
+                                        )
+                                        8 -> {
+                                            val lessonsText = remember(resilienceState.lessonCount, resilienceState.lastUpdated) {
+                                                resilience.lessonOverview()
+                                            }
+                                            RecoveryControlPanel(
+                                                modifier = Modifier.fillMaxSize(),
+                                                state = resilienceState,
+                                                lessonsOverview = lessonsText,
+                                                onInvestigate = {
+                                                    scope.launch(Dispatchers.IO) {
+                                                        try {
+                                                            resilience.investigate()
+                                                            resilience.diagnose()
+                                                            resilience.plan()
+                                                        } catch (_: Exception) {
+                                                            // The panel surfaces the engine's own status text.
+                                                        }
+                                                    }
+                                                },
+                                                onDiagnose = {
+                                                    scope.launch(Dispatchers.IO) {
+                                                        try {
+                                                            resilience.diagnose()
+                                                            resilience.plan()
+                                                        } catch (_: Exception) {
+                                                        }
+                                                    }
+                                                },
+                                                onResearch = { query ->
+                                                    scope.launch(Dispatchers.IO) {
+                                                        try {
+                                                            resilience.research(query.ifBlank { null })
+                                                        } catch (_: Exception) {
+                                                        }
+                                                    }
+                                                },
+                                                onPlan = {
+                                                    scope.launch(Dispatchers.IO) {
+                                                        try {
+                                                            resilience.plan()
+                                                        } catch (_: Exception) {
+                                                        }
+                                                    }
+                                                },
+                                                onRunMove = { move ->
+                                                    if (!isProcessing && pendingTerminalAction == null) {
+                                                        isProcessing = true
+                                                        appendTerminalLines(listOf("[RECOVER] Working out how to try: ${move.title}"))
+                                                        scope.launch(Dispatchers.IO) {
+                                                            // Read-only moves are carried out directly: probes from the
+                                                            // fixed catalog, or a robots-aware public web search.
+                                                            val handled = when (move.kind) {
+                                                                RecoveryKind.DIAGNOSE_ENVIRONMENT,
+                                                                RecoveryKind.READ_LOGS,
+                                                                RecoveryKind.VERIFY_PREREQUISITES -> {
+                                                                    val lines = mutableListOf("[RECOVER] ${move.title}")
+                                                                    val bundle = resilience.investigate()
+                                                                    bundle?.highlights()?.forEach { lines += "[EVIDENCE] $it" }
+                                                                    resilience.diagnose()?.let { diagnosis ->
+                                                                        lines += "[DIAGNOSIS · ${diagnosis.source.name.lowercase()}] ${diagnosis.rootCause}"
+                                                                    }
+                                                                    resilience.plan()
+                                                                    lines += "[RECOVER] Evidence refreshed — record the outcome only after a change you can observe."
+                                                                    lines
+                                                                }
+                                                                RecoveryKind.WEB_RESEARCH -> {
+                                                                    val brief = resilience.research()
+                                                                    listOf("[RESEARCH] ${move.title}") + (
+                                                                        brief?.render()?.lines()?.take(18)
+                                                                            ?: listOf("No sources were retrievable.")
+                                                                        )
+                                                                }
+                                                                else -> null
+                                                            }
+                                                            if (handled != null) {
+                                                                withContext(Dispatchers.Main) {
+                                                                    appendTerminalLines(handled)
+                                                                    isProcessing = false
+                                                                }
+                                                                return@launch
+                                                            }
+                                                            val route = try {
+                                                                router.understand(
+                                                                    move.instruction,
+                                                                    CommandTarget.fromLauncherIndex(terminalTarget),
+                                                                    installedAppNames = installedAppNames()
+                                                                )
+                                                            } catch (_: Exception) {
+                                                                ChatRoute.Clarify("I could not work out how to carry out that move. Add detail and replan.")
+                                                            }
+                                                            when (route) {
+                                                                is ChatRoute.Execute -> withContext(Dispatchers.Main) {
+                                                                    pendingRecoveryMove = move
+                                                                    isProcessing = false
+                                                                    val action = route.action
+                                                                    if (action.requiresConfirmation) {
+                                                                        pendingTerminalAction = action
+                                                                        appendTerminalLines(
+                                                                            listOf(
+                                                                                "[RECOVER CONFIRM] ${action.explanation}",
+                                                                                "[${action.target.displayName}] ${action.command}",
+                                                                                "This move changes the system, so it needs your approval before it runs."
+                                                                            )
+                                                                        )
+                                                                    } else {
+                                                                        runTerminalAction(action)
+                                                                    }
+                                                                }
+                                                                ChatRoute.Conversation -> {
+                                                                    val advice = try {
+                                                                        reasoner.reason(move.instruction)
+                                                                    } catch (e: Exception) {
+                                                                        "[CHAT ERROR] ${e.message ?: "could not produce advice"}"
+                                                                    }
+                                                                    withContext(Dispatchers.Main) {
+                                                                        appendTerminalLines(
+                                                                            listOf(
+                                                                                "[RECOVER · ADVICE] ${move.title}",
+                                                                                advice,
+                                                                                "Carry it out yourself if it applies, then record the outcome in the Recover tab."
+                                                                            )
+                                                                        )
+                                                                        isProcessing = false
+                                                                    }
+                                                                }
+                                                                is ChatRoute.Clarify -> withContext(Dispatchers.Main) {
+                                                                    appendTerminalLines(listOf("[RECOVER] ${route.question}"))
+                                                                    isProcessing = false
+                                                                }
+                                                                else -> withContext(Dispatchers.Main) {
+                                                                    appendTerminalLines(
+                                                                        listOf("[RECOVER] That move needs a Lucifer panel action. Do it there, then record the outcome in Recover.")
+                                                                    )
+                                                                    isProcessing = false
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                onRecordOutcome = { succeeded -> resilience.recordManualOutcome(succeeded) },
+                                                onReset = { resilience.reset() },
+                                                onClearLessons = { resilience.clearLessons() },
+                                                onForgetSignature = { resilience.forgetCurrentSignature() }
+                                            )
+                                        }
+                                        9 -> AgentsPanel(
+                                            modifier = Modifier.fillMaxSize(),
+                                            statusMessage = settingsToast,
+                                            onStartGeneral = { requestTacticianStart() },
+                                            onStopGeneral = {
+                                                TacticianService.stop(this@MainActivity)
+                                                settingsToast = "The General stopped watching."
+                                            },
+                                            onNotify = { message -> settingsToast = message }
+                                        )
+                                    }
                                 }
                             }
                         }
