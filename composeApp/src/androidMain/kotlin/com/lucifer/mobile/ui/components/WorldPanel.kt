@@ -36,6 +36,8 @@ import com.lucifer.mobile.ui.effects.SigilRule
 import com.lucifer.mobile.ui.effects.glassSurface
 import com.lucifer.mobile.ui.effects.shard
 import com.lucifer.mobile.ui.theme.Morningstar
+import com.lucifer.mobile.verification.VerifierUiCommand
+import com.lucifer.mobile.verification.VerifierUiState
 import com.lucifer.mobile.world.WorldAction
 import com.lucifer.mobile.world.WorldCharter
 import com.lucifer.mobile.world.WorldCommands
@@ -66,7 +68,9 @@ fun WorldPanel(
     onConnectDhizuku: () -> Unit,
     onConnectShizuku: () -> Unit,
     onLaunchInWorld: (String) -> Unit,
-    onOwnerOp: (PrivilegeOp) -> Unit
+    onOwnerOp: (PrivilegeOp) -> Unit,
+    verifier: VerifierUiState = VerifierUiState(),
+    onVerifier: (VerifierUiCommand) -> Unit = {}
 ) {
     var pending by remember { mutableStateOf<WorldAction?>(null) }
     var pendingOwner by remember { mutableStateOf<PrivilegeOp?>(null) }
@@ -279,6 +283,9 @@ fun WorldPanel(
                 }
             }
         }
+
+        // ── the Lean verifier Lucifer hosts in the world ─────────────────────────
+        VerifierCard(state = verifier, onCommand = onVerifier)
 
         // ── audit trail ──────────────────────────────────────────────────────────
         if (state.ledger.isNotEmpty()) {

@@ -122,6 +122,15 @@
             android:foregroundServiceType="dataSync" />
 
         <!--
+          Lucifer's Lean verification server: binds 127.0.0.1 only. Publishing it needs a tunnel the
+          owner starts by hand; the service opens no route to the internet itself.
+        -->
+        <service
+            android:name=".verification.VerificationService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!--
           Device-admin component: the identity Lucifer needs to create and manage its own world.
           Inactive until the owner provisions it (dpm set-device-owner) or a tool such as Dhizuku
           transfers ownership. Declaring it grants nothing by itself.

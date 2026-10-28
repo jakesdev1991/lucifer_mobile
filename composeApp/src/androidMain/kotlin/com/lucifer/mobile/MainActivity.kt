@@ -93,6 +93,9 @@ import com.lucifer.mobile.world.WorldManager
 import com.lucifer.mobile.ui.components.AgentsPanel
 import com.lucifer.mobile.ui.components.WorldPanel
 import com.lucifer.mobile.ui.components.WorldUiState
+import com.lucifer.mobile.verification.VerifierController
+import com.lucifer.mobile.verification.VerifierUiCommand
+import com.lucifer.mobile.verification.VerifierUiState
 import com.lucifer.mobile.ui.effects.FallIn
 import com.lucifer.mobile.ui.components.HeartbeatControlPanel
 import com.lucifer.mobile.ui.components.WalletControlPanel
@@ -778,10 +781,87 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // ── the Lean verifier Lucifer hosts in the world ──
+                var verifierState by remember { mutableStateOf(VerifierUiState()) }
+
+                fun refreshVerifier(
+                    message: String? = verifierState.message,
+                    issuedToken: String? = verifierState.issuedToken,
+                    busy: Boolean = false
+                ) {
+                    verifierState = verifierState.copy(busy = true)
+                    scope.launch(Dispatchers.IO) {
+                        val state = VerifierController.state(
+                            context = this@MainActivity,
+                            message = message,
+                            busy = busy,
+                            issuedToken = issuedToken
+                        )
+                        withContext(Dispatchers.Main) { verifierState = state }
+                    }
+                }
+
+                fun runVerifier(command: VerifierUiCommand) {
+                    when (command) {
+                        VerifierUiCommand.Start -> {
+                            runCatching { VerifierController.start(this@MainActivity) }
+                                .onFailure {
+                                    settingsToast = "Could not start the verifier: ${it.message ?: "foreground service denied"}"
+                                }
+                            refreshVerifier(
+                                message = "Starting the endpoint on 127.0.0.1:${VerifierController.PORT}…",
+                                issuedToken = null
+                            )
+                        }
+                        VerifierUiCommand.Stop -> {
+                            VerifierController.stop(this@MainActivity)
+                            refreshVerifier("The verifier stopped listening.", issuedToken = null)
+                        }
+                        VerifierUiCommand.Refresh -> refreshVerifier()
+                        VerifierUiCommand.IssueInternalKey -> {
+                            val issued = runCatching {
+                                VerifierController.issueInternalKey(this@MainActivity)
+                            }.getOrNull()
+                            refreshVerifier(
+                                message = if (issued == null) "An internal key is already active."
+                                else "Internal key issued. It is shown once and never again.",
+                                issuedToken = issued?.token
+                            )
+                        }
+                        is VerifierUiCommand.IssueKey -> {
+                            val issued = VerifierController.issueKey(this@MainActivity, command.plan)
+                            refreshVerifier(
+                                message = "${command.plan.label} key issued: " +
+                                    "${command.plan.creditsPerPeriod} credits per 30 days.",
+                                issuedToken = issued.token
+                            )
+                        }
+                        is VerifierUiCommand.RevokeKey -> {
+                            val revoked = VerifierController.revokeKey(this@MainActivity, command.keyId)
+                            refreshVerifier(
+                                message = if (revoked) "Key ${command.keyId} revoked."
+                                else "That key was already revoked.",
+                                issuedToken = null
+                            )
+                        }
+                        is VerifierUiCommand.SetProjectRoot -> {
+                            val updated = VerifierController.setProjectRoot(this@MainActivity, command.root)
+                            refreshVerifier(
+                                message = if (updated) "Project root updated."
+                                else "That is not an absolute checkout path this server can use.",
+                                issuedToken = null
+                            )
+                        }
+                    }
+                }
+
                 var selectedTab by remember { mutableStateOf(intent?.getIntExtra("lucifer_tab", 0) ?: 0) }
 
                 LaunchedEffect(selectedTab) {
-                    if (selectedTab == 10) refreshWorld(null)
+                    if (selectedTab == 10) {
+                        refreshWorld(null)
+                        refreshVerifier(message = null, issuedToken = null)
+                    }
                 }
 
                 LaunchedEffect(selectedTab) {
@@ -1392,7 +1472,9 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             },
                                             onLaunchInWorld = { pkg -> launchInWorld(pkg) },
-                                            onOwnerOp = { op -> runOwnerOp(op) }
+                                            onOwnerOp = { op -> runOwnerOp(op) },
+                                            verifier = verifierState,
+                                            onVerifier = { command -> runVerifier(command) }
                                         )
                                     }
                                 }

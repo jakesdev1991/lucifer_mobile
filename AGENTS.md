@@ -142,6 +142,7 @@ redacted at construction).
 ./scripts/verify_resilience_core.sh
 ./scripts/verify_design_core.sh   # 16 assertions on the Morningstar chamfer/sigil/ember math
 ./scripts/verify_privilege_core.sh # 22 assertions on backend routing, refusals, and the world
+./scripts/verify_verification_core.sh # 23 control-plane + 15 runtime/transport assertions, plus adapter type-check
 ```
 
 The harness (`tools/agents-core/AgentCoreTests.kt`) covers malformed agent files, credential

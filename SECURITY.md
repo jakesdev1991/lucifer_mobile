@@ -49,6 +49,31 @@ access to the owner's profile, and freezing the profile freezes whatever Lucifer
 
 Interactive browser automation and external website writes are not yet implemented. The user has selected a human-confirmation boundary before any external submission, post, message, or purchase. Preserve that boundary when building an automation engine; do not treat manifest declarations or prior camera consent as blanket consent for unrelated actions.
 
+## Lean verification server
+
+The verifier is the one component that accepts input from off-device, so its boundary is explicit.
+
+- **No client can reach a shell.** Five tools exist; there is no tool that runs a file, an expression, or
+  a command. `SourceGuard` additionally refuses `#eval`, `run_cmd`, `run_tac`, `run_elab`, `@[extern`,
+  `@[implemented_by`, `unsafe`, `initialize`, `IO.FS`, `IO.Process`, `System.FilePath` and any
+  `Lean.*`/`Lake.*` import in caller-supplied source, with a line number. Comments are stripped first so
+  a legitimate author is not tripped by prose.
+- **The screen is defence in depth, not the sandbox.** The remote host is expected to run unprivileged,
+  without network, with a memory cap and a wall clock. Both layers are required.
+- **The project root never comes from the wire.** A caller names a project id; only projects configured
+  on the device exist. The job command pins `ROOT='<configured>'`, and `JobCommandGuard` refuses any
+  command that does not carry the isolation, cleanup, timeout and marker skeleton the planner produces.
+- **Keys are hashes.** `lvs_<id>_<secret>` tokens are shown once; only SHA-256 is stored, comparison is
+  constant time, and revocation takes effect on the next request.
+- **Refusals are free and inert.** Key/scope, tool allowlist, planning and source screening all happen
+  before quota, and quota before the executor. Nothing is charged for a refusal, and nothing is charged
+  when no host ran the job (`transport == "none"`).
+- **The phone does not publish itself.** The listener binds loopback. A tunnel is a separate, visible,
+  command-confirmed action; the Cloudflare token is read from a mode-600 file rather than passed as an
+  argument, and the SSH form pins the host key.
+- **No payment credentials exist.** Metering records credits and dollars in a bounded in-memory-plus-file
+  ledger; there is no processor, no card data, and no wallet signing anywhere in this path.
+
 ## Remaining hardening work
 
 This app can execute shell commands by design. Treat command execution, fetched web content, and all external/model-provided content as untrusted. Before using it with valuable accounts or production infrastructure, device-test the SSH host-key pinning path and add a user-confirmation boundary for high-impact operations such as transaction signing (transaction sending is not currently exposed).
