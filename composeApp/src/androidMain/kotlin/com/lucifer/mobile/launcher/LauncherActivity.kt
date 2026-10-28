@@ -884,7 +884,7 @@ class LauncherActivity : ComponentActivity() {
                         )
                     }
                     Spacer(Modifier.height(3.dp))
-                    Text(label, style = Morningstar.overline(6).copy(color = Morningstar.Smoke))
+                    Text(label, style = Morningstar.overline(7).copy(color = Morningstar.Smoke))
                 }
             }
             val speakSource = remember { MutableInteractionSource() }
@@ -902,7 +902,7 @@ class LauncherActivity : ComponentActivity() {
                     .padding(horizontal = 5.dp, vertical = 2.dp)
             ) {
                 Text("λ", style = Morningstar.title(17).copy(color = Morningstar.Crimson))
-                Text("SPEAK", style = Morningstar.overline(6).copy(color = Morningstar.Ash))
+                Text("SPEAK", style = Morningstar.overline(7).copy(color = Morningstar.Ash))
             }
         }
     }
