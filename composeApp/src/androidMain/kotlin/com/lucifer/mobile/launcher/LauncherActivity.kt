@@ -854,10 +854,18 @@ class LauncherActivity : ComponentActivity() {
         ) {
             dock.forEach { (pkg, label) ->
                 val core = pkg == "com.lucifer.mobile"
+                val dockSource = remember { MutableInteractionSource() }
+                val dockPressed by dockSource.collectIsPressedAsState()
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
-                        .clickable { onLaunch(pkg) }
+                        .pressPulse(
+                            pressed = dockPressed,
+                            shape = shard(10.dp),
+                            color = if (core) Morningstar.Gilded else Morningstar.CrimsonDim,
+                            maxSpread = 0.05f
+                        )
+                        .clickable(interactionSource = dockSource, indication = null) { onLaunch(pkg) }
                         .padding(horizontal = 5.dp, vertical = 2.dp)
                 ) {
                     Canvas(modifier = Modifier.size(28.dp)) {
@@ -879,10 +887,18 @@ class LauncherActivity : ComponentActivity() {
                     Text(label, style = Morningstar.overline(6).copy(color = Morningstar.Smoke))
                 }
             }
+            val speakSource = remember { MutableInteractionSource() }
+            val speakPressed by speakSource.collectIsPressedAsState()
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier
-                    .clickable { onOpenChat() }
+                    .pressPulse(
+                        pressed = speakPressed,
+                        shape = shard(10.dp),
+                        color = Morningstar.Crimson,
+                        maxSpread = 0.05f
+                    )
+                    .clickable(interactionSource = speakSource, indication = null) { onOpenChat() }
                     .padding(horizontal = 5.dp, vertical = 2.dp)
             ) {
                 Text("λ", style = Morningstar.title(17).copy(color = Morningstar.Crimson))
