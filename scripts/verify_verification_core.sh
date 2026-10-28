@@ -28,6 +28,7 @@ echo "== compile + run verification control-plane checks =="
 "$KOTLINC_BIN" "$SRC/resilience/JsonLite.kt" \
   "$SRC/verification/VerificationCore.kt" "$SRC/verification/VerificationRuntime.kt" \
   "$SRC/verification/VerificationServer.kt" "$SRC/verification/AuditVault.kt" \
+  "$SRC/verification/StatementGates.kt" \
   "$HARNESS" "$HARNESS_SERVER" \
   -d "$OUT/verification-tests.jar" -nowarn
 
@@ -37,7 +38,7 @@ echo "== type-check the Android adapters against stubs =="
   "$SRC/resilience/JsonLite.kt" \
   "$SRC/verification/VerificationCore.kt" "$SRC/verification/VerificationRuntime.kt" \
   "$SRC/verification/VerificationServer.kt" "$SRC/verification/AuditVault.kt" \
-  "$SRC/verification/VmJobExecutor.kt" \
+  "$SRC/verification/StatementGates.kt" "$SRC/verification/VmJobExecutor.kt" \
   "$SRC/verification/VerifierController.kt" "$SRC/verification/VerificationService.kt" \
   -d "$OUT/adapters-check" -nowarn
 echo "adapter type-check passed (stubs cover the Android surface only; the SSH transport, the socket and the panel are unverified)"

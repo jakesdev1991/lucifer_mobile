@@ -241,6 +241,30 @@ object VerifierController {
         return runtime(context).ownerCall(body).result
     }
 
+    /**
+     * The audit gate, run by Lucifer before anything is called a finding. Returns null only when the
+     * call never reached the pipeline; a gate report with blockers is the normal, useful answer.
+     */
+    fun ownerGates(
+        context: Context,
+        source: String,
+        declarations: List<String> = emptyList(),
+        module: String? = null
+    ): StatementGates.Report? = ownerTool(
+        context = context,
+        tool = VerifierTool.GATES,
+        module = module,
+        source = source,
+        declarations = declarations
+    )?.let { result ->
+        StatementGates.report(
+            source = source,
+            claimed = declarations,
+            projectPlaceholders = result.sorryCount,
+            parityFound = result.parity
+        )
+    }
+
     /** The common case: check a theorem Lucifer just wrote, against his own project. */
     fun ownerCheck(context: Context, source: String, module: String? = null): JobResult? =
         ownerTool(context, VerifierTool.CHECK, module = module, source = source)

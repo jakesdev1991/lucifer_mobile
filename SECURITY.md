@@ -76,6 +76,12 @@ The verifier is the one component that accepts input from off-device, so its bou
   attestation is `ok = false` / `audit-vault-unverified`, not a pass; requests are HMAC-signed over
   `timestamp + body` with a phone-generated secret, and the phone refuses to sign for a public `http://`
   URL. An outage (`transport = "none"`) may fall back to the SSH backend; a verdict may not.
+- **The gates cannot certify, and the type system says so.** `lean.gates` returns `GATES CLEAN —
+  human validation still required` at best; there is no `VALIDATED` state, and a harness assertion
+  fails if one appears. A customer key cannot buy a review, only the machine's objections.
+- **No vault content crosses the boundary.** Findings, models, engagements and client names never enter
+  the verifier. The ledger stores `keyId`, tool, credits, USD and success — never source text — so a
+  client's proof is not retained after the call.
 - **No payment credentials exist.** Metering records credits and dollars in a bounded in-memory-plus-file
   ledger; there is no processor, no card data, and no wallet signing anywhere in this path.
 

@@ -22,17 +22,43 @@ the phone in either case. See [AUDIT_VAULT.md](AUDIT_VAULT.md).
 
 The phone is the **control plane**. It never runs Lean, and it never accepts a command from a client.
 
-## The five tools
+## What this server is, and is not
+
+It runs Lean and reports what the kernel says. That is the **floor**, not an audit: the adversarial
+audit of the Omega corpus found 3 Critical, 8 High and 11 Medium issues that all typecheck perfectly —
+`0 ≤ 0` under grand names, a Kepler equation true only because `M = 0` and `x / 0 = 0`, contradictory
+definitions sharing one name. So `lean.gates` implements the four gates from
+[`audit-vault`](AUDIT_VAULT.md), and the rest of the surface is honest plumbing around them.
+
+**It never says "validated".** The best verdict is `GATES CLEAN — human validation still required`.
+
+## The six tools
 
 | Tool | Credits | Ceiling | What it does |
 | --- | --- | --- | --- |
 | `lean.check` | 1 | 120 s | Type-check a snippet or declaration against a project's imports; returns errors, sorries, axioms |
-| `lean.sorry_scan` | 2 | 300 s | Count `sorry`/`admit`/`axiom` so a proof cannot pass by cheating |
+| `lean.sorry_scan` | 2 | 300 s | Count `sorry`/`admit`/`native_decide`/`axiom` so a proof cannot pass by cheating |
 | `lean.axioms` | 3 | 300 s | `#print axioms` for named theorems — the check a reviewer actually asks for |
 | `lean.build` | 5 | 900 s | `lake build <module>`, returns the log tail and failure count |
+| `lean.gates` | 6 | 300 s | The four audit gates: placeholders, vacuity, name-vs-statement, declaration parity |
 | `lean.verify` | 8 | 1800 s | Full build of a project or module with an axiom audit and a machine-readable verdict |
 
-There is no shell tool, no "run this file" tool, and no `#eval`. That is the whole surface.
+There is no shell tool, no "run this file" tool, and no `#eval`. That is the whole surface. `#eval` is
+refused for the same reason a PoC runs on the auditor's machine and not here: it is code execution, and
+the caller is not the auditor.
+
+### The gates
+
+| Gate | Blocker when |
+| --- | --- |
+| `PLACEHOLDERS` | any `sorry`, `admit`, `native_decide`, `sorryAx`, or `axiom` declaration — in the submission or the project |
+| `VACUITY` | the statement is `True`, reflexive (`x = x`), closed (no variables — the `0 ≤ 0` pattern), has an unsatisfiable hypothesis, divides by a literal zero, or is about a quantity defined as `0`/`Unit` |
+| `STATEMENT` | a grand name over a statement that cannot be false; a `_Stmt` alias suffix; two declarations sharing one name with different bodies |
+| `PARITY` | a cited `theorem`/`lemma`/`def` is not where the claim says it is |
+
+These are heuristics, not a decision procedure. Lean's kernel decides truth; nothing here decides
+meaning. What it does is refuse to let a statement be *silently* worthless — with the declaration name,
+the line, and the reason.
 
 ## The gate order
 
@@ -78,6 +104,9 @@ attached later without renegotiating semantics.
 
 Lucifer's internal key is what he uses for **bug-bounty reproduction**, **workflow verification**, and
 **the theory-of-everything proofs**. It is never blocked and never billed.
+
+`lean.gates` is what he runs before calling something a finding: a `BLOCKED` report means it is not
+ready, and no amount of billing changes that.
 
 He does not need the token to use it. `VerifierRuntime.ownerCall` resolves his internal key record
 directly, so the owner path skips authentication but not planning, source screening, quota or the
@@ -140,12 +169,14 @@ uptime — no key material, no token, no ledger lines.
 
 `./scripts/verify_verification_core.sh` runs two harnesses plus an adapter type-check:
 
-**Control plane (23 checks)** — the handshake is free while `tools/list` needs a key; exactly five tools
+**Control plane (32 checks)** — the handshake is free while `tools/list` needs a key; exactly five tools
 with non-destructive annotations; unknown methods and tools refused; scopes gate expensive tools; a key
 that cannot pay is refused before anything runs; correct single charge; internal key unbounded; period
 roll keeps lifetime; USD per plan; ledger bounded at 500 lines; key issue/verify/revoke and strict
 header parsing; six source-screen refusals with line numbers; comments do not trip it; size/NUL limits;
-placeholder counting; plan refusals (unknown project, module injection, missing source, axioms without
+placeholder counting across all four apologies; **nine gate checks** covering the three corpus patterns
+(`0 ≤ 0` under a grand name, a degenerate `M := 0` with `x / 0`, two definitions sharing one name), the
+`_Stmt` evasion, parity, and the assertion that a clean run never emits `VALIDATED`; plan refusals (unknown project, module injection, missing source, axioms without
 declarations, source on `build`); timeout clamping both ways; the command is bounded, cleaned up, and
 contains no raw source; per-tool command shapes; base64 round-trip including multibyte text; result
 parsing; project registry validation; the tunnel token never on the command line.
@@ -187,7 +218,8 @@ compile against stubs of the Android surface they use.
 | `verification/VerifierController.kt` | owner-facing facade: start/stop, issue/revoke, project root, exposure command |
 | `verification/VerificationService.kt` | foreground service holding the socket |
 | `verification/VmJobExecutor.kt` | the SSH transport for planned jobs |
-| `verification/AuditVault.kt` | the audit-vault contract, HMAC signing, HTTP executor, backend router, health probe |
+| `verification/StatementGates.kt` | the four gates: declaration parsing, vacuity heuristics, overclaim, duplicates, parity |
+| `verification/AuditVault.kt` | an optional remote Lean-host contract (HMAC-signed); audit-vault itself is a private audit workspace, not a job runner |
 | `ui/components/VerifierCard.kt` | the World-tab panel |
 | `tools/verification-core/` | the two harnesses and the Android stubs |
 | `scripts/verify_verification_core.sh` | runs all of it |

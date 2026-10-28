@@ -1,177 +1,127 @@
-# audit-vault integration contract (v1)
+# audit-vault, and what the verifier is actually for
 
-Lucifer's phone hosts the MCP endpoint; **audit-vault** is the compute backend behind it. This file is
-the contract between them — written before I have read your repo, so treat it as a proposal to reconcile,
-not a fait accompli. If audit-vault already has an API, this file is what changes; the phone's keys,
-scopes, quota and ledger do not.
+`audit-vault` is a **private audit workspace**: engagements, models, findings, PoCs, and the Lean 4
+corpus that proves the method. It is not a compute service, it does not execute Lean, and nothing in
+Lucifer's phone writes to it. Everything there is confidential until Jacob ships it.
 
-**Status: proposed, implemented on the phone side, unverified against a real audit-vault.**
+That reframes the server. The honest description of what I built before reading your repo was
+"a Lean build service with a billing meter" — which sells the thing your own corpus audit says is the
+floor:
 
-## Who owns what
+> Kernel soundness ("nothing proved is false") is the floor, not the audit. The adversarial audit's
+> real catches were **statement-level** dishonesty.
 
-| | Phone (Lucifer's world) | audit-vault |
+3 Critical, 8 High, 11 Medium, ~10 Low, every one of which typechecks perfectly. A server that answers
+"does it compile, and does it use `sorry`" answers a question you have already established is
+insufficient. So the tool surface changed.
+
+## What the server now checks: the four gates
+
+| Gate | Check | Equivalent in the vault |
 | --- | --- | --- |
-| MCP protocol, `/mcp`, `/health` | owns | — |
-| Customer keys, scopes, revocation | owns | never sees them |
-| Quota enforcement, 402 | owns | — |
-| Ledger, credits, dollars | owns | — |
-| Source screening, project registry | owns | may re-screen, must not rely on it |
-| Running Lean, log capture, axioms | — | owns |
-| Sandboxing the run (user, netns, memory, wall clock) | — | owns |
-| Attestation of what it ran | verifies | produces |
+| `PLACEHOLDERS` | zero `sorry` / `admit` / `native_decide` / `axiom`, project-wide and in the submission | `audit_axioms.py --max 0` |
+| `VACUITY` | no vacuous, closed, unsatisfiable-hypothesis, decimal-degenerate, or `x / 0` statement | the vacuity audit |
+| `STATEMENT` | the name asserts no more than the statement proves; duplicate names with different bodies are a blocker | the statement audit, `bridge_*` renaming, the `_Stmt` evasion |
+| `PARITY` | a cited theorem exists where it is claimed | declaration parity |
 
-audit-vault is **untrusted compute**. It gets a structured job, not a shell string, and the phone
-recomputes the verdict from the primitives it returns instead of believing an `ok: true`.
-
-## Endpoints
-
-### `GET /v1/health`
+`lean.gates` (6 credits, 300 s) runs all four and returns a report, structured and in prose:
 
 ```json
 {
-  "contract": 1,
-  "name": "audit-vault",
-  "version": "0.3.1",
-  "tools": ["lean.check", "lean.build", "lean.sorry_scan", "lean.axioms", "lean.verify"],
-  "max_timeout_seconds": 1800
+  "status": "BLOCKED",
+  "findingStatus": "UNVALIDATED (blocked by gates)",
+  "blockers": 1,
+  "reviews": 0,
+  "suspects": [
+    {
+      "gate": "STATEMENT",
+      "severity": "BLOCKER",
+      "line": 1,
+      "declaration": "TheoryOfEverything",
+      "detail": "this is the corpus pattern: a grand name over a statement that cannot be false. A valid proof of a worthless statement."
+    }
+  ]
 }
 ```
 
-`tools` empty means "everything the contract names". The phone probes this at most once per 30 s with a
-4 s timeout, and falls back to the Debian VM when it fails.
+Three concrete corpus cases it now reproduces in the harness:
 
-### `POST /v1/jobs`
+- `theorem TheoryOfEverything : 0 ≤ 0` → vacuity + overclaim → **BLOCKED**.
+- `def M : ℝ := 0` plus a Kepler equation over `M` → degenerate model, and a literal `x / 0 = 0` →
+  **BLOCKED**.
+- `def profile := √(πΦ+1)` and `def profile := ℓP0·√(1−Φ²)` in one file → **BLOCKED**, "two things
+  share one name".
 
-Headers:
+## The one rule in the types
 
-```
-Content-Type: application/json
-X-Lucifer-Contract: 1
-X-Lucifer-Job: job-ab12cd34          # idempotency: same id must not run twice
-X-Lucifer-Timestamp: 1761692400000   # ms since epoch
-X-Lucifer-Signature: <hex HMAC-SHA256>
-```
-
-Signature: `HMAC-SHA256(shared_secret, "<timestamp>\n<body>")`, hex, lowercase. Reject a timestamp more
-than **300 s** off your clock; that is the whole replay defence, so keep your clock disciplined.
-
-Body:
-
-```json
-{
-  "contract": 1,
-  "job": "job-ab12cd34",
-  "tool": "lean.check",
-  "timeout_seconds": 120,
-  "project": {
-    "id": "toe",
-    "root": "/srv/lean/Omega_Theory_Everything",
-    "module": "ToE",
-    "toolchain": null
-  },
-  "payload": {
-    "module": "ToE",
-    "declarations": [],
-    "source_b64": "dGhlb3JlbSBsdWNpZmVyIDogVHJ1ZSA6PSB0cml2aWFs"
-  }
-}
-```
-
-`source_b64` is present only for `lean.check`. Everything else acts on the configured project. The vault
-builds its own command line from these fields; **the phone will never send a command**, and a vault that
-concatenates `root` into a shell word is the bug, not the input.
-
-### Response `200`
-
-```json
-{
-  "contract": 1,
-  "job": "job-ab12cd34",
-  "ok": true,
-  "exit": 0,
-  "output": ["Check.lean:3:0: no goals", "..."],
-  "errors": [],
-  "sorry_count": 0,
-  "axioms": ["ToE.main' depends on axioms: [propext, Classical.choice, Quot.sound]"],
-  "elapsed_ms": 4210,
-  "attestation": {
-    "source_sha256": "9f2c…",
-    "command_sha256": "31ab…",
-    "toolchain": "leanprover/lean4:v4.9.0",
-    "host": "vault-1"
-  }
-}
-```
-
-Rules the phone enforces on the reply:
-
-| Check | On failure |
-| --- | --- |
-| `contract == 1` | reply discarded, `transport = "none"`, fallback runs |
-| `job` equals the id it sent (or omitted) | reply discarded |
-| `attestation.source_sha256` equals SHA-256 of the source it sent | **unverified**: `ok = false`, `transport = "audit-vault-unverified"` |
-| `ok` consistent with `exit == 0 && errors.isEmpty()` | phone recomputes; a disagreement is recorded as an error |
-| `output` ≤ 400 lines, `errors` ≤ 100, `axioms` ≤ 50 | clamped |
-
-A **verdict** is `transport = "audit-vault"` even when the proof fails — that is the answer. Only
-`transport = "none"` means "did not answer", which is the sole case where the phone retries elsewhere.
-Non-`200` responses, unreachable hosts and contract mismatches are all outages, never verdicts.
-
-### Suggested error codes
+**Nothing here can say "validated".** The best a clean run produces is:
 
 ```
-400  malformed body / unknown contract
-401  missing or bad signature, stale timestamp
-409  job id already running
-413  body over 400 KB
-422  project unknown to this vault, or payload refused
-429  this vault is at its concurrency limit
-500  internal failure (the phone treats it as an outage)
+GATES CLEAN — human validation still required
+findingStatus: GATED — awaiting human validation
 ```
 
-## Implementing it (any language)
+There is no branch that emits `VALIDATED`, and a harness assertion fails the build if one appears. That
+is your L3/L4 rule encoded rather than documented: AI runs at full speed, Jacob's reproduction is the
+gate, and a machine we wrote cannot stand in for it — least of all a machine a customer's key can call.
 
-1. Read `X-Lucifer-Timestamp` and `X-Lucifer-Signature`; recompute over the **raw body bytes**; compare
-   in constant time; reject skew > 300 s.
-2. Look up the project by `id` in your own config. Never trust `root` blindly — allowlist it.
-3. Decode `source_b64` into a temp dir you create and delete; run with `timeout`, unprivileged, no
-   network, memory-capped.
-4. Return the primitives, not a verdict you expect to be believed. The phone decides.
-5. Echo `job`. Derive `attestation.source_sha256` from the bytes you actually wrote to disk.
-6. Store nothing about the caller: no keys, no customer identity, no quota. You are compute.
+## The `#eval` boundary
 
-## Phone-side fallback
+Your PoC step is "a `#check` / `#eval` / test that the theorem typechecks and the counterexample
+fails". The server **refuses** `#eval`, `run_cmd`, `run_tac`, `unsafe`, `@[extern]` and tooling imports
+in caller-supplied source.
 
-```
-                ┌──────────────► audit-vault (healthy)  ──► verdict
-job ──► router ─┤
-                └──────────────► Debian VM (SSH)        ──► verdict
-```
+That is not a disagreement with the workflow, it is the boundary between the two machines. A PoC with
+`#eval` runs on Jacob's box, against a repository he chose, as part of validation. A server that
+accepts arbitrary customer source over the internet cannot run it, because `#eval` is code execution
+and the customer is not Jacob. PoCs stay in `poc/`; the server only ever sees proof text.
 
-- Primary chosen only when linked **and** `/v1/health` passes its cached probe.
-- `transport = "none"` from the primary ⇒ fallback runs, and the result's first line says why.
-- A verdict — pass *or* fail — is never retried elsewhere.
-- No fallback configured ⇒ the call fails honestly rather than reporting a proof nobody checked.
+## audit-vault is not a job executor
 
-The phone generates the shared secret when you link a vault URL in the World tab, shows it once (
-`SecretStore`-backed, never in the ledger or the health JSON), and refuses to sign for a public `http://`
-URL — only `https://`, or plain HTTP on loopback/RFC1918.
+Earlier in this branch I wrote a signed `POST /v1/jobs` contract and an `ExecutorRouter` that treats
+"audit-vault" as the primary Lean backend. Nothing in your repo suggests audit-vault accepts jobs, so
+that was a guess dressed as an integration. What it is now:
 
-## Open questions when you drop the repo in
+- `AuditVault.kt` stays, but it is **an optional remote Lean host contract**, useful if you ever want a
+  second box elaborating proofs at speed. It describes any HTTP job runner, not audit-vault.
+- The phone works without it. Default backend: the Debian VM over SSH, exactly as before.
+- Nothing sends vault contents anywhere. No finding, no model, no engagement text, no client name
+  crosses this boundary in either direction. The ledger stores `keyId, tool, credits, usd, ok` and
+  never source — a client's proof text is not retained, which is also what keeps the vault's
+  confidentiality rule intact.
 
-1. Does audit-vault already have an HTTP surface, or is it a CLI/service on the Lean host? If it is a
-   CLI, the adapter becomes "run this on the box" and the contract above is unnecessary.
-2. Is attestation already in its output shape (digests, host, toolchain) or do I add it?
-3. Does it already speak MCP? If so the phone should *proxy* its tools and my five-tool surface goes
-   away — one less vocabulary to keep in sync.
-4. Does it keep its own audit log? If you want that as a second book of record, it stays read-only for
-   billing; the phone's ledger remains the billing authority.
+## Where the phone server actually helps the vault
+
+1. **Bounty reproduction, at speed.** `VerifierController.ownerGates(...)` runs the four gates on a
+   statement before it is allowed to be called a finding. Lucifer's internal key is free and needs no
+   token.
+2. **Customer-facing evidence.** A `$750` engagement can hand the client a gate report per finding:
+   blockers named by line, with the reason. That is more defensible than "trust me", and it is
+   deliberately not a certification.
+3. **The corpus regression.** Run `lean.gates` over `audits/lean-corpus/` as a CI step: any new
+   `0 ≤ 0`-shaped theorem fails the build before it reaches a public claim.
+4. **Shipping discipline.** `ship.py` needs `--confirm` plus a per-file manifest. The server adds a
+   precondition it can enforce: a finding whose gate report is `BLOCKED` is not eligible to ship. The
+   phone never pushes anything; it only refuses to call it ready.
+
+## What it still cannot do
+
+- **It does not read your vault.** No filesystem, no git, no repo sync. The caller supplies the
+  statement text; parity is checked against the host it runs on.
+- **It cannot judge meaning.** "Does this statement mean what its name claims" is a judgment call. The
+  gates surface the *shape* of the dishonesty — closed statements, degenerate definitions, grand names
+  over `0 = 0` — and put a line number in front of a human. Everything else is still your reading.
+- **Cross-file contradictions** are only caught within one submitted source. Two definitions in
+  different modules sharing a name need the project scan, which the remote grep does not resolve
+  semantically.
+- **It is not a certificate.** No customer gets to point at this and say "machine-checked audit". The
+  status strings refuse that reading, in the field a client will actually look at.
 
 ## Files
 
 | Path | Role |
 | --- | --- |
-| `verification/AuditVault.kt` | contract, HMAC signing, HTTP transport, `AuditVaultExecutor`, `ExecutorRouter`, `HealthProbe` |
-| `verification/VerifierController.kt` | link/unlink, secret generation, backend status |
-| `ui/components/VerifierCard.kt` | URL field, link/unlink, one-time secret, backend line |
-| `tools/verification-core/VerificationServerTests.kt` | 8 of the 23 runtime checks cover this contract |
+| `verification/StatementGates.kt` | the four gates: parsing, vacuity heuristics, overclaim, duplicate names, parity |
+| `verification/VerificationCore.kt` | `lean.gates` tool, remote grep for placeholders and parity, gate report in `structuredContent` |
+| `verification/AuditVault.kt` | optional remote-host contract (HMAC-signed), **not** an audit-vault integration |
+| `tools/verification-core/VerificationCoreTests.kt` | 9 gate tests, including the three corpus patterns |

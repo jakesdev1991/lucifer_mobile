@@ -25,6 +25,7 @@ import com.lucifer.mobile.verification.ProjectRegistry
 import com.lucifer.mobile.verification.ResultParser
 import com.lucifer.mobile.verification.Scope
 import com.lucifer.mobile.verification.SourceGuard
+import com.lucifer.mobile.verification.StatementGates
 import com.lucifer.mobile.verification.UsageLine
 import com.lucifer.mobile.verification.VerifierTool
 import java.security.SecureRandom
@@ -127,7 +128,7 @@ fun main() {
         expect((result["serverInfo"] as Map<*, *>)["name"] == McpProtocol.SERVER_NAME, "server name")
     }
 
-    test("tools/list needs a key and lists exactly the five tools") {
+    test("tools/list needs a key and lists exactly the advertised tools") {
         val anonymous = McpProtocol.handle(
             """{"jsonrpc":"2.0","id":2,"method":"tools/list"}""",
             caller = null, projects = projects, now = 0L, idFactory = { "x" }, executor = null
@@ -142,7 +143,12 @@ fun main() {
         val tools = (JsonLite.parseObject(handling.body)!!["result"] as Map<*, *>)["tools"] as List<*>
         expect(tools.size == VerifierTool.entries.size, "tool count ${tools.size}")
         val names = tools.map { (it as Map<*, *>)["name"] as String }
-        expect(names.containsAll(listOf("lean.check", "lean.build", "lean.verify", "lean.sorry_scan", "lean.axioms")), names.toString())
+        expect(
+            names.containsAll(
+                listOf("lean.check", "lean.build", "lean.verify", "lean.sorry_scan", "lean.axioms", "lean.gates")
+            ),
+            names.toString()
+        )
         expect(tools.all { (it as Map<*, *>)["inputSchema"] != null }, "every tool declares a schema")
         val annotations = (tools.first() as Map<*, *>)["annotations"] as Map<*, *>
         expect(annotations["destructiveHint"] == false, "nothing is destructive")
@@ -418,6 +424,159 @@ fun main() {
 
         val clean = ResultParser.parse(listOf("ok", "LUCIFER_EXIT=0"), "http", 10L)
         expect(clean.ok, "clean verdict")
+    }
+
+    // ── the vault's gates ───────────────────────────────────────────
+    test("gate 1 counts all four apologies, not just sorry") {
+        val source = """
+            theorem a : True := trivial
+            theorem b : 1 = 1 := by native_decide
+            theorem c : 2 = 2 := by sorry
+            theorem d : 3 = 3 := by admit
+            axiom greedy : False
+            -- a comment mentioning sorry does not count
+        """.trimIndent()
+        val hits = StatementGates.scanPlaceholders(StatementGates.stripComments(source))
+        expect(hits.count { it.severity == StatementGates.Severity.BLOCKER } == 4, hits.map { it.detail }.toString())
+        expect(hits.any { it.detail.contains("native_decide") }, "native_decide is not a proof")
+        expect(hits.any { it.declaration == "greedy" }, "axiom named")
+        expect(hits.none { it.detail.contains("comment") }, "comments are ignored")
+        expect(SourceGuard.countPlaceholders(source) == 4, SourceGuard.countPlaceholders(source).toString())
+        expect(SourceGuard.countPlaceholders("theorem a : True := trivial") == 0, "clean source")
+    }
+
+    test("gate 2 catches the 0 ≤ 0 pattern under a grand name") {
+        val report = StatementGates.report(
+            source = "theorem TheoryOfEverything : 0 ≤ 0 := le_refl 0"
+        )
+        expect(report.blockers > 0, report.status)
+        expect(report.status == "BLOCKED", report.status)
+        expect(report.suspects.any { it.gate == StatementGates.Gate.VACUITY }, "vacuity flagged")
+        expect(report.suspects.any { it.gate == StatementGates.Gate.STATEMENT && it.severity == StatementGates.Severity.BLOCKER }, "overclaim flagged")
+        expect(report.suspects.any { it.detail.contains("worthless") }, report.suspects.toString())
+        expect(report.findingStatus.startsWith("UNVALIDATED"), report.findingStatus)
+    }
+
+    test("gate 2 catches degenerate models and division by zero") {
+        val kepler = """
+            def M : ℝ := 0
+            def T : ℝ := 0
+            theorem kepler_third_law (a : ℝ) : T^2 = (4 * π^2 / (G * M)) * a^3 := by sorry
+            theorem masked (x : ℝ) : x / 0 = 0 := by simp
+            theorem vacuous (h : 1 = 0) : False := by omega
+        """.trimIndent()
+        val report = StatementGates.report(source = kepler)
+        expect(report.suspects.any { it.detail.contains("defined as `0`") }, "degenerate quantity flagged")
+        expect(report.suspects.any { it.detail.contains("divides by a literal zero") }, "x/0 flagged")
+        expect(report.suspects.any { it.detail.contains("can never hold") }, "unsatisfiable hypothesis flagged")
+        expect(report.status == "BLOCKED", report.status)
+    }
+
+    test("gate 2 does not flag an honest statement") {
+        val honest = """
+            theorem supply_never_negative (s : ℝ) (h : 0 ≤ s) : 0 ≤ totalSupply s :=
+              totalSupply_nonneg s h
+            theorem exact_conservation (a b : ℝ) (h : 0 ≤ a) :
+              conserved (deposit a) (withdraw b) = conserved a b := conservation_lemma a b h
+        """.trimIndent()
+        val report = StatementGates.report(source = honest)
+        expect(report.suspects.none { it.gate == StatementGates.Gate.VACUITY }, report.suspects.toString())
+        expect(report.status != "BLOCKED", report.status)
+    }
+
+    test("gate 3 catches a name that asserts more than it proves, and the _Stmt evasion") {
+        val report = StatementGates.report(
+            source = """
+                theorem universal_guarantee : 0 = 0 := rfl
+                theorem price_Stmt (p : ℝ) : p = p := rfl
+            """.trimIndent()
+        )
+        expect(report.suspects.any { it.declaration == "universal_guarantee" && it.severity == StatementGates.Severity.BLOCKER }, "overclaim")
+        expect(report.suspects.any { it.declaration == "price_Stmt" && it.detail.contains("alias") }, "alias suffix")
+    }
+
+    test("gate 3 catches two definitions sharing one name") {
+        val report = StatementGates.report(
+            source = """
+                def profile (Φ : ℝ) : ℝ := Real.sqrt (π * Φ + 1)
+                def profile (Φ : ℝ) : ℝ := ℓP0 * Real.sqrt (1 - Φ^2)
+            """.trimIndent()
+        )
+        expect(report.blockers > 0, report.status)
+        expect(report.suspects.any { it.detail.contains("share one name") }, report.suspects.toString())
+    }
+
+    test("gate 4 refuses a citation that is not where it claims to be") {
+        val source = "theorem exists_here : True := trivial"
+        val missing = StatementGates.report(source = source, claimed = listOf("cited_elsewhere"))
+        expect(
+            missing.suspects.count { it.gate == StatementGates.Gate.PARITY } == 1,
+            missing.blockers.toString()
+        )
+        val parityHit = missing.suspects.single { it.gate == StatementGates.Gate.PARITY }
+        expect(parityHit.detail.contains("no `theorem`"), parityHit.detail)
+
+        val present = StatementGates.report(source = source, claimed = listOf("exists_here"))
+        expect(present.suspects.none { it.gate == StatementGates.Gate.PARITY }, present.suspects.toString())
+
+        val remote = StatementGates.report(
+            source = "theorem a : 0 = 0 := rfl",
+            claimed = listOf("ToE.main"),
+            parityFound = listOf("ToE.main")
+        )
+        expect(remote.suspects.none { it.gate == StatementGates.Gate.PARITY }, "remote parity satisfies the gate")
+
+        val unreachable = StatementGates.report(claimed = listOf("ToE.main"))
+        expect(unreachable.suspects.any { it.detail.contains("no host was reached") }, unreachable.suspects.toString())
+    }
+
+    test("a clean submission is GATED, never validated") {
+        val report = StatementGates.report(
+            source = """
+                theorem reserve_conserved (r : ℝ) (h : 0 < r) : withdrawal r ≤ r :=
+                  withdrawal_le_balance r h
+            """.trimIndent(),
+            claimed = listOf("reserve_conserved")
+        )
+        expect(report.suspects.isEmpty(), report.suspects.map { it.render() }.toString())
+        expect(report.status.startsWith("GATES CLEAN"), report.status)
+        expect(report.findingStatus.contains("awaiting human validation"), report.findingStatus)
+        expect(!report.status.contains("VALIDATED", ignoreCase = false), "no machine-issued validation")
+        val encoded = JsonLite.stringify(report.toMap())
+        expect(!encoded.contains("VALIDATED "), encoded)
+    }
+
+    test("lean.gates is planned, priced, and reachable through the protocol") {
+        val builder = caller(Plan.METERED, 0, Scope.VERIFY, Scope.READ)
+        val body = """
+            theorem TheoryOfEverything : 0 ≤ 0 := le_refl 0
+        """.trimIndent()
+        val handling = call(
+            "lean.gates",
+            JsonLite.stringify(
+                linkedMapOf("project" to "toe", "module" to "ToE", "source" to body)
+            ),
+            builder,
+            FakeHost(),
+            chargeSink = null
+        )
+        expect(handling.status == 200, handling.body)
+        expect(handling.charge == 6, handling.charge.toString())
+        val report = handling.gates!!
+        expect(report.status == "BLOCKED", report.status)
+        val parsed = JsonLite.parseObject(handling.body)!!
+        val structured = (parsed["result"] as Map<*, *>)["structuredContent"] as Map<*, *>
+        expect(structured["gates"] != null, "gates are structured, not just prose")
+        expect((structured["gates"] as Map<*, *>)["status"] == "BLOCKED", structured.toString())
+
+        // Gates cannot launder executable source either.
+        val refused = call(
+            "lean.gates",
+            JsonLite.stringify(linkedMapOf("project" to "toe", "source" to "@[extern \"c\"] opaque f : Nat")),
+            builder,
+            FakeHost()
+        )
+        expect(refused.status == 422, "source screen still applies: ${refused.status}")
     }
 
     // ── projects and exposure ────────────────────────────────────────

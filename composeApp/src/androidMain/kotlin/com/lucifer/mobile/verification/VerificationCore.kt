@@ -52,6 +52,12 @@ enum class VerifierTool(
     AXIOMS(
         "lean.axioms", 3, 300, false,
         "Print the axioms each named theorem depends on (`#print axioms`), the check a reviewer actually asks for."
+    ),
+    GATES(
+        "lean.gates", 6, 300, false,
+        "The four audit-vault gates over a submission: no sorry/admit/native_decide/axiom, no vacuous or " +
+            "degenerate statement, no name that asserts more than it proves, and declaration parity. " +
+            "Reports suspects for a human; it never certifies."
     );
 
     val idempotent: Boolean get() = this == CHECK || this == SORRY_SCAN || this == AXIOMS
@@ -184,13 +190,17 @@ object SourceGuard {
         return Verdict.Fine
     }
 
-    /** Cheap, honest count used by `lean.sorry_scan` when the remote host cannot be reached. */
+    /**
+     * Cheap, honest count used by `lean.sorry_scan` when the remote host cannot be reached.
+     *
+     * The vault's gate 1 is *zero* sorry/admit/native_decide/axiom, so all four are counted. Counting
+     * only `sorry` and `admit` would report a clean project that proves its theorems by trusting the
+     * compiler.
+     */
     fun countPlaceholders(source: String): Int {
-        val withoutComments = source.lineSequence()
-            .map { it.substringBefore("--") }
-            .joinToString("\n")
-        return Regex("\\b(sorry|admit)\\b").findAll(withoutComments).count() +
-            Regex("^\\s*axiom\\s+", RegexOption.MULTILINE).findAll(withoutComments).count()
+        val withoutComments = StatementGates.stripComments(source)
+        return Regex("\\b(sorry|admit|native_decide|sorryAx)\\b").findAll(withoutComments).count() +
+            Regex("^\\s*(?:private\\s+)?axiom\\s+", RegexOption.MULTILINE).findAll(withoutComments).count()
     }
 }
 
@@ -443,7 +453,9 @@ data class JobResult(
     val sorryCount: Int = 0,
     val axioms: List<String> = emptyList(),
     val elapsedMs: Long = 0L,
-    val transport: String = "unknown"
+    val transport: String = "unknown",
+    /** Declarations the host actually found, parsed from `LUCIFER_PARITY` markers. */
+    val parity: List<String> = emptyList()
 )
 
 /**
@@ -495,14 +507,17 @@ object JobPlanner {
         if (declarations.size > 24) return Planned.Rejected("At most 24 declarations per call.")
 
         val source = (params["source"] as? String)?.let { raw ->
-            if (tool != VerifierTool.CHECK) {
-                return Planned.Rejected("Only lean.check accepts `source`; other tools act on the configured project.")
+            if (tool != VerifierTool.CHECK && tool != VerifierTool.GATES) {
+                return Planned.Rejected("Only lean.check and lean.gates accept `source`; other tools act on the configured project.")
             }
             val verdict = SourceGuard.inspect(raw)
             if (!verdict.ok) return Planned.Rejected(verdict.reason ?: "Source rejected.")
             raw
         }
         if (tool.needsSource && source == null) return Planned.Rejected("lean.check needs `source`.")
+        if (tool == VerifierTool.GATES && source == null && declarations.isEmpty()) {
+            return Planned.Rejected("lean.gates needs `source` (the statement to judge), `declarations` (names to verify), or both.")
+        }
 
         val requestedTimeout = (params["timeout_seconds"] as? Number)?.toInt() ?: tool.timeoutSeconds
         val timeout = requestedTimeout.coerceIn(10, tool.timeoutSeconds)
@@ -560,6 +575,15 @@ object JobPlanner {
                 lines += "COUNT=\$(printf '%s' \"\$OUT\" | grep -c . || true)"
                 lines += "printf '%s\\n' \"\$OUT\""
                 lines += "echo \"LUCIFER_SORRY=\$COUNT\""
+                lines += "echo '$MARKER=0'"
+            }
+            VerifierTool.GATES -> {
+                lines += "G1=\$(grep -rnE '(^|[^A-Za-z0-9_])(sorry|admit|native_decide|sorryAx)([^A-Za-z0-9_]|$)|^[[:space:]]*(private[[:space:]]+)?axiom[[:space:]]' --include='*.lean' . 2>/dev/null | head -n 200 || true)"
+                lines += "printf '%s\\n' \"\$G1\""
+                lines += "echo \"LUCIFER_SORRY=\$(printf '%s' \"\$G1\" | grep -c . || true)\""
+                job.declarations.forEach { name ->
+                    lines += "if grep -rqE \"(^|[^A-Za-z0-9_.'])(theorem|lemma|def|abbrev)[[:space:]]+$name([^A-Za-z0-9_'.]|$)\" --include='*.lean' . 2>/dev/null; then echo 'LUCIFER_PARITY=$name:1'; else echo 'LUCIFER_PARITY=$name:0'; fi"
+                }
                 lines += "echo '$MARKER=0'"
             }
             VerifierTool.AXIOMS -> {
@@ -620,7 +644,12 @@ object ResultParser {
                 }
             }
             .take(40)
-        val clean = output.filterNot { it.contains("LUCIFER_EXIT=") }
+        val parity = output
+            .mapNotNull { line ->
+                Regex("LUCIFER_PARITY=([A-Za-z0-9_'.]+):1").find(line)?.groupValues?.get(1)
+            }
+            .distinct()
+        val clean = output.filterNot { it.contains("LUCIFER_EXIT=") || it.contains("LUCIFER_PARITY=") }
         return JobResult(
             ok = exit == 0 && errors.isEmpty(),
             exitCode = exit,
@@ -629,7 +658,8 @@ object ResultParser {
             sorryCount = sorryCount,
             axioms = axioms,
             elapsedMs = elapsedMs,
-            transport = transport
+            transport = transport,
+            parity = parity
         )
     }
 }
@@ -672,7 +702,8 @@ object McpProtocol {
         val status: Int = 200,
         val job: LeanJobSpec? = null,
         val charge: Int = 0,
-        val result: JobResult? = null
+        val result: JobResult? = null,
+        val gates: StatementGates.Report? = null
     )
 
     fun tools(): List<Map<String, Any?>> = VerifierTool.entries.map { tool ->
@@ -836,11 +867,24 @@ object McpProtocol {
             )
         chargeConsumer?.invoke(decision.charge)
 
+        // Gate 2/3 run here rather than on the host: judging a statement is text analysis, and the
+        // customer's source should be judged by the same code no matter which backend elaborated it.
+        val gates = if (tool == VerifierTool.GATES) {
+            StatementGates.report(
+                source = job.source,
+                claimed = job.declarations,
+                projectPlaceholders = result.sorryCount,
+                parityFound = result.parity
+            )
+        } else {
+            null
+        }
+
         val payload = linkedMapOf<String, Any?>(
             "content" to listOf(
                 linkedMapOf(
                     "type" to "text",
-                    "text" to render(result, job)
+                    "text" to render(result, job, gates)
                 )
             ),
             "isError" to !result.ok,
@@ -856,15 +900,24 @@ object McpProtocol {
                 "elapsedMs" to result.elapsedMs,
                 "transport" to result.transport,
                 "chargedCredits" to decision.charge
-            )
+            ).also { structured ->
+                gates?.let { structured["gates"] = it.toMap() }
+            }
         )
-        return Handling(ok(id, payload), job = job, charge = decision.charge, result = result)
+        return Handling(ok(id, payload), job = job, charge = decision.charge, result = result, gates = gates)
     }
 
-    private fun render(result: JobResult, job: LeanJobSpec): String = buildString {
+    private fun render(result: JobResult, job: LeanJobSpec, gates: StatementGates.Report? = null): String = buildString {
         appendLine(
             "[${job.tool.wireName} · ${job.project.id} · exit ${result.exitCode} · ${result.elapsedMs} ms · ${result.transport}]"
         )
+        if (gates != null) {
+            appendLine()
+            appendLine("gates · ${gates.status} · ${gates.blockers} blocker(s), ${gates.reviews} to review")
+            appendLine("finding status · ${gates.findingStatus}")
+            gates.suspects.take(40).forEach { appendLine("  ${it.render()}") }
+            gates.notes.forEach { appendLine("  note: $it") }
+        }
         if (result.errors.isNotEmpty()) {
             appendLine()
             appendLine("errors (${result.errors.size}):")
