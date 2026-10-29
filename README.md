@@ -50,6 +50,16 @@ Lucifer Mobile is an Android launcher and assistant with natural-language chat, 
 
 The Skills tab keeps implemented/partial controls in a separate operational registry and adds a searchable library of 100 reference-only skills across ten packs. Guidance entries show prerequisites, safety boundaries, verification notes, and source links; they are not executable tools and cannot grant authorization. Retrieval is schema-validated and bounded before it can ground assistant/workflow prompts. See [SKILL_LIBRARY.md](SKILL_LIBRARY.md), and validate the checked-in catalog with `python3 scripts/validate_skill_library.py`.
 
+## Learned skills
+
+Separately from the reference library, Lucifer keeps a short list of habits learned from his own turns: a
+correction you made, a question you had to ask twice, and a recovery tactic that fixed a failing command.
+It is always on, local, capped (64 skills / one file), and injected as *habits, not permissions* — a
+learned line can change how he answers but cannot grant a tool, a confirmation or a capability. Settings →
+**LEARNED SKILLS** pauses it or forgets everything; the Skills tab shows the counts. The rules are mirrored
+in `tools/synth-core/spec_check.py` (128 checks) and `tools/synth-core/SkillSynthCoreTests.kt`. See
+[SKILL_SYNTHESIS.md](SKILL_SYNTHESIS.md).
+
 ## Using chat and the terminal
 
 Open **CHAT** from the launcher or type into the launcher bar. The request is understood before routing. Examples:

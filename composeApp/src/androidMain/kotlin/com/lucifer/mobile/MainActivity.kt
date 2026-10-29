@@ -67,6 +67,7 @@ import com.lucifer.mobile.security.SecretStore
 import com.lucifer.mobile.memory.DriveMemoryMcpClient
 import com.lucifer.mobile.memory.LocalConversationMemory
 import com.lucifer.mobile.skills.SkillLibrary
+import com.lucifer.mobile.skills.SkillSynthRuntime
 import com.lucifer.mobile.shizuku.ShizukuAccess
 import com.lucifer.mobile.shizuku.ShizukuTerminal
 import rikka.shizuku.Shizuku
@@ -402,6 +403,17 @@ class MainActivity : ComponentActivity() {
                 }
                 val skills = remember { buildSkillRegistry() }
                 val referenceSkillLibrary = remember { SkillLibrary.load(this@MainActivity.assets) }
+                // The learned list is read on demand: it changes from turns taken anywhere in the app.
+                var synthRevision by remember { mutableStateOf(0) }
+                var synthSummary by remember { mutableStateOf("") }
+                var synthEnabled by remember { mutableStateOf(true) }
+                LaunchedEffect(synthRevision) {
+                    val (line, on) = withContext(Dispatchers.IO) {
+                        SkillSynthRuntime.summary(this@MainActivity) to SkillSynthRuntime.enabled(this@MainActivity)
+                    }
+                    synthSummary = line
+                    synthEnabled = on
+                }
 
                 LaunchedEffect(savedKnowledgeUrl) {
                     if (savedKnowledgeUrl.isNotBlank()) reasoner.updateBaseUrl(savedKnowledgeUrl)
@@ -1008,6 +1020,9 @@ class MainActivity : ComponentActivity() {
                                                     appendTerminalLines(listOf("λ $cmd"))
                                                     val selectedTarget = CommandTarget.fromLauncherIndex(terminalTarget)
                                                     scope.launch(Dispatchers.IO) {
+                                                        // Judge this message against the last answer before
+                                                        // anything new is produced, off the main thread.
+                                                        SkillSynthRuntime.observeIncoming(this@MainActivity, cmd, Surface.CORE_CHAT.name)
                                                         val route = try {
                                                             router.understand(cmd, selectedTarget, installedAppNames = installedAppNames())
                                                         } catch (_: Exception) {
@@ -1020,6 +1035,7 @@ class MainActivity : ComponentActivity() {
                                                                 } catch (e: Exception) {
                                                                     "[CHAT ERROR] ${e.message ?: "Could not answer"}"
                                                                 }
+                                                                SkillSynthRuntime.recordAnswer(this@MainActivity, cmd, answer, Surface.CORE_CHAT.name)
                                                                 withContext(Dispatchers.Main) {
                                                                     appendTerminalLines(listOf("[CHAT] $answer"))
                                                                     isProcessing = false
@@ -1107,7 +1123,22 @@ class MainActivity : ComponentActivity() {
                                         2 -> AnimatedSkillsPanel(
                                             modifier = Modifier.fillMaxSize(),
                                             skills = skills,
-                                            library = referenceSkillLibrary
+                                            library = referenceSkillLibrary,
+                                            synthSummary = synthSummary,
+                                            synthEnabled = synthEnabled,
+                                            onToggleSynth = {
+                                                val turnOn = !synthEnabled
+                                                scope.launch(Dispatchers.IO) {
+                                                    SkillSynthRuntime.setEnabled(this@MainActivity, turnOn)
+                                                    withContext(Dispatchers.Main) { synthRevision++ }
+                                                }
+                                            },
+                                            onForgetLearned = {
+                                                scope.launch(Dispatchers.IO) {
+                                                    SkillSynthRuntime.forgetAll(this@MainActivity)
+                                                    withContext(Dispatchers.Main) { synthRevision++ }
+                                                }
+                                            }
                                         )
                                         3 -> AnimatedSettingsPanel(
                                             modifier = Modifier.fillMaxSize(),

@@ -191,7 +191,12 @@ data class SkillItem(
 fun AnimatedSkillsPanel(
     modifier: Modifier = Modifier,
     skills: List<SkillItem> = listOf(),
-    library: SkillLibrary? = null
+    library: SkillLibrary? = null,
+    /** One line of counts for the always-on synthesizer; blank hides the row. */
+    synthSummary: String = "",
+    synthEnabled: Boolean = true,
+    onToggleSynth: (() -> Unit)? = null,
+    onForgetLearned: (() -> Unit)? = null
 ) {
     var query by remember { mutableStateOf("") }
     val operationalMatches = skills.filter { skill ->
@@ -244,6 +249,38 @@ fun AnimatedSkillsPanel(
             fontSize = 10.sp, fontFamily = Morningstar.Body,
             color = if (library?.isAvailable == true) Morningstar.Ash else Morningstar.Warning
         )
+        if (synthSummary.isNotBlank()) {
+            // Learned behaviour is shown next to the built-in registry because the user has to be able
+            // to see — and delete — anything this app taught itself.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "LEARNED · $synthSummary",
+                    fontSize = 10.sp, fontFamily = Morningstar.Body,
+                    color = if (synthEnabled) Morningstar.Ash else Morningstar.Warning,
+                    modifier = Modifier.weight(1f)
+                )
+                if (onToggleSynth != null) {
+                    Text(
+                        text = if (synthEnabled) "TURN OFF" else "TURN ON",
+                        fontSize = 10.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold,
+                        color = Morningstar.Gilded,
+                        modifier = Modifier.clickable { onToggleSynth() }.padding(start = 10.dp)
+                    )
+                }
+                if (onForgetLearned != null) {
+                    Text(
+                        text = "FORGET",
+                        fontSize = 10.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold,
+                        color = Morningstar.Crimson,
+                        modifier = Modifier.clickable { onForgetLearned() }.padding(start = 10.dp)
+                    )
+                }
+            }
+        }
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp)

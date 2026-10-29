@@ -42,6 +42,7 @@ object AppConfig {
     const val KNOWLEDGE_URL = "config/knowledge_url.txt"
     const val MEMORY_MCP_URL = "config/drive_memory_mcp_url.txt"
     const val LLM_MODEL = "config/llm_model.txt"
+    const val SKILL_SYNTH_ENABLED = "config/skill_synth_enabled.txt"
 
     // ── secret settings (paths only; written via SecretStore) ────────
     const val MEMORY_MCP_TOKEN = "config/drive_memory_mcp_token.txt"

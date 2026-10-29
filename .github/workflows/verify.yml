@@ -1,6 +1,6 @@
 # Host-side verification, on every push and pull request.
 #
-# The repo had seven verify harnesses and three audit scripts and nothing that ran them. This runs all
+# The repo had eight verify harnesses and three audit scripts and nothing that ran them. This runs all
 # of them through `scripts/verify_all.sh`, which is the same command a person runs locally.
 #
 # The Kotlin half of each harness needs kotlinc and a JDK. It is not installed here by default, so those

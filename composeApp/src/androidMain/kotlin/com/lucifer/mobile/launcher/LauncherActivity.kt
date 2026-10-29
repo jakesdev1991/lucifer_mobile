@@ -81,6 +81,7 @@ import com.lucifer.mobile.memory.LocalConversationMemory
 import com.lucifer.mobile.omni_bridge.knowledge.ToEReasoningEngine
 import com.lucifer.mobile.config.AppConfig
 import com.lucifer.mobile.surface.Surface
+import com.lucifer.mobile.skills.SkillSynthRuntime
 import com.lucifer.mobile.terminal.TerminalExecutor
 import com.lucifer.mobile.ui.components.SigilClock
 import com.lucifer.mobile.ui.effects.SigilBackdrop
@@ -329,6 +330,10 @@ class LauncherActivity : ComponentActivity() {
             val selectedTarget = CommandTarget.fromLauncherIndex(target)
             val shouldSpeak = !voiceMuted
             scope.launch(Dispatchers.IO) {
+                // Judge this message against the last answer before anything new is produced: this is
+                // the only moment where "no, that's wrong" can still be tied to the turn it is about.
+                // Runs on IO because it may load and rewrite the learned-skill file.
+                SkillSynthRuntime.observeIncoming(this@LauncherActivity, text, Surface.LAUNCHER_CHAT.name)
                 val route = try {
                     router.understand(text, selectedTarget, history, apps.map { it.label })
                 } catch (e: Exception) {
@@ -338,6 +343,9 @@ class LauncherActivity : ComponentActivity() {
                     ChatRoute.Conversation -> {
                         val answer = try { reasoner.reason(text, Surface.LAUNCHER_CHAT) } catch (e: Exception) { "I couldn't complete that reply: ${e.message}" }
                         localMemory.rememberExchange(text, answer)
+                        // Attributed to the learned skills that were in this turn's prompt: a
+                        // correction of this answer becomes their loss, praise becomes their win.
+                        SkillSynthRuntime.recordAnswer(this, text, answer, Surface.LAUNCHER_CHAT.name)
                         withContext(Dispatchers.Main) {
                             chatMessages = chatMessages + ChatMessage(answer, true)
                             chatThinking = false

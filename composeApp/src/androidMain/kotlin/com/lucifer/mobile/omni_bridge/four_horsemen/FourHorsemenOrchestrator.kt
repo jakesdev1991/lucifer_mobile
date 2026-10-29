@@ -6,6 +6,7 @@ import com.lucifer.mobile.omni_bridge.equirouter.Horseman
 import com.lucifer.mobile.omni_bridge.llm.NemotronClient
 import com.lucifer.mobile.skills.SkillLibrary
 import com.lucifer.mobile.surface.Surface
+import com.lucifer.mobile.skills.SkillSynthRuntime
 import com.lucifer.mobile.surface.SurfaceKnowledge
 import com.lucifer.mobile.surface.SurfaceRuntime
 import kotlinx.coroutines.Dispatchers
@@ -140,7 +141,14 @@ class FourHorsemenOrchestrator(private val appContext: Context? = null) {
             "\n\n" + SurfaceKnowledge.renderForPrompt(surface, SurfaceRuntime.facts(it))
         }.orEmpty()
         val referenceContext = skillLibrary?.promptContext(input).orEmpty()
-        return listOf(persona + platformContext + surfaceContext, referenceContext)
+        // What he learned from earlier turns. Always attached, like the surface block: a learned habit
+        // that only applies when the question happens to contain a keyword is not a habit.
+        val learnedContext = appContext
+            ?.let { SkillSynthRuntime.promptBlock(it, input) }
+            ?.takeIf { it.isNotBlank() }
+            ?.let { "\n\n$it" }
+            .orEmpty()
+        return listOf(persona + platformContext + surfaceContext + learnedContext, referenceContext)
             .filter(String::isNotBlank)
             .joinToString("\n\n")
     }

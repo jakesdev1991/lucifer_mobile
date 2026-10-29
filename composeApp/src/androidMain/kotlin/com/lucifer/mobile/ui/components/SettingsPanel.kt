@@ -56,6 +56,7 @@ import com.lucifer.mobile.diagnostics.AndroidPlatformDiagnostics
 import com.lucifer.mobile.privacy.NetworkGuard
 import com.lucifer.mobile.privacy.PlayClassifier
 import com.lucifer.mobile.privacy.PlayEnvironmentProbe
+import com.lucifer.mobile.skills.SkillSynthRuntime
 import com.lucifer.mobile.ui.effects.SigilRule
 import com.lucifer.mobile.ui.effects.glassSurface
 import com.lucifer.mobile.ui.effects.shard
@@ -685,6 +686,51 @@ fun AnimatedSettingsPanel(
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(containerColor = Morningstar.CrimsonDim, contentColor = Color.White)
                 ) { Text("DELETE LOCAL MEMORY") }
+            }
+        }
+
+        // Always-on skill synthesis: local, bounded, and reversible from here.
+        SettingsCard(title = "LEARNED SKILLS · ALWAYS ON", icon = { Icon(Icons.Filled.Psychology, contentDescription = "Learned skills", tint = Morningstar.Gilded, modifier = Modifier.size(24.dp)) }) {
+            val synthContext = LocalContext.current
+            val synthScope = rememberCoroutineScope()
+            var synthOn by remember { mutableStateOf(true) }
+            var synthLine by remember { mutableStateOf("…") }
+            var synthRevision by remember { mutableStateOf(0) }
+            LaunchedEffect(synthRevision) {
+                withContext(Dispatchers.IO) {
+                    synthOn = SkillSynthRuntime.enabled(synthContext)
+                    synthLine = SkillSynthRuntime.summary(synthContext)
+                }
+            }
+            Text(
+                "Lucifer keeps a short list of habits learned from his own turns: a correction you made, a question you had to repeat, a recovery step that fixed a failed command. It is local, capped, and never grants permission — confirmations, privacy limits and surface boundaries still apply. Nothing here is sent anywhere.",
+                color = Morningstar.Ash, fontSize = 12.sp, fontFamily = Morningstar.Body
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            SystemStatusRow("Learning", if (synthOn) "ON" else "OFF", if (synthOn) Morningstar.Success else Morningstar.Warning)
+            SystemStatusRow("Learned", synthLine, Morningstar.Info)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        val turnOn = !synthOn
+                        synthScope.launch {
+                            withContext(Dispatchers.IO) { SkillSynthRuntime.setEnabled(synthContext, turnOn) }
+                            synthRevision++
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (synthOn) Morningstar.GlassRaised else Morningstar.SuccessDim, contentColor = Color.White)
+                ) { Text(if (synthOn) "PAUSE LEARNING" else "RESUME LEARNING") }
+                Button(
+                    onClick = {
+                        synthScope.launch {
+                            withContext(Dispatchers.IO) { SkillSynthRuntime.forgetAll(synthContext) }
+                            synthRevision++
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.CrimsonDim, contentColor = Color.White)
+                ) { Text("FORGET EVERYTHING") }
             }
         }
 

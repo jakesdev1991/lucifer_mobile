@@ -7,6 +7,7 @@ import com.lucifer.mobile.data.browser.LuciferBrowser
 import com.lucifer.mobile.launcher.CommandTarget
 import com.lucifer.mobile.memory.LocalConversationMemory
 import com.lucifer.mobile.omni_bridge.llm.NemotronClient
+import com.lucifer.mobile.skills.SkillSynthRuntime
 import com.lucifer.mobile.terminal.TerminalExecutor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -354,6 +355,19 @@ class ResilienceEngine(context: Context) {
     fun recordAttempt(move: RecoveryMove, succeeded: Boolean, note: String) {
         val current = episode ?: return
         episode = planner.recordAttempt(current, move, succeeded, note)
+        // The tactic that fixed this class of failure on this target is worth generalising beyond the
+        // recovery loop: it becomes a procedure skill the model is told about on later turns.
+        try {
+            SkillSynthRuntime.learnProcedure(
+                appContext,
+                current.signal.failureClass.label,
+                current.signal.target.displayName,
+                move.kind.label,
+                succeeded
+            )
+        } catch (_: Exception) {
+            // Learning must never break the thing it is learning from.
+        }
         persist()
         if (succeeded) {
             appendMemory(
