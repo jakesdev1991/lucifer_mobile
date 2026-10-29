@@ -318,6 +318,54 @@ fun main() {
         expectEq(PlayClassifier.classify(sideloaded), PlayFlavor.UNKNOWN, "flavor")
     }
 
+    test("privilege: sandboxed Play is revocable, a system install is not") {
+        val sandboxed = PlayFacts(
+            gmsInstalled = true,
+            gmsLabel = "Google Play services",
+            gmsVersionName = "25.08.12",
+            gmsInstaller = "com.android.vending",
+            vendingInstalled = true,
+            vendingLabel = "Google Play Store",
+            gmsIsSystemApp = false
+        )
+        expect(
+            PlayClassifier.privilegeVerdict(sandboxed).contains("ordinary app"),
+            "sandboxed: ${PlayClassifier.privilegeVerdict(sandboxed)}"
+        )
+        val system = sandboxed.copy(gmsIsSystemApp = true)
+        expect(
+            PlayClassifier.privilegeVerdict(system).contains("SYSTEM APP"),
+            "system: ${PlayClassifier.privilegeVerdict(system)}"
+        )
+        expect(
+            PlayClassifier.privilegeVerdict(system).contains("cannot be revoked"),
+            "system verdict states the consequence"
+        )
+        expect(
+            PlayClassifier.privilegeVerdict(PlayFacts()).contains("no Play Services"),
+            "absent"
+        )
+    }
+
+    test("privilege: a flashed microG is still a system app") {
+        // The arrangement this user is avoiding does not stop being privileged because it is FLOSS.
+        val flashed = PlayFacts(
+            gmsInstalled = true,
+            gmsLabel = "microG Services",
+            gmsVersionName = "0.3.15.250932",
+            gmsIsSystemApp = true
+        )
+        val verdict = PlayClassifier.privilegeVerdict(flashed)
+        expect(verdict.contains("SYSTEM APP"), verdict)
+        expect(verdict.contains("/system"), "names where the privilege comes from: $verdict")
+
+        val userInstalled = flashed.copy(gmsIsSystemApp = false)
+        expect(
+            PlayClassifier.privilegeVerdict(userInstalled).contains("ordinary app"),
+            "user-installed microG is ordinary"
+        )
+    }
+
     println()
     if (failures.isEmpty()) {
         println("PASS · $passed checks")

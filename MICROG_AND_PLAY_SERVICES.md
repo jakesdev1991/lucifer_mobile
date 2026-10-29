@@ -105,6 +105,13 @@ Three things, all enforced rather than promised:
    workflows, the ticker — works identically with no Play Services at all. If you switch ROMs, the only
    thing that changes is what the probe prints.
 
+## If you are here because of a specific app (TextNow, banking, tickets)
+
+Read [TEXTNOW_WITHOUT_ROOT.md](TEXTNOW_WITHOUT_ROOT.md) first. Short version: several of those apps —
+TextNow among them — ban de-googled devices through the Play Integrity API, so no Play stack, microG
+included, will make them work. The fix is a different app or a different device, not a different Play
+implementation.
+
 ## Practical recommendation for this user
 
 1. Keep the GMS question **out of the app**; keep it a ROM decision. This build is now checked to be

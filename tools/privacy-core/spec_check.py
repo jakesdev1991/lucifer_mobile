@@ -446,6 +446,43 @@ def case_play_env() -> None:
     check("play: microG 0.2 preview build string detected", classify_play(spelled) == "MICROG")
 
 
+def privilege_verdict(facts: dict) -> str:
+    flavor = classify_play(facts)
+    if flavor == "ABSENT":
+        return "PRIVILEGE: no Play Services installed"
+    if facts.get("gmsIsSystemApp") and flavor == "GOOGLE":
+        return "PRIVILEGE: SYSTEM APP — platform-level reach that cannot be revoked like a normal app"
+    if facts.get("gmsIsSystemApp"):
+        return "PRIVILEGE: SYSTEM APP — even a microG build flashed into /system keeps that reach"
+    return "PRIVILEGE: ordinary app — same sandbox as everything else; permissions and network are yours to revoke"
+
+
+def case_privilege() -> None:
+    sandboxed = {"gmsInstalled": True, "gmsLabel": "Google Play services", "gmsVersionName": "25.08.12",
+                 "gmsInstaller": "com.android.vending", "vendingInstalled": True,
+                 "vendingLabel": "Google Play Store", "gmsIsSystemApp": False}
+    check("privilege: sandboxed Play is revocable", "ordinary app" in privilege_verdict(sandboxed))
+
+    stock = dict(sandboxed, gmsIsSystemApp=True)
+    check("privilege: system Play is flagged", "SYSTEM APP" in privilege_verdict(stock))
+    check("privilege: system verdict names the risk",
+          "cannot be revoked" in privilege_verdict(stock))
+
+    # microG is not automatically less privileged: flashed builds land in /system/priv-app.
+    flashed_microg = {"gmsInstalled": True, "gmsLabel": "microG Services",
+                      "gmsVersionName": "0.3.15.250932", "gmsIsSystemApp": True}
+    check("privilege: system microG is still privileged", "SYSTEM APP" in privilege_verdict(flashed_microg))
+    check("privilege: the microG case says so explicitly",
+          "/system" in privilege_verdict(flashed_microg))
+
+    user_microg = {"gmsInstalled": True, "gmsLabel": "microG Services",
+                   "gmsVersionName": "0.3.15.250932", "gmsIsSystemApp": False}
+    check("privilege: user-installed microG is ordinary", "ordinary app" in privilege_verdict(user_microg))
+
+    check("privilege: absent means nothing to revoke",
+          "no Play Services" in privilege_verdict({}))
+
+
 def main() -> int:
     case_parse()
     case_classify()
@@ -454,6 +491,7 @@ def main() -> int:
     case_ledger()
     case_codec()
     case_play_env()
+    case_privilege()
 
     for line in failures:
         print(f"FAIL  {line}")

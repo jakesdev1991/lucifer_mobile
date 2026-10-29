@@ -57,7 +57,13 @@ data class PlayFacts(
     /** `org.microg.gms` — the microG project's own preview/pre-release package. */
     val microgPreviewInstalled: Boolean = false,
     /** `app.revanced.android.gms` — ReVanced's GmsCore fork. */
-    val revenancedGmsInstalled: Boolean = false
+    val revenancedGmsInstalled: Boolean = false,
+    /**
+     * True when GMS was installed to /system (or /system/priv-app) rather than as a user app. This is
+     * the difference the user actually cares about: a system Play Services holds reach a normal app
+     * cannot, and cannot be revoked the way an ordinary app's permissions can.
+     */
+    val gmsIsSystemApp: Boolean = false
 ) {
     /** How many independent signals say "this is microG pretending to be GMS". */
     fun microgSignals(): List<String> {
@@ -111,6 +117,27 @@ object PlayClassifier {
         PlayFlavor.UNKNOWN -> "PUSH: unknown until the Play stack is identified"
     }
 
+    /**
+     * "Power over the phone" is not a feeling, it is a flag: whether Play Services is a system app.
+     * A sandboxed install is revocable — network, sensors, background, storage, all per-app switches.
+     * A system install is not, and flashing microG into /system/priv-app reproduces exactly the
+     * arrangement this user is trying to avoid, open source or not.
+     */
+    fun privilegeVerdict(facts: PlayFacts): String {
+        val flavor = classify(facts)
+        return when {
+            flavor == PlayFlavor.ABSENT -> "PRIVILEGE: no Play Services installed"
+            facts.gmsIsSystemApp && flavor == PlayFlavor.GOOGLE ->
+                "PRIVILEGE: SYSTEM APP — platform-level reach that cannot be revoked like a normal app"
+            // microG/ReVanced/unknown builds fall through to here so the source of the privilege is
+            // named: a FLOSS Play stack flashed into /system is exactly as privileged as Google's.
+            facts.gmsIsSystemApp ->
+                "PRIVILEGE: SYSTEM APP — even a microG build flashed into /system keeps that reach"
+            else ->
+                "PRIVILEGE: ordinary app — same sandbox as everything else; permissions and network are yours to revoke"
+        }
+    }
+
     fun locationVerdict(flavor: PlayFlavor): String = when (flavor) {
         PlayFlavor.GOOGLE -> "LOCATION: fused provider, Google-assisted"
         PlayFlavor.MICROG, PlayFlavor.REVANCED_MICROG ->
@@ -126,7 +153,8 @@ object PlayClassifier {
             appendLine("STACK: ${flavor.label}" + if (facts.gmsVersionName.isNotBlank()) " · ${facts.gmsVersionName}" else "")
             appendLine(integrityVerdict(flavor))
             appendLine(pushVerdict(flavor))
-            append(locationVerdict(flavor))
+            appendLine(locationVerdict(flavor))
+            append(privilegeVerdict(facts))
             if (facts.gmsSignatureSha256.isNotBlank()) {
                 appendLine()
                 append("SIGNER: ${facts.gmsSignatureSha256.take(16)}…")
@@ -163,7 +191,8 @@ class PlayEnvironmentProbe(private val context: Context) {
             vendingInstalled = vending != null,
             vendingLabel = vending?.label.orEmpty(),
             microgPreviewInstalled = isInstalled(pm, MICROG_PREVIEW_PACKAGE),
-            revenancedGmsInstalled = isInstalled(pm, REVANCED_GMS_PACKAGE)
+            revenancedGmsInstalled = isInstalled(pm, REVANCED_GMS_PACKAGE),
+            gmsIsSystemApp = gms?.isSystemApp ?: false
         )
     }
 
@@ -171,7 +200,8 @@ class PlayEnvironmentProbe(private val context: Context) {
         val label: String,
         val versionName: String,
         val installer: String,
-        val signatureSha256: String
+        val signatureSha256: String,
+        val isSystemApp: Boolean
     )
 
     private fun isInstalled(pm: PackageManager, name: String): Boolean = try {
@@ -217,11 +247,15 @@ class PlayEnvironmentProbe(private val context: Context) {
         } catch (_: Exception) {
             ""
         }
+        val applicationInfo = info.applicationInfo
+        val isSystemApp = applicationInfo != null &&
+            (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
         PackageFacts(
             label = label,
             versionName = info.versionName.orEmpty(),
             installer = installer,
-            signatureSha256 = signer
+            signatureSha256 = signer,
+            isSystemApp = isSystemApp
         )
     } catch (_: Exception) {
         null
