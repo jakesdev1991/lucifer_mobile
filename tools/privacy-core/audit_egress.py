@@ -55,6 +55,43 @@ ATTESTATION_FLAGS = {
 }
 
 
+# Nothing in this APK may acquire a Google dependency. microG is a *device* choice; the moment this
+# app links GMS it starts being a Google client itself, on every device, whatever the ROM is.
+GOOGLE_NEEDLES = (
+    "com.google.android.gms",
+    "play-services",
+    "firebase",
+    "com.google.firebase",
+    "com.google.android.material",
+)
+GOOGLE_IMPORT = "import com.google.android.gms"
+
+
+def google_creep() -> list[dict]:
+    """Dependencies or imports that would make this build a Google client."""
+    findings = []
+    gradle = os.path.join(ROOT, "composeApp", "build.gradle.kts")
+    if os.path.isfile(gradle):
+        for number, line in enumerate(open(gradle, encoding="utf-8", errors="replace"), 1):
+            stripped = line.strip()
+            if stripped.startswith("//"):
+                continue
+            for needle in GOOGLE_NEEDLES:
+                if needle in stripped:
+                    findings.append({"where": "composeApp/build.gradle.kts", "line": number,
+                                     "what": stripped[:100], "why": f"declares {needle}"})
+    for path in kotlin_files():
+        try:
+            lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+        except OSError:
+            continue
+        for number, line in enumerate(lines, 1):
+            if line.strip().startswith(GOOGLE_IMPORT):
+                findings.append({"where": os.path.relpath(path, ROOT), "line": number,
+                                 "what": line.strip()[:100], "why": "imports the GMS client"})
+    return findings
+
+
 def kotlin_files() -> list[str]:
     found = []
     for base, _dirs, files in os.walk(KOTLIN_ROOT):
@@ -158,15 +195,23 @@ def main() -> int:
     deps = dependencies()
     flows = egress_notes()
     unguarded = [s for s in sites if s["status"] == "UNGUARDED"]
+    creep = google_creep()
 
     if args.check:
         for site in sites:
             print(f"{site['status']:14} {site['file']}:{site['line']}")
+        exit_code = 0
         if unguarded:
             print(f"\n{len(unguarded)} unguarded outbound call site(s) — every socket must ask NetworkGuard first.")
-            return 1
-        print(f"\nOK · {len(sites)} call sites, none unguarded")
-        return 0
+            exit_code = 1
+        if creep:
+            for item in creep:
+                print(f"GOOGLE-CREEP   {item['where']}:{item['line']}  {item['why']}")
+            print("\nThis build is degoogled by policy: no GMS, no Firebase, no Play Services dependency.")
+            exit_code = 1
+        if exit_code == 0:
+            print(f"\nOK · {len(sites)} call sites, none unguarded · no Google dependencies")
+        return exit_code
 
     if args.markdown:
         print("| Call site | Line | Guard | Status |")
@@ -194,9 +239,16 @@ def main() -> int:
         print(f"  {dep['coordinate']}")
         print(f"    {dep['why']}")
 
+    print("\nDEGOOGLED BY POLICY\n")
+    if not creep:
+        print("  no com.google.android.gms, play-services or firebase references in the app or the build")
+    for item in creep:
+        print(f"  {item['where']}:{item['line']}  {item['why']}")
+        print(f"    {item['what']}")
+
     print()
-    print(f"{len(sites)} call sites · {len(unguarded)} unguarded · {len(deps)} attestation flags")
-    return 0 if not unguarded else 1
+    print(f"{len(sites)} call sites · {len(unguarded)} unguarded · {len(deps)} attestation flags · {len(creep)} google references")
+    return 0 if not unguarded and not creep else 1
 
 
 if __name__ == "__main__":

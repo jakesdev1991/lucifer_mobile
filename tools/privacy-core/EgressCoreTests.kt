@@ -13,6 +13,9 @@ import com.lucifer.mobile.privacy.EgressLog
 import com.lucifer.mobile.privacy.EgressOutcome
 import com.lucifer.mobile.privacy.EgressPolicy
 import com.lucifer.mobile.privacy.EgressRecord
+import com.lucifer.mobile.privacy.PlayClassifier
+import com.lucifer.mobile.privacy.PlayFacts
+import com.lucifer.mobile.privacy.PlayFlavor
 
 private var passed = 0
 private val failures = mutableListOf<String>()
@@ -243,6 +246,76 @@ fun main() {
         val decision = EgressPolicy.decide("https://integrate.api.nvidia.com/v1", online = false, userInitiated = true)
         val entry = EgressPolicy.record("https://integrate.api.nvidia.com/v1", decision, 1L, true)
         expect(entry.summary().endsWith("· BLOCKED"), "summary marks the block: ${entry.summary()}")
+    }
+
+    test("play: stock Google Play Services is recognised as Google") {
+        val facts = PlayFacts(
+            gmsInstalled = true,
+            gmsLabel = "Google Play services",
+            gmsVersionName = "25.08.12",
+            gmsInstaller = "com.android.vending",
+            vendingInstalled = true,
+            vendingLabel = "Google Play Store"
+        )
+        expectEq(PlayClassifier.classify(facts), PlayFlavor.GOOGLE, "flavor")
+        expect(PlayClassifier.pushVerdict(PlayFlavor.GOOGLE).contains("Google"), "push names Google")
+    }
+
+    test("play: official microG is detected without trusting the package name") {
+        // microG installs AS com.google.android.gms; only the label/version/installer give it away.
+        val facts = PlayFacts(
+            gmsInstalled = true,
+            gmsLabel = "microG Services",
+            gmsVersionName = "0.3.15.250932",
+            gmsInstaller = "",
+            vendingInstalled = true,
+            vendingLabel = "microG Companion"
+        )
+        expectEq(PlayClassifier.classify(facts), PlayFlavor.MICROG, "flavor")
+        expect(facts.microgSignals().size >= PlayClassifier.MICROG_SIGNAL_THRESHOLD, "signals")
+    }
+
+    test("play: microG does not buy silence from Google for push") {
+        expect(
+            PlayClassifier.pushVerdict(PlayFlavor.MICROG).contains("mtalk.google.com"),
+            "the caveat is stated, not buried: ${PlayClassifier.pushVerdict(PlayFlavor.MICROG)}"
+        )
+        expect(
+            PlayClassifier.integrityVerdict(PlayFlavor.MICROG).contains("not expected to pass"),
+            "integrity is honest"
+        )
+    }
+
+    test("play: forks and preview builds are named") {
+        expectEq(PlayClassifier.classify(PlayFacts(revenancedGmsInstalled = true)), PlayFlavor.REVANCED_MICROG, "revanced")
+        expectEq(PlayClassifier.classify(PlayFacts(microgPreviewInstalled = true)), PlayFlavor.MICROG, "preview")
+        expectEq(PlayClassifier.classify(PlayFacts()), PlayFlavor.ABSENT, "absent")
+        expect(
+            PlayClassifier.pushVerdict(PlayFlavor.ABSENT).contains("Signal"),
+            "no services means app-owned sockets"
+        )
+    }
+
+    test("play: one weak signal is UNKNOWN, never a guess") {
+        val weak = PlayFacts(
+            gmsInstalled = true,
+            gmsLabel = "Google Play services",
+            gmsVersionName = "0.3.2",
+            gmsInstaller = "com.android.vending"
+        )
+        expectEq(PlayClassifier.classify(weak), PlayFlavor.UNKNOWN, "flavor")
+        expectEq(weak.microgSignals().size, 1, "one signal")
+        expect(PlayClassifier.report(weak).contains("Signals:"), "evidence is shown")
+    }
+
+    test("play: a sideloaded Google build is not mistaken for microG") {
+        val sideloaded = PlayFacts(
+            gmsInstalled = true,
+            gmsLabel = "Google Play services",
+            gmsVersionName = "25.08.12",
+            gmsInstaller = "com.android.packageinstaller"
+        )
+        expectEq(PlayClassifier.classify(sideloaded), PlayFlavor.UNKNOWN, "flavor")
     }
 
     println()

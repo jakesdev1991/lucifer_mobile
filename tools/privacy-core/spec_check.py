@@ -16,6 +16,7 @@ Exit code is 0 only when every case holds.
 
 from __future__ import annotations
 
+import re
 import sys
 
 # ── mirror of EgressPolicy ────────────────────────────────────────────
@@ -367,6 +368,84 @@ def case_codec() -> None:
     check("codec: file roundtrip keeps the ring", len(reloaded) == 2 and all(reloaded))
 
 
+# ── mirror of PlayClassifier (which Play stack is on the device) ──────
+
+MICROG_SIGNAL_THRESHOLD = 2
+
+
+def microg_signals(facts: dict) -> list[str]:
+    signals = []
+    if "microg" in facts.get("gmsLabel", "").lower():
+        signals.append("GMS label says microG")
+    version = facts.get("gmsVersionName", "")
+    if re.match(r"^0\.(2|3)\.[0-9.]+$", version):
+        signals.append("GMS version has microG's shape")
+    if facts.get("vendingInstalled") and "microg" in facts.get("vendingLabel", "").lower():
+        signals.append("Play Store is microG Companion")
+    installer = facts.get("gmsInstaller", "")
+    if facts.get("gmsInstalled") and installer and not installer.startswith("com.android.vending"):
+        signals.append("GMS was not installed by the Play Store")
+    return signals
+
+
+def classify_play(facts: dict) -> str:
+    if facts.get("revenancedGmsInstalled"):
+        return "REVANCED_MICROG"
+    if not facts.get("gmsInstalled"):
+        return "MICROG" if facts.get("microgPreviewInstalled") else "ABSENT"
+    if facts.get("microgPreviewInstalled"):
+        return "MICROG"
+    signals = microg_signals(facts)
+    if len(signals) >= MICROG_SIGNAL_THRESHOLD:
+        return "MICROG"
+    if not signals:
+        return "GOOGLE"
+    return "UNKNOWN"
+
+
+def push_verdict(flavor: str) -> str:
+    return {
+        "GOOGLE": "PUSH: Google delivers it — a device token, your IP and your timing",
+        "MICROG": "PUSH: still Google — microG checks in with android.clients.google.com and holds a socket to mtalk.google.com",
+        "REVANCED_MICROG": "PUSH: still Google — microG checks in with android.clients.google.com and holds a socket to mtalk.google.com",
+        "ABSENT": "PUSH: only apps with their own socket (Signal, UnifiedPush) will notify you",
+        "UNKNOWN": "PUSH: unknown until the Play stack is identified",
+    }[flavor]
+
+
+def case_play_env() -> None:
+    google = {"gmsInstalled": True, "gmsLabel": "Google Play services", "gmsVersionName": "25.08.12",
+              "gmsInstaller": "com.android.vending", "vendingInstalled": True,
+              "vendingLabel": "Google Play Store"}
+    check("play: stock Google detected", classify_play(google) == "GOOGLE")
+
+    microg = {"gmsInstalled": True, "gmsLabel": "microG Services", "gmsVersionName": "0.3.15.250932",
+              "gmsInstaller": "", "vendingInstalled": True, "vendingLabel": "microG Companion"}
+    check("play: official microG detected", classify_play(microg) == "MICROG")
+    check("play: microG still names Google for push", "mtalk.google.com" in push_verdict("MICROG"))
+    check("play: google push names Google", "Google" in push_verdict("GOOGLE"))
+    check("play: no play services means app sockets only", "Signal" in push_verdict("ABSENT"))
+
+    check("play: ReVanced GmsCore detected",
+          classify_play({"revenancedGmsInstalled": True}) == "REVANCED_MICROG")
+    check("play: microG preview package detected",
+          classify_play({"microgPreviewInstalled": True}) == "MICROG")
+    check("play: nothing installed is ABSENT", classify_play({}) == "ABSENT")
+
+    # One signal is not enough: say UNKNOWN and show the evidence.
+    weak = {"gmsInstalled": True, "gmsLabel": "Google Play services", "gmsVersionName": "0.3.2",
+            "gmsInstaller": "com.android.vending"}
+    check("play: a single signal is UNKNOWN, not a guess", classify_play(weak) == "UNKNOWN")
+    check("play: the unknown case still lists its evidence", len(microg_signals(weak)) == 1)
+
+    sideloaded = {"gmsInstalled": True, "gmsLabel": "Google Play services",
+                  "gmsVersionName": "25.08.12", "gmsInstaller": "com.android.packageinstaller"}
+    check("play: sideloaded Google is UNKNOWN, not microG", classify_play(sideloaded) == "UNKNOWN")
+
+    spelled = {"gmsInstalled": True, "gmsLabel": "microG Services Core", "gmsVersionName": "0.2.27.223616"}
+    check("play: microG 0.2 preview build string detected", classify_play(spelled) == "MICROG")
+
+
 def main() -> int:
     case_parse()
     case_classify()
@@ -374,6 +453,7 @@ def main() -> int:
     case_decide()
     case_ledger()
     case_codec()
+    case_play_env()
 
     for line in failures:
         print(f"FAIL  {line}")

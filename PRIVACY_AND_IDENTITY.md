@@ -46,7 +46,7 @@ A phone leaks identity in four layers. Lucifer is only ever able to touch the se
 
 | Requested | Verdict | Why |
 | --- | --- | --- |
-| microG | Not applicable | `composeApp/build.gradle.kts` ships **zero** Google dependencies — no `play-services`, no `firebase`, no `gms`. There is nothing to migrate away from. microG matters for *other* apps on a degoogled ROM, not for this one. |
+| microG | **A device decision, not an app one** | `composeApp/build.gradle.kts` ships **zero** Google dependencies, so Lucifer needs nothing replaced — but microG is about the *other* apps on the phone, and that is a legitimate choice. See [MICROG_AND_PLAY_SERVICES.md](MICROG_AND_PLAY_SERVICES.md); note that microG's push still reaches Google. |
 | Mock location | Refused as theater | No location permission is declared and no location API is called, so there is nothing to mock within Lucifer. At the OS level a mock provider only feeds the app-facing `LocationManager`; the modem and Wi-Fi positioning databases still locate the handset. |
 | Mock IMEI | Refused | IMEI lives behind the radio and a privileged permission. Changing it means baseband commands or root-level telephony hooks: it bricks modems, breaks OTA and attestation, and is illegal in the US, UK and EU. It is also useless against the layers above. Lucifer will not implement it. |
 | Tor / VPN | Not implemented | There is no `VpnService` in this app. A VPN is the correct tool for the network-path layer, and it belongs at the OS level where it covers every app — not bolted inside one launcher. |

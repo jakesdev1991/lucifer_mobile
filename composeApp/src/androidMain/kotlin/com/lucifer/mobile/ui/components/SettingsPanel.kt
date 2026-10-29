@@ -54,6 +54,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lucifer.mobile.diagnostics.AndroidPlatformDiagnostics
 import com.lucifer.mobile.privacy.NetworkGuard
+import com.lucifer.mobile.privacy.PlayClassifier
+import com.lucifer.mobile.privacy.PlayEnvironmentProbe
 import com.lucifer.mobile.ui.effects.SigilRule
 import com.lucifer.mobile.ui.effects.glassSurface
 import com.lucifer.mobile.ui.effects.shard
@@ -137,10 +139,16 @@ fun AnimatedSettingsPanel(
     var networkOnline by remember { mutableStateOf(true) }
     var privacyLedger by remember { mutableStateOf("Reading the egress ledger…") }
     var guardInstalled by remember { mutableStateOf(false) }
+    var playReport by remember { mutableStateOf("Reading the Play stack…") }
     suspend fun refreshPrivacy() {
         networkOnline = withContext(Dispatchers.IO) { NetworkGuard.isOnline(context) }
         privacyLedger = withContext(Dispatchers.IO) { NetworkGuard.recent(context, 20) }
         guardInstalled = NetworkGuard.installed
+        // Which Play stack is under him changes push, location and integrity — not Lucifer's own
+        // behaviour, since this APK ships zero Google dependencies.
+        playReport = withContext(Dispatchers.IO) {
+            PlayClassifier.report(PlayEnvironmentProbe(context).read())
+        }
     }
     LaunchedEffect(context) { refreshPrivacy() }
     var shizukuPackageText by remember { mutableStateOf("com.mirfatif.permissionmanagerx") }
@@ -219,6 +227,15 @@ fun AnimatedSettingsPanel(
                     colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
                 ) { Text("CLEAR LEDGER", fontSize = 10.sp, fontFamily = Morningstar.Body) }
             }
+            SigilRule()
+            Text(
+                playReport,
+                color = Morningstar.Ash,
+                fontSize = 10.sp,
+                fontFamily = Morningstar.MonoTail,
+                maxLines = 12,
+                overflow = TextOverflow.Ellipsis
+            )
             Text(
                 privacyLedger,
                 color = Morningstar.Ash,
