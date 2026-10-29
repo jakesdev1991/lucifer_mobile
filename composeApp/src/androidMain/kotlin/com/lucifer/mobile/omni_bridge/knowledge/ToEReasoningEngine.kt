@@ -4,6 +4,8 @@ import android.content.Context
 import com.lucifer.mobile.omni_bridge.equirouter.Horseman
 import com.lucifer.mobile.omni_bridge.four_horsemen.FourHorsemenOrchestrator
 import com.lucifer.mobile.memory.LocalConversationMemory
+import com.lucifer.mobile.surface.Surface
+import com.lucifer.mobile.surface.SurfaceRuntime
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -21,6 +23,9 @@ class ToEReasoningEngine(
     context: Context,
     private val horsemen: FourHorsemenOrchestrator = FourHorsemenOrchestrator(context)
 ) {
+
+    /** Kept for surface-awareness reads. */
+    private val appContext: Context = context.applicationContext
 
     private val embedded = EmbeddedToE(context)
     private val remote = OmegaKnowledgeClient()
@@ -55,7 +60,16 @@ class ToEReasoningEngine(
      * The full reasoning pass for a chat message.
      * Corpus evidence comes from the embedded ToE; optional remote enrichment.
      */
-    suspend fun reason(input: String): String {
+    /**
+     * Answer [input].
+     *
+     * @param surface the interface the user is actually speaking through. Capability questions about
+     *   that interface are answered deterministically here — no model, no guessing — and every other
+     *   turn carries a surface block so "here" means something. Callers must pass their real surface;
+     *   the [Surface.UNKNOWN] default reports an unnamed surface rather than inventing a launcher.
+     */
+    suspend fun reason(input: String, surface: Surface = Surface.UNKNOWN): String {
+        SurfaceRuntime.answerIfAboutSurface(appContext, input, surface)?.let { return it }
         warmUpIfNeeded()
 
         // 1. UNDERSTAND: consult the corpus on the key concepts.
@@ -81,7 +95,7 @@ class ToEReasoningEngine(
         }
 
         // 2. DECIDE + ACT: synthesize with the Four Horsemen over ToE evidence.
-        val deliberation = horsemen.deliberate(input, evidence.toString())
+        val deliberation = horsemen.deliberate(input, evidence.toString(), surface)
         val offlineMemory = if (deliberation.startsWith("Council offline")) {
             try { localMemory.search(input) } catch (_: Exception) { "" }
         } else ""

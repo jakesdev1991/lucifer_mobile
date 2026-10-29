@@ -79,6 +79,7 @@ import androidx.compose.ui.unit.sp
 import com.lucifer.mobile.omni_bridge.four_horsemen.FourHorsemenOrchestrator
 import com.lucifer.mobile.memory.LocalConversationMemory
 import com.lucifer.mobile.omni_bridge.knowledge.ToEReasoningEngine
+import com.lucifer.mobile.surface.Surface
 import com.lucifer.mobile.terminal.TerminalExecutor
 import com.lucifer.mobile.ui.components.SigilClock
 import com.lucifer.mobile.ui.effects.SigilBackdrop
@@ -334,7 +335,7 @@ class LauncherActivity : ComponentActivity() {
                 }
                 when (route) {
                     ChatRoute.Conversation -> {
-                        val answer = try { reasoner.reason(text) } catch (e: Exception) { "I couldn't complete that reply: ${e.message}" }
+                        val answer = try { reasoner.reason(text, Surface.LAUNCHER_CHAT) } catch (e: Exception) { "I couldn't complete that reply: ${e.message}" }
                         localMemory.rememberExchange(text, answer)
                         withContext(Dispatchers.Main) {
                             chatMessages = chatMessages + ChatMessage(answer, true)

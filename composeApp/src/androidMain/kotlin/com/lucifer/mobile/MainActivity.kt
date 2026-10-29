@@ -78,6 +78,7 @@ import com.lucifer.mobile.ui.components.AnimatedTerminal
 import com.lucifer.mobile.ui.components.BrowserControlPanel
 import com.lucifer.mobile.agents.android.ObservationBus
 import com.lucifer.mobile.agents.android.PromptStore
+import com.lucifer.mobile.surface.Surface
 import com.lucifer.mobile.agents.android.TacticianService
 import com.lucifer.mobile.tactician.ObservationKind
 import com.lucifer.mobile.privilege.DhizukuBridge
@@ -479,7 +480,7 @@ class MainActivity : ComponentActivity() {
                         }
                         when (route) {
                             ChatRoute.Conversation -> {
-                                val answer = try { reasoner.reason(instruction) } catch (e: Exception) {
+                                val answer = try { reasoner.reason(instruction, Surface.WORKFLOW) } catch (e: Exception) {
                                     "[WORKFLOW ERROR] ${e.message ?: "Could not reason about this step."}"
                                 }
                                 withContext(Dispatchers.Main) {
@@ -984,7 +985,7 @@ class MainActivity : ComponentActivity() {
                                                         when (route) {
                                                             ChatRoute.Conversation -> {
                                                                 val answer = try {
-                                                                    reasoner.reason(cmd)
+                                                                    reasoner.reason(cmd, Surface.CORE_CHAT)
                                                                 } catch (e: Exception) {
                                                                     "[CHAT ERROR] ${e.message ?: "Could not answer"}"
                                                                 }
@@ -1430,7 +1431,7 @@ class MainActivity : ComponentActivity() {
                                                                 }
                                                                 ChatRoute.Conversation -> {
                                                                     val advice = try {
-                                                                        reasoner.reason(move.instruction)
+                                                                        reasoner.reason(move.instruction, Surface.RECOVER)
                                                                     } catch (e: Exception) {
                                                                         "[CHAT ERROR] ${e.message ?: "could not produce advice"}"
                                                                     }
