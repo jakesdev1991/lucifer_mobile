@@ -4,8 +4,8 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.Settings
 import android.util.Log
+import com.lucifer.mobile.config.AppConfig
 import com.lucifer.mobile.privacy.NetworkGuard
-import java.io.File
 
 /**
  * Reads [SurfaceFacts] from the device so surface answers are current instead of aspirational.
@@ -18,29 +18,48 @@ object SurfaceRuntime {
 
     private const val TAG = "SurfaceRuntime"
 
-    /** The surface this process most recently declared. Used by panels that cannot pass it down. */
-    @Volatile
-    var current: Surface = Surface.UNKNOWN
-        private set
+    // Deliberately no "current surface" global. The surface is a parameter on every call, so a screen
+    // cannot inherit a stale one from whatever ran last; an ambient variable would only make that
+    // possible. (There was one here, unused by everything, and it was deleted rather than wired.)
 
-    fun enter(surface: Surface) {
-        current = surface
+    /**
+     * Facts are read on every model turn (for the prompt block) and on every surface question. Each
+     * read is several PackageManager lookups plus file stats, and they cannot meaningfully change
+     * twice inside a second, so the result is cached briefly. A capability toggle in Settings is
+     * still reflected on the next turn.
+     */
+    private const val FACTS_TTL_MS = 3_000L
+    @Volatile private var cachedAt: Long = 0L
+    @Volatile private var cached: SurfaceFacts? = null
+
+    fun invalidate() {
+        cachedAt = 0L
+        cached = null
     }
 
     fun facts(context: Context, selectedTarget: String = "LOCAL"): SurfaceFacts {
+        val now = System.currentTimeMillis()
+        cached?.let { if (now - cachedAt < FACTS_TTL_MS && it.selectedTarget == selectedTarget) return it }
+        return read(context, selectedTarget).also {
+            cached = it
+            cachedAt = now
+        }
+    }
+
+    private fun read(context: Context, selectedTarget: String): SurfaceFacts {
         val app = context.applicationContext
         return SurfaceFacts(
             selectedTarget = selectedTarget,
             termuxInstalled = isInstalled(app, "com.termux"),
             termuxRunCommandGranted = permissionGranted(app, "com.termux.permission.RUN_COMMAND"),
             overlayPermission = runCatching { Settings.canDrawOverlays(app) }.getOrDefault(false),
-            vmConfigured = nonEmpty(app, "config/vm_host.txt"),
-            vmHostKeyPinned = nonEmpty(app, "config/known_hosts"),
+            vmConfigured = AppConfig.isSet(app, AppConfig.VM_HOST),
+            vmHostKeyPinned = AppConfig.isSet(app, AppConfig.KNOWN_HOSTS),
             shizukuAvailable = isInstalled(app, "moe.shizuku.privileged.api"),
             shizukuIdentity = "",
             networkOnline = NetworkGuard.isOnline(app),
-            modelKeyConfigured = nonEmpty(app, "config/nvidia_key.txt"),
-            memoryMcpConfigured = nonEmpty(app, "config/drive_memory_mcp_url.txt"),
+            modelKeyConfigured = AppConfig.isSet(app, AppConfig.NVIDIA_KEY),
+            memoryMcpConfigured = AppConfig.isSet(app, AppConfig.MEMORY_MCP_URL),
             pendingConfirmation = false
         )
     }
@@ -77,10 +96,4 @@ object SurfaceRuntime {
         false
     }
 
-    private fun nonEmpty(context: Context, relative: String): Boolean = try {
-        val file = File(context.filesDir, relative)
-        file.isFile && file.length() > 0L
-    } catch (_: Exception) {
-        false
-    }
 }

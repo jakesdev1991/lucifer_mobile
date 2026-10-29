@@ -7,9 +7,7 @@ import com.lucifer.mobile.resilience.int
 import com.lucifer.mobile.resilience.long
 import com.lucifer.mobile.resilience.obj
 import com.lucifer.mobile.resilience.str
-import com.lucifer.mobile.privacy.NetworkGuard
-import java.net.HttpURLConnection
-import java.net.URL
+import com.lucifer.mobile.privacy.EgressHttp
 import java.security.MessageDigest
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -240,15 +238,17 @@ class HttpVaultTransport(
         val target = AuditVaultContract.normalizeUrl(baseUrl) + path
         // A blocked call is an ordinary transport failure here: status 0, honest body, no throw, so
         // the executor's existing fallback decides what to do instead of an exception escaping.
-        val clearance = NetworkGuard.authorize(target, userInitiated = true)
-        if (clearance.blocked) {
-            return VaultTransport.Reply(0, NetworkGuard.refusalMessage(clearance, "the audit vault call"))
+        val grant = EgressHttp.open(
+            target,
+            userInitiated = true,
+            connectTimeoutMs = timeoutMs,
+            readTimeoutMs = timeoutMs
+        )
+        if (grant.blocked) {
+            return VaultTransport.Reply(0, grant.refusal("the audit vault call"))
         }
-        val connection = URL(target).openConnection() as HttpURLConnection
-        connection.instanceFollowRedirects = false
+        val connection = grant.connection!!
         connection.requestMethod = method
-        connection.connectTimeout = timeoutMs
-        connection.readTimeout = timeoutMs
         connection.setRequestProperty("Accept", "application/json")
         headers.forEach { (name, value) -> connection.setRequestProperty(name, value) }
         if (body != null) {

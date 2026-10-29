@@ -3,10 +3,9 @@ package com.lucifer.mobile.data.browser
 import android.util.Log
 import java.io.ByteArrayOutputStream
 import com.lucifer.mobile.privacy.EgressClass
-import com.lucifer.mobile.privacy.NetworkGuard
+import com.lucifer.mobile.privacy.EgressHttp
 import java.net.HttpURLConnection
 import java.net.InetAddress
-import java.net.URL
 import java.util.regex.Pattern
 
 /**
@@ -48,25 +47,30 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
                 last?.disconnect()
                 current = validatePublicWebUrl(current)
                 val requestHost = java.net.URI(current).host.lowercase()
-                // Checked per hop, not once per navigation: a redirect is a new destination.
-                val clearance = NetworkGuard.authorize(current, userInitiated = true, expected = EgressClass.PAGE)
-                if (clearance.blocked) {
+                // Authorised per hop, not once per navigation: a redirect is a new destination.
+                // EgressHttp owns the socket, so this file can no longer reach the network any other way.
+                val grant = EgressHttp.open(
+                    current,
+                    userInitiated = true,
+                    expected = EgressClass.PAGE,
+                    connectTimeoutMs = timeoutMs,
+                    readTimeoutMs = timeoutMs
+                )
+                if (grant.blocked) {
                     return BrowserResult(
                         url = current,
                         title = "",
                         html = "",
-                        text = NetworkGuard.refusalMessage(clearance, "the page fetch"),
+                        text = grant.refusal("the page fetch"),
                         links = emptyList(),
                         cookies = cookieJar[requestHost]?.toMap().orEmpty(),
                         success = false,
-                        error = clearance.reason.ifBlank { "network off" }
+                        error = grant.decision.reason.ifBlank { "network off" }
                     )
                 }
                 activeHost = requestHost
-                last = (URL(current).openConnection() as HttpURLConnection).apply {
+                last = grant.connection!!.apply {
                     requestMethod = "GET"
-                    connectTimeout = timeoutMs
-                    readTimeout = timeoutMs
                     setRequestProperty("User-Agent", UA)
                     setRequestProperty("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
                     setRequestProperty("Accept-Encoding", "gzip")
@@ -74,7 +78,6 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
                     if (hostCookies.isNotEmpty()) {
                         setRequestProperty("Cookie", hostCookies.entries.joinToString("; ") { "${it.key}=${it.value}" })
                     }
-                    instanceFollowRedirects = false
                 }
                 when (last.responseCode) {
                     in 200..299 -> {

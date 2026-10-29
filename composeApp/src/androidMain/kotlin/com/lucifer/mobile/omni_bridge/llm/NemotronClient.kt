@@ -2,7 +2,10 @@ package com.lucifer.mobile.omni_bridge.llm
 
 import android.content.Context
 import android.util.Log
+import com.lucifer.mobile.config.AppConfig
 import com.lucifer.mobile.privacy.EgressClass
+import com.lucifer.mobile.privacy.EgressDecision
+import com.lucifer.mobile.privacy.EgressHttp
 import com.lucifer.mobile.privacy.NetworkGuard
 import com.lucifer.mobile.security.SecretStore
 import com.lucifer.mobile.memory.DriveMemoryMcpClient
@@ -13,7 +16,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * NemotronClient — Lucifer's native mind.
@@ -40,8 +42,8 @@ class NemotronClient(private val context: Context) {
             "nvidia/llama-3.1-nemotron-70b-instruct"
         )
 
-        private const val KEY_FILE = "config/nvidia_key.txt"
-        private const val MODEL_FILE = "config/llm_model.txt"
+        private val KEY_FILE get() = AppConfig.NVIDIA_KEY
+        private val MODEL_FILE get() = AppConfig.LLM_MODEL
 
         // Secrets must be supplied by the user and are never shipped in the APK.
     }
@@ -87,7 +89,7 @@ class NemotronClient(private val context: Context) {
         for (m in models) {
             for (key in keys) {
                 try {
-                    val content = call(key, m, preparedMessages, maxTokens, temperature, requestTimeoutMs)
+                    val content = call(key, m, preparedMessages, maxTokens, temperature, requestTimeoutMs, clearance)
                     persistPreferred(m)
                     return content
                 } catch (e: LlmAuthException) {
@@ -127,7 +129,7 @@ class NemotronClient(private val context: Context) {
         var lastErr = "unknown"
         for (key in keys) {
             try {
-                return call(key, VISION_MODEL, preparedMessages, maxTokens, temperature, requestTimeoutMs, imageJpeg)
+                return call(key, VISION_MODEL, preparedMessages, maxTokens, temperature, requestTimeoutMs, clearance, imageJpeg)
             } catch (e: LlmAuthException) {
                 lastErr = e.message ?: "auth"
             } catch (e: Exception) {
@@ -179,14 +181,22 @@ class NemotronClient(private val context: Context) {
         maxTokens: Int,
         temperature: Double,
         requestTimeoutMs: Int,
+        decision: EgressDecision,
         imageJpeg: ByteArray? = null
     ): String {
+        // The turn was authorised once; each retry is still a real socket, so it opens through the
+        // same gate rather than around it.
+        val grant = EgressHttp.openApproved(
+            BASE_URL,
+            decision,
+            connectTimeoutMs = requestTimeoutMs.coerceAtMost(15_000),
+            readTimeoutMs = requestTimeoutMs
+        )
+        if (grant.blocked) return grant.refusal("the model call")
         var conn: HttpURLConnection? = null
         try {
-            conn = (URL(BASE_URL).openConnection() as HttpURLConnection).apply {
+            conn = grant.connection!!.apply {
                 requestMethod = "POST"
-                connectTimeout = requestTimeoutMs.coerceIn(1_000, 120_000).coerceAtMost(15_000)
-                readTimeout = requestTimeoutMs.coerceIn(1_000, 120_000)
                 doOutput = true
                 setRequestProperty("Authorization", "Bearer $key")
                 setRequestProperty("Content-Type", "application/json")
@@ -255,25 +265,14 @@ class NemotronClient(private val context: Context) {
         SecretStore.read(context, KEY_FILE)?.trim()?.takeIf { it.isNotEmpty() }?.let { listOf(it) } ?: emptyList()
 
     private fun modelChain(): List<String> {
-        return try {
-            val f = File(context.filesDir, MODEL_FILE)
-            if (f.exists()) {
-                val override = f.readText().trim()
-                if (override.isNotBlank() && override != "auto") return listOf(override)
-            }
-            MODEL_CHAIN
-        } catch (_: Exception) {
-            MODEL_CHAIN
-        }
+        // "auto" is the explicit opt-out: an override is a single model, anything else is the chain.
+        val override = AppConfig.readText(context, MODEL_FILE)
+        return if (override != null && override != "auto") listOf(override) else MODEL_CHAIN
     }
 
     private fun persistPreferred(model: String) {
-        // Persist only non-secret model preference; credential is already stored encrypted.
-        try {
-            val dir = File(context.filesDir, "config")
-            dir.mkdirs()
-            File(dir, "llm_model.txt").writeText(model)
-        } catch (_: Exception) {}
+        // Persist only the non-secret model preference; the credential is already stored encrypted.
+        AppConfig.write(context, MODEL_FILE, model)
     }
 
     /** Settings → NVIDIA API KEY save: encrypt the user's runtime credential. */

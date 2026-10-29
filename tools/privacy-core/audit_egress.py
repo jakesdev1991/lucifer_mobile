@@ -25,6 +25,9 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 KOTLIN_ROOT = os.path.join(ROOT, "composeApp", "src", "androidMain", "kotlin")
 GUARD = "NetworkGuard.authorize"
+GATED = ("EgressHttp.open(", "EgressHttp.openApproved(", "EgressHttp.allowed(")
+SOCKET_OWNER = os.path.join("composeApp", "src", "androidMain", "kotlin", "com", "lucifer", "mobile",
+                            "privacy", "EgressHttp.kt")
 
 # Destinations that are device-local by construction. A call site whose surrounding text only names
 # these needs no guard to be correct, but it is reported separately rather than hidden.
@@ -109,6 +112,9 @@ def call_sites(path: str) -> list[dict]:
         return []
     sites = []
     for index, line in enumerate(lines):
+        # Prose that merely names the method is not a socket.
+        if line.lstrip().startswith(("*", "//", "/*")):
+            continue
         if "openConnection()" not in line:
             continue
         guard_line = None
@@ -133,6 +139,55 @@ def call_sites(path: str) -> list[dict]:
             ),
         })
     return sites
+
+
+def gated_sites() -> list[dict]:
+    """Every call site that goes through EgressHttp — the sanctioned way out."""
+    found = []
+    for path in kotlin_files():
+        try:
+            lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+        except OSError:
+            continue
+        for index, line in enumerate(lines):
+            if line.lstrip().startswith(("*", "//", "/*")):
+                continue
+            if any(marker in line for marker in GATED):
+                verdict = [m for m in ("openApproved", "open", "allowed") if f"EgressHttp.{m}(" in line][0]
+                found.append({
+                    "file": os.path.relpath(path, ROOT),
+                    "line": index + 1,
+                    "form": verdict,
+                })
+    return found
+
+
+def gate_breaches() -> list[dict]:
+    """A raw `openConnection()` outside EgressHttp is a socket that never asked.
+
+    The old audit graded each site by looking for an `authorize` call above it, which means it could
+    only judge the code it could recognise. Now there is one owner of the socket and any second file
+    that opens one is a breach, whatever it is called.
+    """
+    owner = os.path.abspath(os.path.join(ROOT, SOCKET_OWNER))
+    breaches = []
+    for path in kotlin_files():
+        if os.path.abspath(path) == owner:
+            continue
+        try:
+            lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+        except OSError:
+            continue
+        for index, line in enumerate(lines):
+            if line.lstrip().startswith(("*", "//", "/*")):
+                continue
+            if "openConnection()" in line:
+                breaches.append({
+                    "file": os.path.relpath(path, ROOT),
+                    "line": index + 1,
+                    "code": line.strip()[:96],
+                })
+    return breaches
 
 
 def dependencies() -> list[dict]:
@@ -195,6 +250,8 @@ def main() -> int:
     deps = dependencies()
     flows = egress_notes()
     unguarded = [s for s in sites if s["status"] == "UNGUARDED"]
+    gated = gated_sites()
+    breaches = gate_breaches()
     creep = google_creep()
 
     if args.check:
@@ -204,13 +261,18 @@ def main() -> int:
         if unguarded:
             print(f"\n{len(unguarded)} unguarded outbound call site(s) — every socket must ask NetworkGuard first.")
             exit_code = 1
+        if breaches:
+            for item in breaches:
+                print(f"GATE-BREACH    {item['file']}:{item['line']}  {item['code']}")
+            print(f"\n{len(breaches)} socket(s) opened outside EgressHttp — route them through EgressHttp.open().")
+            exit_code = 1
         if creep:
             for item in creep:
                 print(f"GOOGLE-CREEP   {item['where']}:{item['line']}  {item['why']}")
             print("\nThis build is degoogled by policy: no GMS, no Firebase, no Play Services dependency.")
             exit_code = 1
         if exit_code == 0:
-            print(f"\nOK · {len(sites)} call sites, none unguarded · no Google dependencies")
+            print(f"\nOK · {len(gated)} gated call sites · 1 socket owner · none unguarded · no Google dependencies")
         return exit_code
 
     if args.markdown:
@@ -219,7 +281,7 @@ def main() -> int:
         for site in sites:
             guard = f"line {site['guard_line']}" if site["guard_line"] else ("earlier in file" if site["file_guard"] else "—")
             print(f"| `{site['file'].split('com/lucifer/mobile/')[-1]}` | {site['line']} | {guard} | {site['status']} |")
-        return 0 if not unguarded else 1
+        return 0 if not unguarded and not breaches else 1
 
     print("EGRESS — every socket, and whether it asks first\n")
     width = max((len(s["file"].split("com/lucifer/mobile/")[-1]) for s in sites), default=10)
@@ -247,8 +309,9 @@ def main() -> int:
         print(f"    {item['what']}")
 
     print()
-    print(f"{len(sites)} call sites · {len(unguarded)} unguarded · {len(deps)} attestation flags · {len(creep)} google references")
-    return 0 if not unguarded and not creep else 1
+    print(f"{len(gated)} gated call sites · 1 socket owner · {len(breaches)} outside the gate · "
+          f"{len(unguarded)} unguarded · {len(deps)} attestation flags · {len(creep)} google references")
+    return 0 if not unguarded and not breaches and not creep else 1
 
 
 if __name__ == "__main__":

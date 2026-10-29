@@ -25,7 +25,9 @@ A phone leaks identity in four layers. Lucifer is only ever able to touch the se
 
 ## What Lucifer now does
 
-- **One choke point.** `privacy/NetworkGuard.kt` is asked immediately before every socket opens.
+- **One choke point, enforced by structure.** `privacy/EgressHttp.kt` is the only file that may call
+  `openConnection()`; it asks `privacy/NetworkGuard.kt` first. App code asks `EgressHttp` for a
+  connection and gets either one or a refusal, so "remember to check" is no longer part of the job.
   `privacy/EgressLedger.kt` holds the rules and the record; it has no Android dependency so the rules
   can be executed on a host.
 - **A real switch.** Settings → Privacy → *GO DARK · NETWORK OFF* writes
@@ -40,7 +42,10 @@ A phone leaks identity in four layers. Lucifer is only ever able to touch the se
 - **It is bounded and local.** 400 records in a ring, app-private storage, never uploaded, cleared from
   the same panel.
 - **A new outbound call cannot quietly skip it.** `tools/privacy-core/audit_egress.py --check` reads the
-  tree and fails if any `openConnection()` site is unguarded. Current state: 10 call sites, 0 unguarded.
+  tree and fails if any socket is opened outside `privacy/EgressHttp.kt`, the single owner of
+  `openConnection()`. Current state: 9 gated call sites, 1 socket owner, 0 outside the gate. Guarding
+  used to be a convention each call site had to remember; now application code cannot reach the network
+  without going through it.
 
 ## What it deliberately does not do
 
@@ -92,7 +97,7 @@ python3 tools/privacy-core/audit_egress.py        # call sites, flows, attestati
 python3 tools/privacy-core/audit_egress.py --check # non-zero if any socket skips the guard
 ```
 
-What is **not** verified: `NetworkGuard.kt` has never been compiled by AGP or executed on a device, and
+What is **not** verified: `NetworkGuard.kt` and `EgressHttp.kt` have never been compiled by AGP or executed on a device, and
 the Compose card in `SettingsPanel` has never been rendered. The Kotlin harness
 (`tools/privacy-core/EgressCoreTests.kt`) also has not run in this workspace — there is no JVM here —
 so the Python mirror in `tools/privacy-core/spec_check.py` is what currently passes. If those two ever

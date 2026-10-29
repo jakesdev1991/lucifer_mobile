@@ -211,7 +211,4 @@ object SurfaceAnswers {
             SurfaceQuestion.NONE -> null
         }
     }
-
-    /** One-line form for the launcher's output pane and for logs. */
-    fun headline(surface: Surface): String = "${surface.displayName} · ${SurfaceKnowledge.spec(surface).canDo.size} things I can do here"
 }

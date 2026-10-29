@@ -16,9 +16,8 @@ import java.io.File
 import java.math.BigDecimal
 import java.math.BigInteger
 import com.lucifer.mobile.privacy.EgressClass
-import com.lucifer.mobile.privacy.NetworkGuard
+import com.lucifer.mobile.privacy.EgressHttp
 import java.net.HttpURLConnection
-import java.net.URL
 import java.security.SecureRandom
 
 /**
@@ -154,17 +153,15 @@ class LuciferWallet(private val context: Context? = null) {
         val rpc = CHAIN_RPC[chain.lowercase()] ?: return null
         // A balance query hands a wallet address to a third-party node. That is a link between this
         // device and an address, so it goes through the same gate as everything else.
-        val clearance = NetworkGuard.authorize(rpc, userInitiated = true, expected = EgressClass.RPC)
-        if (clearance.blocked) {
-            Log.i(TAG, "balance lookup blocked: ${clearance.reason}")
+        val grant = EgressHttp.open(rpc, userInitiated = true, expected = EgressClass.RPC)
+        if (grant.blocked) {
+            Log.i(TAG, "balance lookup blocked: ${grant.decision.reason}")
             return null
         }
         var conn: HttpURLConnection? = null
         return try {
-            conn = (URL(rpc).openConnection() as HttpURLConnection).apply {
+            conn = grant.connection!!.apply {
                 requestMethod = "POST"
-                connectTimeout = 10_000
-                readTimeout = 20_000
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json")
             }

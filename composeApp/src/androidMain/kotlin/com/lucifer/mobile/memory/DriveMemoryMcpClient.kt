@@ -2,21 +2,21 @@ package com.lucifer.mobile.memory
 
 import android.content.Context
 import android.util.Log
-import com.lucifer.mobile.privacy.NetworkGuard
+import com.lucifer.mobile.config.AppConfig
+import com.lucifer.mobile.privacy.EgressHttp
 import com.lucifer.mobile.security.SecretStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
-import java.net.HttpURLConnection
 import java.net.URL
 
 /** Calls the user's loopback-only, read-only Drive-memory MCP server before a main-model request. */
 class DriveMemoryMcpClient(private val context: Context) {
     companion object {
         private const val TAG = "DriveMemoryMCP"
-        private const val URL_FILE = "config/drive_memory_mcp_url.txt"
-        private const val TOKEN_FILE = "config/drive_memory_mcp_token.txt"
+        private val URL_FILE get() = AppConfig.MEMORY_MCP_URL
+        private val TOKEN_FILE get() = AppConfig.MEMORY_MCP_TOKEN
         private const val MAX_QUERY_CHARS = 2_000
         private const val MAX_CONTEXT_CHARS = 6_000
         private const val CONNECT_TIMEOUT_MS = 500
@@ -80,9 +80,7 @@ class DriveMemoryMcpClient(private val context: Context) {
     }
 
     private fun readEndpoint(): String? {
-        val raw = try {
-            context.filesDir.resolve(URL_FILE).takeIf { it.isFile }?.readText()?.trim()
-        } catch (_: Exception) { null } ?: return null
+        val raw = AppConfig.readText(context, URL_FILE) ?: return null
         return validateLoopbackEndpoint(raw)
     }
 
@@ -154,16 +152,18 @@ class DriveMemoryMcpClient(private val context: Context) {
     ): RpcResponse? {
         // The MCP endpoint is user-editable, so "loopback-only" is the default, not a guarantee.
         // A local URL passes even with the network off; anything remote respects the switch.
-        val clearance = NetworkGuard.authorize(endpoint, userInitiated = false)
-        if (clearance.blocked) {
-            Log.i(TAG, "memory MCP call skipped: ${clearance.reason}")
+        val grant = EgressHttp.open(
+            endpoint,
+            userInitiated = false,
+            connectTimeoutMs = CONNECT_TIMEOUT_MS,
+            readTimeoutMs = READ_TIMEOUT_MS
+        )
+        if (grant.blocked) {
+            Log.i(TAG, "memory MCP call skipped: ${grant.decision.reason}")
             return null
         }
-        val connection = URL(endpoint).openConnection() as HttpURLConnection
+        val connection = grant.connection!!
         return try {
-            connection.connectTimeout = CONNECT_TIMEOUT_MS
-            connection.readTimeout = READ_TIMEOUT_MS
-            connection.instanceFollowRedirects = false
             connection.requestMethod = "POST"
             connection.doOutput = true
             connection.setRequestProperty("Authorization", "Bearer $token")

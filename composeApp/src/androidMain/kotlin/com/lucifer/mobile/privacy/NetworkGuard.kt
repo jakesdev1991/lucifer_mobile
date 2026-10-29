@@ -70,18 +70,17 @@ object NetworkGuard {
         }
         // Turning the network off is a statement, not just a setting: say it in the ledger.
         synchronized(lock) {
-            log.record(
-                EgressRecord(
-                    epochMillis = System.currentTimeMillis(),
-                    host = "switch",
-                    route = if (online) "/online" else "/offline",
-                    kind = EgressClass.LOCAL,
-                    userInitiated = true,
-                    outcome = EgressOutcome.ALLOWED,
-                    hadQueryString = false
-                )
+            val entry = EgressRecord(
+                epochMillis = System.currentTimeMillis(),
+                host = "switch",
+                route = if (online) "/online" else "/offline",
+                kind = EgressClass.LOCAL,
+                userInitiated = true,
+                outcome = EgressOutcome.ALLOWED,
+                hadQueryString = false
             )
-            persist(context)
+            log.record(entry)
+            append(context, entry)
         }
     }
 
@@ -116,15 +115,14 @@ object NetworkGuard {
         val decision = EgressPolicy.decide(url, online, userInitiated, expected)
         if (context == null) return decision
         synchronized(lock) {
-            log.record(
-                EgressPolicy.record(
-                    url = url,
-                    decision = decision,
-                    epochMillis = System.currentTimeMillis(),
-                    userInitiated = userInitiated
-                )
+            val entry = EgressPolicy.record(
+                url = url,
+                decision = decision,
+                epochMillis = System.currentTimeMillis(),
+                userInitiated = userInitiated
             )
-            persist(context)
+            log.record(entry)
+            append(context, entry)
         }
         if (decision.blocked) Log.i(TAG, "blocked ${decision.kind.label} to ${decision.host}: ${decision.reason}")
         return decision
@@ -165,15 +163,47 @@ object NetworkGuard {
 
     private var loaded = false
 
+    /** Lines believed to be on disk, so an append can decide when a compaction is due. */
+    private var diskRecords = 0
+
+    /** Rewrite threshold: twice the ring, so compaction is amortised rather than per request. */
+    private const val COMPACT_AT = EgressLog.DEFAULT_CAPACITY * 2
+
     private fun load(context: Context) {
         if (loaded) return
         loaded = true
         try {
             val file = File(context.filesDir, "$LEDGER_DIR/$LEDGER_FILE")
             if (!file.isFile) return
-            log.loadLines(file.readLines().takeLast(EgressLog.DEFAULT_CAPACITY))
+            val lines = file.readLines().filter { it.isNotBlank() }
+            log.loadLines(lines.takeLast(EgressLog.DEFAULT_CAPACITY))
+            diskRecords = lines.size
         } catch (error: Exception) {
             Log.w(TAG, "ledger unreadable", error)
+        }
+    }
+
+    /**
+     * One record, one appended line.
+     *
+     * The old code rewrote all 400 lines of the ledger on every outbound request, which made an
+     * ordinary chat turn do far more disk work than the request it was recording. Appending is
+     * O(1); when the file grows past twice the ring it is rewritten once, compacted.
+     */
+    private fun append(context: Context, record: EgressRecord) {
+        try {
+            val dir = File(context.filesDir, LEDGER_DIR)
+            dir.mkdirs()
+            val file = File(dir, LEDGER_FILE)
+            if (diskRecords >= COMPACT_AT || !file.exists()) {
+                persist(context)
+                return
+            }
+            file.appendText(EgressCodec.encode(record) + "\n")
+            diskRecords++
+        } catch (error: Exception) {
+            Log.w(TAG, "ledger append failed, rewriting instead", error)
+            persist(context)
         }
     }
 
@@ -183,13 +213,15 @@ object NetworkGuard {
             dir.mkdirs()
             val file = File(dir, LEDGER_FILE)
             val lines = log.toLines()
+            val body = if (lines.isEmpty()) "" else lines.joinToString("\n") + "\n"
             // Atomic replace: a crash mid-write must not leave a truncated ledger behind.
             val temp = File(dir, "$LEDGER_FILE.tmp")
-            temp.writeText(lines.joinToString("\n"))
+            temp.writeText(body)
             if (!temp.renameTo(file)) {
-                file.writeText(lines.joinToString("\n"))
+                file.writeText(body)
                 temp.delete()
             }
+            diskRecords = lines.size
         } catch (error: Exception) {
             Log.w(TAG, "ledger could not be written", error)
         }
@@ -199,6 +231,7 @@ object NetworkGuard {
     fun resetForTest() {
         cachedOnline = null
         loaded = false
+        diskRecords = 0
         log.clear()
     }
 }

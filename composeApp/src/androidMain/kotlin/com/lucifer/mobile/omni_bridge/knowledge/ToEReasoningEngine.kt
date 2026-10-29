@@ -1,12 +1,10 @@
 package com.lucifer.mobile.omni_bridge.knowledge
 
 import android.content.Context
-import com.lucifer.mobile.omni_bridge.equirouter.Horseman
 import com.lucifer.mobile.omni_bridge.four_horsemen.FourHorsemenOrchestrator
 import com.lucifer.mobile.memory.LocalConversationMemory
 import com.lucifer.mobile.surface.Surface
 import com.lucifer.mobile.surface.SurfaceRuntime
-import kotlinx.coroutines.runBlocking
 
 /**
  * ToEReasoningEngine — Lucifer's super-reasoning loop.
@@ -82,11 +80,13 @@ class ToEReasoningEngine(
             }
         }
 
-        // Optional remote enrichment (ignored if the MCP server is dark)
+        // Optional remote enrichment (ignored if the MCP server is dark).
+        // These are suspend calls in a suspend function: `runBlocking` here parked the caller's thread
+        // behind two network round-trips instead of suspending it.
         try {
-            val remoteAlive = runBlocking { remote.isAlive() }
+            val remoteAlive = remote.isAlive()
             if (remoteAlive) {
-                val rhits = runBlocking { remote.search(keywords.firstOrNull() ?: "", 4) }
+                val rhits = remote.search(keywords.firstOrNull() ?: "", 4)
                 if (!rhits.isNullOrBlank()) {
                     evidence.append(rhits.take(400)).append("\n")
                 }
@@ -119,7 +119,7 @@ class ToEReasoningEngine(
     /** Direct corpus access for the chat UI when the user asks for a file/proof. */
     suspend fun readFile(name: String): String? {
         warmUpIfNeeded()
-        return embedded.read(name) ?: runBlocking { remote.read(name) }
+        return embedded.read(name) ?: remote.read(name)
     }
 
     suspend fun axioms(): Map<String, String> {
@@ -146,8 +146,8 @@ class ToEReasoningEngine(
     /** Extract 1-3 likely search keywords from a natural-language question. */
     private fun extractKeywords(input: String): List<String> {
         val words = input.lowercase()
-            .replace(Regex("[^a-z0-9\\s]"), " ")
-            .split(Regex("\\s+"))
+            .replace(NON_WORD, " ")
+            .split(WHITESPACE)
             .filter { it.length in 4..18 }
             .filter { it !in STOPWORDS }
         val domainWords = words.filter { it in DOMAIN_HINTS }
@@ -155,6 +155,11 @@ class ToEReasoningEngine(
     }
 
     companion object {
+        // Compiled once. extractKeywords runs on every knowledge question, and a fresh Regex per call
+        // re-parses two patterns to discard them immediately.
+        private val NON_WORD = Regex("[^a-z0-9\\s]")
+        private val WHITESPACE = Regex("\\s+")
+
         private val STOPWORDS = setOf(
             "what", "when", "where", "which", "who", "whom", "whose", "why", "how",
             "the", "that", "this", "then", "than", "them", "they", "there", "here",

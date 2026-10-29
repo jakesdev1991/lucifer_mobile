@@ -3,13 +3,12 @@ package com.lucifer.mobile.omni_bridge.knowledge
 import android.content.Context
 import android.util.Log
 import com.lucifer.mobile.privacy.EgressClass
+import com.lucifer.mobile.privacy.EgressHttp
 import com.lucifer.mobile.privacy.NetworkGuard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.net.HttpURLConnection
-import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -175,9 +174,14 @@ class EmbeddedToE(private val context: Context) {
         if (clearance.blocked) return@withContext NetworkGuard.refusalMessage(clearance, "the corpus sync")
         try {
             // 1. List repo tree (knowledge paths)
-            val conn = URL("$GITHUB_API/git/trees/main?recursive=1").openConnection() as HttpURLConnection
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 20_000
+            val treeGrant = EgressHttp.openApproved(
+                "$GITHUB_API/git/trees/main?recursive=1",
+                clearance,
+                connectTimeoutMs = 10_000,
+                readTimeoutMs = 20_000
+            )
+            val conn = treeGrant.connection
+                ?: return@withContext treeGrant.refusal("the corpus sync")
             conn.setRequestProperty("Accept", "application/vnd.github+json")
             val code = conn.responseCode
             if (code != 200) {
@@ -187,16 +191,20 @@ class EmbeddedToE(private val context: Context) {
             val body = BufferedReader(InputStreamReader(conn.inputStream)).readText()
             conn.disconnect()
             val tree = org.json.JSONObject(body).optJSONArray("tree") ?: return@withContext "[ERROR] empty tree"
-            // 2. Pick the knowledge files we bundle
+            // 2. Pick the knowledge files we bundle.
+            // Full repo paths, not stripped ones: the dir prefix is what makes the raw URL valid.
+            // The old code stripped "lean_proofs/" and then guessed the prefix back from the first
+            // four characters of the filename, so anything outside Vol*/Omega*/ToE*/lakefile — and
+            // every txt_proofs file — was requested from the repo root and came back 404.
             val wanted = mutableSetOf<String>()
             for (i in 0 until tree.length()) {
                 val item = tree.optJSONObject(i) ?: continue
                 val path = item.optString("path")
                 if (!item.optString("type").equals("blob", ignoreCase = true)) continue
                 if (path.startsWith("lean_proofs/") && (path.endsWith(".lean") || path.endsWith(".txt"))) {
-                    wanted.add(path.substringAfter("lean_proofs/"))
+                    wanted.add(path)
                 } else if (path.startsWith("txt_proofs/") && path.endsWith(".txt")) {
-                    wanted.add(path.substringAfter("txt_proofs/"))
+                    wanted.add(path)
                 } else if (path == "Omega_Theory_v4.0_Technical.md" || path == "Omega_Theory_Laymans_Guide.md") {
                     wanted.add(path)
                 }
@@ -207,29 +215,44 @@ class EmbeddedToE(private val context: Context) {
             liveDir.mkdirs()
             var ok = 0
             var fail = 0
-            for (name in wanted) {
+            for (path in wanted) {
+                // Overlays are flat: files/toe_live/<basename>, which is also the cache and index key.
+                val name = path.substringAfterLast('/')
                 try {
-                    val raw = URL("$GITHUB_RAW/lean_proofs/$name").openConnection() as HttpURLConnection
-                    // (paths already include their dir prefix; use as-is)
-                    val url2 = URL("$GITHUB_RAW/${if (name.startsWith("Vol") || name.startsWith("Omega") || name.startsWith("ToE") || name.startsWith("lakefile")) "lean_proofs/" else ""}$name")
-                    val c2 = url2.openConnection() as HttpURLConnection
-                    c2.connectTimeout = 10_000
-                    c2.readTimeout = 20_000
-                    if (c2.responseCode == 200) {
-                        val text = BufferedReader(InputStreamReader(c2.inputStream)).readText()
+                    // One socket per file. The old loop opened two — one to "$GITHUB_RAW/lean_proofs/$name"
+                    // that was never read from, then a second to a guessed URL that usually 404'd.
+                    val grant = EgressHttp.openApproved(
+                        "$GITHUB_RAW/$path",
+                        clearance,
+                        connectTimeoutMs = 10_000,
+                        readTimeoutMs = 20_000
+                    )
+                    val fileConn = grant.connection
+                    if (fileConn == null) {
+                        fail++
+                        continue
+                    }
+                    val text = if (fileConn.responseCode == 200) {
+                        fileConn.inputStream.use { input -> BufferedReader(InputStreamReader(input)).readText() }
+                    } else {
+                        null
+                    }
+                    fileConn.disconnect()
+                    if (text != null) {
                         java.io.File(liveDir, name).writeText(text)
                         cache.remove(name)
                         ok++
                     } else {
                         fail++
                     }
-                    c2.disconnect()
-                    raw.disconnect()
                 } catch (e: Exception) {
                     fail++
                 }
             }
-            warmUp() // refresh the index with the new overlays
+            // The index caches itself behind `ready`; without clearing it the new overlays exist on
+            // disk but are never listed, so nothing can read them until the next cold start.
+            ready = false
+            warmUp()
             val summary = "Synced $ok files from jakesdev1991/Omega_Theory_Everything" +
                     if (fail > 0) " ($fail failed)" else ""
             Log.i(TAG, summary)

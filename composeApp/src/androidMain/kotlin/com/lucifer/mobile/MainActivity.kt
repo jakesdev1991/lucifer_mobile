@@ -117,9 +117,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.util.AtomicFile
+import com.lucifer.mobile.config.AppConfig
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
@@ -342,33 +342,64 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-                val savedKnowledgeUrl by remember { mutableStateOf(loadKnowledgeUrl()) }
-                var savedMemoryMcpUrl by remember { mutableStateOf(loadMemoryMcpUrl()) }
-                var memoryMcpTokenConfigured by remember {
-                    mutableStateOf(!SecretStore.read(this@MainActivity, "config/drive_memory_mcp_token.txt").isNullOrBlank())
-                }
-                var memoryMcpStatus by remember {
-                    mutableStateOf(when {
-                        savedMemoryMcpUrl.isBlank() -> "DISABLED"
-                        memoryMcpTokenConfigured -> "CONFIGURED · NOT TESTED"
+                // Settings used to be read inside remember {}, which runs on the main thread during the
+                // first composition of this screen: six files plus a Keystore decrypt before the first
+                // frame. The screen now paints its defaults immediately and the values arrive from IO.
+                var savedKnowledgeUrl by remember { mutableStateOf("") }
+                var savedMemoryMcpUrl by remember { mutableStateOf("") }
+                var memoryMcpTokenConfigured by remember { mutableStateOf(false) }
+                var memoryMcpStatus by remember { mutableStateOf("DISABLED") }
+                var savedVmHost by remember { mutableStateOf("") }
+                var savedVmUser by remember { mutableStateOf(DEFAULT_VM_USER) }
+                var savedVmPort by remember { mutableStateOf(DEFAULT_VM_PORT) }
+                var savedVmKnownHosts by remember { mutableStateOf("") }
+
+                LaunchedEffect(Unit) {
+                    val settings = withContext(Dispatchers.IO) {
+                        SettingsSnapshot(
+                            knowledgeUrl = loadKnowledgeUrl(),
+                            memoryMcpUrl = loadMemoryMcpUrl(),
+                            memoryMcpTokenSet = !SecretStore.read(this@MainActivity, AppConfig.MEMORY_MCP_TOKEN).isNullOrBlank(),
+                            vmHost = loadVmHost(),
+                            vmUser = loadVmUser(),
+                            vmPort = loadVmPort(),
+                            vmKnownHosts = loadVmKnownHosts()
+                        )
+                    }
+                    savedKnowledgeUrl = settings.knowledgeUrl
+                    savedMemoryMcpUrl = settings.memoryMcpUrl
+                    memoryMcpTokenConfigured = settings.memoryMcpTokenSet
+                    savedVmHost = settings.vmHost
+                    savedVmUser = settings.vmUser
+                    savedVmPort = settings.vmPort
+                    savedVmKnownHosts = settings.vmKnownHosts
+                    memoryMcpStatus = when {
+                        settings.memoryMcpUrl.isBlank() -> "DISABLED"
+                        settings.memoryMcpTokenSet -> "CONFIGURED · NOT TESTED"
                         else -> "TOKEN REQUIRED"
-                    })
+                    }
                 }
 
                 var llmStatus by remember { mutableStateOf("…") }
-                var savedVmHost by remember { mutableStateOf(loadVmHost()) }
-                var savedVmUser by remember { mutableStateOf(loadVmUser()) }
-                var savedVmPort by remember { mutableStateOf(loadVmPort()) }
-                var savedVmKnownHosts by remember { mutableStateOf(loadVmKnownHosts()) }
                 val llmClient = remember { com.lucifer.mobile.omni_bridge.llm.NemotronClient(this@MainActivity) }
                 val localMemoryStore = remember { LocalConversationMemory(this@MainActivity) }
+                // A SQLiteOpenHelper that is never closed keeps its connection for the life of the
+                // process; without this, every recreation of this screen leaves another one open.
+                DisposableEffect(localMemoryStore) {
+                    onDispose { localMemoryStore.close() }
+                }
                 var localMemoryEnabled by remember {
                     mutableStateOf(getSharedPreferences(LocalConversationMemory.PREFS, MODE_PRIVATE)
                         .getBoolean(LocalConversationMemory.KEY_ENABLED, true))
                 }
                 var localMemoryCount by remember { mutableStateOf(0) }
                 var localMemoryBytes by remember { mutableStateOf(0L) }
-                var memoryItems by remember { mutableStateOf(loadMemoryItems()) }
+                // Reading three log files and opening the conversation store is not a composition job.
+                var memoryItems by remember { mutableStateOf<List<com.lucifer.mobile.ui.components.MemoryItem>>(emptyList()) }
+                var memorySearching by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    memoryItems = withContext(Dispatchers.IO) { loadMemoryItems() }
+                }
                 val skills = remember { buildSkillRegistry() }
                 val referenceSkillLibrary = remember { SkillLibrary.load(this@MainActivity.assets) }
 
@@ -1060,12 +1091,18 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier.fillMaxSize(),
                                             memories = memoryItems,
                                             onSearch = { q ->
-                                                scope.launch(Dispatchers.IO) {
-                                                    val hits = searchMemories(q)
-                                                    withContext(Dispatchers.Main) { memoryItems = hits }
+                                                if (!memorySearching) {
+                                                    memorySearching = true
+                                                    scope.launch(Dispatchers.IO) {
+                                                        val hits = searchMemories(q)
+                                                        withContext(Dispatchers.Main) {
+                                                            memoryItems = hits
+                                                            memorySearching = false
+                                                        }
+                                                    }
                                                 }
                                             },
-                                            isSearching = false
+                                            isSearching = memorySearching
                                         )
                                         2 -> AnimatedSkillsPanel(
                                             modifier = Modifier.fillMaxSize(),
@@ -1202,7 +1239,7 @@ class MainActivity : ComponentActivity() {
                                                     url.isBlank() -> settingsToast = "Enter the local Termux MCP URL, or use Remove to disable memory retrieval."
                                                     normalized == null -> settingsToast = "MCP URL must be http://127.0.0.1:8031/mcp or http://localhost:8031/mcp."
                                                     token.isNotBlank() && token.length < 24 -> settingsToast = "MCP token must contain at least 24 characters."
-                                                    token.isNotBlank() && !SecretStore.write(this@MainActivity, "config/drive_memory_mcp_token.txt", token.trim()) -> settingsToast = "Could not encrypt the MCP token in Android Keystore storage."
+                                                    token.isNotBlank() && !SecretStore.write(this@MainActivity, AppConfig.MEMORY_MCP_TOKEN, token.trim()) -> settingsToast = "Could not encrypt the MCP token in Android Keystore storage."
                                                     !token.isNotBlank() && !memoryMcpTokenConfigured -> settingsToast = "Paste the bearer token printed once when the Termux server was configured."
                                                     else -> {
                                                         if (!saveMemoryMcpUrl(normalized)) {
@@ -1218,7 +1255,7 @@ class MainActivity : ComponentActivity() {
                                             },
                                             onMemoryMcpRemove = {
                                                 saveMemoryMcpUrl("")
-                                                SecretStore.delete(this@MainActivity, "config/drive_memory_mcp_token.txt")
+                                                SecretStore.delete(this@MainActivity, AppConfig.MEMORY_MCP_TOKEN)
                                                 savedMemoryMcpUrl = ""
                                                 memoryMcpTokenConfigured = false
                                                 memoryMcpStatus = "DISABLED"
@@ -1688,23 +1725,34 @@ class MainActivity : ComponentActivity() {
         false
     }
 
-    private fun loadTerminalHistory(): List<String> {
-        return try {
-            val file = File(filesDir, "terminal_history.log")
-            if (file.exists()) {
-                FileInputStream(file).use { input ->
-                    input.readBytes().decodeToString().split("\n").filter { it.isNotBlank() }
-                }
-            } else {
-                listOf(
-                    "Lucifer controls ready. Heartbeat is opt-in from its control panel.",
-                    "Type a plain-language request; Lucifer routes before action.",
-                    "Wallet and read-only Browser controls are available in their tabs."
-                )
+    private fun loadTerminalHistory(): List<String> =
+        tailLines(File(filesDir, TERMINAL_HISTORY), MEMORY_TAIL_BYTES).ifEmpty { PLACEHOLDER_TERMINAL_LINES }
+
+    /**
+     * Last [maxBytes] of a text file, as lines.
+     *
+     * The panels only ever show the last few lines, but the old code read every byte of every file into
+     * memory before taking them — and the memory search did it again on every query. A log is the largest
+     * thing this app writes, so it is also the one worth reading backwards from the end.
+     */
+    private fun tailLines(file: File, maxBytes: Int): List<String> = try {
+        if (!file.isFile) {
+            emptyList()
+        } else {
+            java.io.RandomAccessFile(file, "r").use { handle ->
+                val length = handle.length()
+                val start = (length - maxBytes).coerceAtLeast(0L)
+                val buffer = ByteArray((length - start).toInt())
+                handle.seek(start)
+                handle.readFully(buffer)
+                val text = buffer.toString(Charsets.UTF_8)
+                // A clipped read can start mid-character; the partial first line is dropped, not shown.
+                val whole = if (start > 0) text.substringAfter('\n', "") else text
+                whole.lines().filter { it.isNotBlank() }
             }
-        } catch (e: Exception) {
-            listOf("Lucifer controls ready. Heartbeat is opt-in from its control panel.")
         }
+    } catch (_: Exception) {
+        emptyList()
     }
 
     // ───────────── Memory panel (real data from his files + logs) ─────────────
@@ -1726,7 +1774,7 @@ class MainActivity : ComponentActivity() {
         for (src in sources) {
             try {
                 if (!src.exists()) continue
-                val lines = src.readLines().filter { it.isNotBlank() }.takeLast(40)
+                val lines = tailLines(src, MEMORY_TAIL_BYTES).takeLast(40)
                 for ((i, line) in lines.withIndex()) {
                     if (query.isBlank() || line.contains(query, ignoreCase = true)) {
                         items.add(
@@ -1861,98 +1909,67 @@ class MainActivity : ComponentActivity() {
     }
 
     // ───────────── VM host and pinned SSH host keys ─────────────
+    //
+    // Storage lives in config/AppConfig (atomic writes, one spelling per file). Validation stays here,
+    // because a hostname rule is a settings decision, not a storage one.
 
-    private fun loadVmHost(): String {
-        return try {
-            val file = File(filesDir, "config/vm_host.txt")
-            if (file.exists()) file.readText().trim() else ""
-        } catch (_: Exception) {
-            ""
-        }
-    }
+    private fun loadVmHost(): String = AppConfig.readText(this, AppConfig.VM_HOST).orEmpty()
 
     private fun saveVmHost(host: String): Boolean {
         val normalized = host.trim()
-        if (normalized.isNotEmpty() && (normalized.length > 253 || !normalized.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._:%-]*$")))) return false
-        return try {
-            val configDir = File(filesDir, "config").apply { mkdirs() }
-            val file = File(configDir, "vm_host.txt")
-            if (normalized.isBlank()) file.delete() else FileOutputStream(file).use { it.write(normalized.toByteArray()) }
-            true
-        } catch (e: Exception) {
-            Log.e("MainActivity", "saveVmHost failed", e)
-            false
-        }
+        // Blank clears the setting; anything else must be a plausible hostname.
+        if (normalized.isNotEmpty() && !normalized.matches(VM_HOST_RE)) return false
+        return AppConfig.write(this, AppConfig.VM_HOST, normalized)
     }
 
-    private fun loadVmUser(): String = try {
-        File(filesDir, "config/vm_user.txt").takeIf { it.exists() }?.readText()?.trim()?.takeIf {
-            it.matches(Regex("^[A-Za-z_][A-Za-z0-9_.-]{0,31}$"))
-        } ?: "droid"
-    } catch (_: Exception) { "droid" }
+    private fun loadVmUser(): String =
+        AppConfig.readText(this, AppConfig.VM_USER)?.takeIf { it.matches(VM_USER_RE) } ?: DEFAULT_VM_USER
 
     private fun saveVmUser(user: String): Boolean {
         val normalized = user.trim()
-        if (!normalized.matches(Regex("^[A-Za-z_][A-Za-z0-9_.-]{0,31}$"))) return false
-        return try {
-            val dir = File(filesDir, "config").apply { mkdirs() }
-            FileOutputStream(File(dir, "vm_user.txt")).use { it.write(normalized.toByteArray()) }
-            true
-        } catch (_: Exception) { false }
+        if (!normalized.matches(VM_USER_RE)) return false
+        return AppConfig.write(this, AppConfig.VM_USER, normalized)
     }
 
-    private fun loadVmPort(): Int = try {
-        File(filesDir, "config/vm_port.txt").takeIf { it.exists() }?.readText()?.trim()?.toIntOrNull()?.takeIf { it in 1..65535 } ?: 8022
-    } catch (_: Exception) { 8022 }
+    private fun loadVmPort(): Int = AppConfig.readInt(this, AppConfig.VM_PORT, DEFAULT_VM_PORT, 1..65535)
 
     private fun saveVmPort(port: String): Boolean {
         val value = port.trim().toIntOrNull()?.takeIf { it in 1..65535 } ?: return false
-        return try {
-            val dir = File(filesDir, "config").apply { mkdirs() }
-            FileOutputStream(File(dir, "vm_port.txt")).use { it.write(value.toString().toByteArray()) }
-            true
-        } catch (_: Exception) { false }
+        return AppConfig.write(this, AppConfig.VM_PORT, value.toString())
     }
 
-    private fun loadVmKnownHosts(): String = try {
-        val file = File(filesDir, "config/known_hosts")
-        if (file.isFile) file.readText().take(32_000) else ""
-    } catch (_: Exception) {
-        ""
-    }
+    /** Pinned SSH host keys. Absent means "nothing pinned yet", which the SSH path treats as unverified. */
+    private fun loadVmKnownHosts(): String =
+        AppConfig.read(this, AppConfig.KNOWN_HOSTS, MAX_KNOWN_HOSTS_CHARS).orEmpty()
 
     private fun saveVmKnownHosts(value: String): Boolean {
         val normalized = value.trim()
         if (normalized.isNotEmpty()) {
-            if (normalized.length > 32_000) return false
-            val keyLines = normalized.lines().filter { it.isNotBlank() && !it.trimStart().startsWith("#") }
-            if (keyLines.isEmpty() || keyLines.any { line ->
-                    val fields = line.trim().split(Regex("\\s+"))
-                    fields.size < 3 ||
-                        !(fields[1].startsWith("ssh-") || fields[1].startsWith("ecdsa-") || fields[1].startsWith("sk-")) ||
-                        try { java.util.Base64.getDecoder().decode(fields[2]); false } catch (_: Exception) { true }
-                }
-            ) return false
+            if (normalized.length > MAX_KNOWN_HOSTS_CHARS) return false
+            val keyLines = normalized.lines().map { it.trim() }
+                .filter { it.isNotEmpty() && !it.startsWith("#") }
+            val wellFormed = keyLines.isNotEmpty() && keyLines.all { line ->
+                val fields = line.split(WHITESPACE_RE)
+                fields.size >= 3 &&
+                    KNOWN_HOST_KEY_TYPES.any { fields[1].startsWith(it) } &&
+                    try { java.util.Base64.getDecoder().decode(fields[2]); true } catch (_: Exception) { false }
+            }
+            if (!wellFormed) return false
         }
-        return try {
-            val configDir = File(filesDir, "config").apply { mkdirs() }
-            val file = File(configDir, "known_hosts")
-            if (normalized.isBlank()) file.delete() else FileOutputStream(file).use { it.write((normalized + "\n").toByteArray()) }
-            true
-        } catch (e: Exception) {
-            Log.e("MainActivity", "saveVmKnownHosts failed", e)
-            false
-        }
+        // A blank value clears the pin list instead of leaving a stale key behind.
+        return AppConfig.write(this, AppConfig.KNOWN_HOSTS, normalized)
     }
 
     private fun saveTerminalHistory(lines: List<String>) {
-        try {
-            val file = File(filesDir, "terminal_history.log")
-            FileOutputStream(file).use { output ->
-                output.write(lines.joinToString("\n").toByteArray())
+        // Best effort: a terminal transcript that cannot be saved must not interrupt the session.
+        AtomicFile(File(filesDir, TERMINAL_HISTORY)).let { atomic ->
+            val stream = try { atomic.startWrite() } catch (_: Exception) { return }
+            try {
+                stream.write(lines.joinToString("\n").toByteArray())
+                atomic.finishWrite(stream)
+            } catch (e: Exception) {
+                atomic.failWrite(stream)
             }
-        } catch (e: Exception) {
-            // Ignore
         }
     }
 
@@ -1966,66 +1983,59 @@ class MainActivity : ComponentActivity() {
 
     fun saveVmPassword(password: String) {
         if (password.isEmpty()) {
-            SecretStore.delete(this, "config/vm_ssh_password.txt")
-        } else if (!SecretStore.write(this, "config/vm_ssh_password.txt", password)) {
+            SecretStore.delete(this, AppConfig.VM_SSH_PASSWORD)
+        } else if (!SecretStore.write(this, AppConfig.VM_SSH_PASSWORD, password)) {
             Log.e("MainActivity", "saveVmPassword failed: secure storage unavailable")
         }
     }
 
-    private fun loadVoiceEnabled(): Boolean {
-        return try {
-            val file = File(filesDir, "config/voice_enabled.txt")
-            !file.exists() || file.readText().trim() != "false"
-        } catch (e: Exception) {
-            true
-        }
-    }
+    private fun loadVoiceEnabled(): Boolean =
+        AppConfig.readFlag(this, AppConfig.VOICE_ENABLED, default = true)
 
     fun saveVoiceEnabled(enabled: Boolean) {
-        try {
-            val configDir = File(filesDir, "config")
-            configDir.mkdirs()
-            val file = File(configDir, "voice_enabled.txt")
-            FileOutputStream(file).use { output ->
-                val state = if (enabled) "true" else "false"
-                output.write(state.toByteArray())
-            }
-        } catch (e: Exception) {
-            Log.e("MainActivity", "saveVoiceEnabled failed", e)
-        }
+        AppConfig.writeFlag(this, AppConfig.VOICE_ENABLED, enabled)
     }
 
-    private fun loadKnowledgeUrl(): String {
-        return try {
-            val file = File(filesDir, "config/knowledge_url.txt")
-            if (file.exists()) file.readText().trim() else ""
-        } catch (e: Exception) {
-            ""
-        }
-    }
+    private fun loadKnowledgeUrl(): String = AppConfig.readText(this, AppConfig.KNOWLEDGE_URL).orEmpty()
 
     fun saveKnowledgeUrl(url: String) {
-        try {
-            val configDir = File(filesDir, "config")
-            configDir.mkdirs()
-            val file = File(configDir, "knowledge_url.txt")
-            FileOutputStream(file).use { output -> output.write(url.toByteArray()) }
-        } catch (e: Exception) {
-            Log.e("MainActivity", "saveKnowledgeUrl failed", e)
-        }
+        AppConfig.write(this, AppConfig.KNOWLEDGE_URL, url)
     }
 
-    private fun loadMemoryMcpUrl(): String = try {
-        File(filesDir, "config/drive_memory_mcp_url.txt").takeIf { it.isFile }?.readText()?.trim().orEmpty()
-    } catch (_: Exception) { "" }
+    private fun loadMemoryMcpUrl(): String = AppConfig.readText(this, AppConfig.MEMORY_MCP_URL).orEmpty()
 
-    private fun saveMemoryMcpUrl(url: String): Boolean = try {
-        val configDir = File(filesDir, "config")
-        configDir.mkdirs()
-        File(configDir, "drive_memory_mcp_url.txt").writeText(url.trim(), Charsets.UTF_8)
-        true
-    } catch (error: Exception) {
-        Log.e("MainActivity", "Could not save memory MCP URL", error)
-        false
+    private fun saveMemoryMcpUrl(url: String): Boolean = AppConfig.write(this, AppConfig.MEMORY_MCP_URL, url)
+
+    /** One IO pass for the settings screen, so it builds state once instead of seven times. */
+    private data class SettingsSnapshot(
+        val knowledgeUrl: String,
+        val memoryMcpUrl: String,
+        val memoryMcpTokenSet: Boolean,
+        val vmHost: String,
+        val vmUser: String,
+        val vmPort: Int,
+        val vmKnownHosts: String
+    )
+
+    private companion object {
+        const val DEFAULT_VM_USER = "droid"
+        const val DEFAULT_VM_PORT = 8022
+        const val MAX_KNOWN_HOSTS_CHARS = 32_000
+        const val TERMINAL_HISTORY = "terminal_history.log"
+
+        /** Whole-token hostname rule: a leading alphanumeric, then letters/digits/./_/:/%/-. */
+        val VM_HOST_RE = Regex("^[A-Za-z0-9][A-Za-z0-9._:%-]*$")
+        val VM_USER_RE = Regex("^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")
+        val WHITESPACE_RE = Regex("\\s+")
+        val KNOWN_HOST_KEY_TYPES = listOf("ssh-", "ecdsa-", "sk-")
+
+        /** The panels show the last few lines; reading a whole log to find them is waste. */
+        const val MEMORY_TAIL_BYTES = 64 * 1024
+
+        val PLACEHOLDER_TERMINAL_LINES = listOf(
+            "Lucifer controls ready. Heartbeat is opt-in from its control panel.",
+            "Type a plain-language request; Lucifer routes before action.",
+            "Wallet and read-only Browser controls are available in their tabs."
+        )
     }
 }

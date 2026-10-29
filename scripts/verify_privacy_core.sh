@@ -51,6 +51,10 @@ if [[ "$have_kotlin" -eq 1 ]]; then
     status=1
   fi
 else
+  if [[ "${LUCIFER_REQUIRE_KOTLIN:-0}" == "1" ]]; then
+    echo "FAILED — LUCIFER_REQUIRE_KOTLIN=1 but kotlinc and/or java not found." >&2
+    status=1
+  fi
   echo "SKIPPED — kotlinc and/or java not found. The Python spec above covers the same cases;"
   echo "          the Kotlin harness has NOT run in this workspace. Set KOTLINC=/path/to/kotlinc."
 fi

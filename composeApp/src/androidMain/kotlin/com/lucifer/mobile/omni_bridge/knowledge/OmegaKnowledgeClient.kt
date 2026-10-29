@@ -5,9 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import com.lucifer.mobile.privacy.NetworkGuard
-import java.net.HttpURLConnection
-import java.net.URL
+import com.lucifer.mobile.privacy.EgressHttp
 
 /**
  * OmegaKnowledgeClient — Lucifer's link to his persistent GitHub knowledge.
@@ -27,6 +25,8 @@ class OmegaKnowledgeClient(
     companion object {
         private const val TAG = "OmegaKnowledge"
         private const val TIMEOUT_MS = 6000
+        // Discovery walks several candidates; a slow one must not stall the whole walk.
+        private const val PROBE_TIMEOUT_MS = 1200
         const val LOCAL_URL = "http://127.0.0.1:8030"
         const val EMULATOR_HOST_URL = "http://10.0.2.2:8030"
         private var _id = 0
@@ -41,12 +41,20 @@ class OmegaKnowledgeClient(
         for (base in candidates) {
             try {
                 // Probes the user-configured endpoint too, which may not be local.
-                if (NetworkGuard.authorize("$base/health", userInitiated = true).blocked) continue
-                val conn = URL("$base/health").openConnection() as HttpURLConnection
-                conn.connectTimeout = 1200
-                conn.readTimeout = 1200
-                val code = conn.responseCode
-                conn.disconnect()
+                val grant = EgressHttp.open(
+                    "$base/health",
+                    userInitiated = true,
+                    connectTimeoutMs = PROBE_TIMEOUT_MS,
+                    readTimeoutMs = PROBE_TIMEOUT_MS
+                )
+                if (grant.blocked) continue
+                val conn = grant.connection!!
+                // disconnect() in a finally: a probe that threw used to leave the socket open.
+                val code = try {
+                    conn.responseCode
+                } finally {
+                    conn.disconnect()
+                }
                 if (code == 200) {
                     baseUrl = base
                     Log.i(TAG, "knowledge server found at $base")
@@ -69,15 +77,18 @@ class OmegaKnowledgeClient(
         val body = jsonEncode(payload)
         // The endpoint is user-configured in Settings, so a LAN host is normal and a remote one is
         // possible. Either way it asks the guard: local is allowed, remote respects the switch.
-        val clearance = NetworkGuard.authorize(url, userInitiated = true)
-        if (clearance.blocked) {
-            Log.i(TAG, "knowledge RPC blocked: ${clearance.reason}")
+        val grant = EgressHttp.open(
+            url,
+            userInitiated = true,
+            connectTimeoutMs = TIMEOUT_MS,
+            readTimeoutMs = TIMEOUT_MS
+        )
+        if (grant.blocked) {
+            Log.i(TAG, "knowledge RPC blocked: ${grant.decision.reason}")
             return null
         }
-        val conn = URL(url).openConnection() as HttpURLConnection
+        val conn = grant.connection!!
         return try {
-            conn.connectTimeout = TIMEOUT_MS
-            conn.readTimeout = TIMEOUT_MS
             conn.requestMethod = "POST"
             conn.doOutput = true
             conn.setRequestProperty("Content-Type", "application/json")

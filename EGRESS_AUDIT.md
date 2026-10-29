@@ -8,25 +8,33 @@ python3 tools/privacy-core/audit_egress.py              # flows, attestation, Go
 python3 tools/privacy-core/audit_egress.py --check      # non-zero on an unguarded socket or a Google dep
 ```
 
-`GUARDED` = `NetworkGuard.authorize(...)` immediately above the `openConnection()`.
-`FILE-GUARDED` = a guard exists earlier in the same file; acceptable for a private helper reachable only
-through guarded callers, listed separately so it is a decision rather than a default. `LOCAL` = the
-surrounding code only names loopback/private hosts. `UNGUARDED` fails the verify script.
+There is exactly one owner of a socket: `privacy/EgressHttp.kt`. Every other file calls
+`EgressHttp.open(...)`, which authorises first and hands back either a connection or a refusal. Any
+`openConnection()` outside that one file is reported as `GATE-BREACH` and fails `--check`, whatever the
+file is called.
 
-## Outbound call sites
+`open` = authorise this request, then connect. `openApproved` = connect under a decision the caller
+already holds, for one user action that legitimately makes several attempts (a model turn retrying
+across models and keys, a corpus sync fetching many files). It never skips the decision, it reuses it,
+so the ledger reads as "the user asked; N attempts" rather than N identical rows.
 
-| Call site | Line | Guard | Status |
-| --- | --- | --- | --- |
-| `data/browser/LuciferBrowser.kt` | 66 | line 52 | GUARDED |
-| `data/wallet/LuciferWallet.kt` | 164 | line 157 | GUARDED |
-| `memory/DriveMemoryMcpClient.kt` | 162 | line 157 | GUARDED |
-| `omni_bridge/knowledge/EmbeddedToE.kt` | 178 | line 170 | GUARDED |
-| `omni_bridge/knowledge/EmbeddedToE.kt` | 212 | line 170 | GUARDED |
-| `omni_bridge/knowledge/EmbeddedToE.kt` | 215 | line 170 | GUARDED |
-| `omni_bridge/knowledge/OmegaKnowledgeClient.kt` | 45 | line 44 | GUARDED |
-| `omni_bridge/knowledge/OmegaKnowledgeClient.kt` | 77 | line 72 | GUARDED |
-| `omni_bridge/llm/NemotronClient.kt` | 186 | earlier in file | FILE-GUARDED |
-| `verification/AuditVault.kt` | 247 | line 243 | GUARDED |
+The previous revision graded sites by looking for an `authorize` call above them. That could only
+judge the shapes the audit recognised, and it counted the browser's per-hop redirect loop and the
+corpus loop as single sites. Both facts are why the guard is now structural instead of conventional.
+
+## Gated call sites
+
+| Call site | Form | Line |
+| --- | --- | --- |
+| `data/browser/LuciferBrowser.kt` | `open` | 52 |
+| `data/wallet/LuciferWallet.kt` | `open` | 156 |
+| `memory/DriveMemoryMcpClient.kt` | `open` | 156 |
+| `omni_bridge/knowledge/EmbeddedToE.kt` | `openApproved` | 177 |
+| `omni_bridge/knowledge/EmbeddedToE.kt` | `openApproved` | 224 |
+| `omni_bridge/knowledge/OmegaKnowledgeClient.kt` | `open` | 44 |
+| `omni_bridge/knowledge/OmegaKnowledgeClient.kt` | `open` | 80 |
+| `omni_bridge/llm/NemotronClient.kt` | `openApproved` | 188 |
+| `verification/AuditVault.kt` | `open` | 242 |
 
 ## What leaves the device, and when
 
@@ -55,4 +63,5 @@ choice that cannot silently turn this build into a Google client — see
 [MICROG_AND_PLAY_SERVICES.md](MICROG_AND_PLAY_SERVICES.md).
 
 
-`--check` → 10 call sites · 0 unguarded · 5 attestation dependencies · 0 Google references.
+`--check` → 9 gated call sites · 1 socket owner · 0 sockets outside the gate · 5 attestation
+dependencies · 0 Google references.

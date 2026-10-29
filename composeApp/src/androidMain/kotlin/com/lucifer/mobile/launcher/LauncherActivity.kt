@@ -79,6 +79,7 @@ import androidx.compose.ui.unit.sp
 import com.lucifer.mobile.omni_bridge.four_horsemen.FourHorsemenOrchestrator
 import com.lucifer.mobile.memory.LocalConversationMemory
 import com.lucifer.mobile.omni_bridge.knowledge.ToEReasoningEngine
+import com.lucifer.mobile.config.AppConfig
 import com.lucifer.mobile.surface.Surface
 import com.lucifer.mobile.terminal.TerminalExecutor
 import com.lucifer.mobile.ui.components.SigilClock
@@ -138,15 +139,9 @@ class LauncherActivity : ComponentActivity() {
         } catch (_: Exception) {}
     }
 
-    /** Read the persisted voice preference (written by Settings → VOICE). */
-    private fun loadVoiceEnabledPref(): Boolean {
-        return try {
-            val file = File(filesDir, "config/voice_enabled.txt")
-            !file.exists() || file.readText().trim() != "false"
-        } catch (_: Exception) {
-            true
-        }
-    }
+    /** Read the persisted voice preference (written by Settings → VOICE). Default is on. */
+    private fun loadVoiceEnabledPref(): Boolean =
+        AppConfig.readFlag(this, AppConfig.VOICE_ENABLED, default = true)
 
     private fun launchApp(pkg: String): Boolean = try {
         if (pkg == packageName) {
@@ -273,7 +268,13 @@ class LauncherActivity : ComponentActivity() {
         voice: LuciferVoice,
         reasoner: ToEReasoningEngine
     ) {
-        val apps by remember { mutableStateOf(loadApps()) }
+        // loadApps() queries every launcher activity and draws an icon bitmap for each one. Doing that
+        // inside remember{} means the home screen cannot paint until it finishes — on a phone with a
+        // hundred apps that is the whole cold start. The grid fills in a frame later instead.
+        var apps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
+        LaunchedEffect(Unit) {
+            apps = withContext(Dispatchers.IO) { loadApps() }
+        }
         var query by remember { mutableStateOf("") }
         var terminalLines by remember { mutableStateOf(LuciferState.recent()) }
         var target by remember { mutableStateOf(0) } // 0 LOCAL, 1 TERMUX, 2 VM, 3 SHIZUKU
@@ -443,11 +444,6 @@ class LauncherActivity : ComponentActivity() {
             }
         }
 
-        var beatTick by remember { mutableStateOf(0) }
-        LaunchedEffect(Unit) {
-            // Efficiency: slow tick — the strip needs no 1Hz full-screen recompositions
-            while (true) { beatTick++; delay(10_000) }
-        }
 
         // First-run welcome: seed his voice into the terminal panel so a brand-new
         // user immediately sees what this thing does (persisted flag — once only).
@@ -527,12 +523,7 @@ class LauncherActivity : ComponentActivity() {
 
                 // ── command bar: a glass shard with a crimson caret ──
                 val barShape = remember { shard(12.dp) }
-                val hint = listOf(
-                    "search apps or ask in plain English",
-                    "try: show disk space on my VM",
-                    "try: list files in Termux",
-                    "commands run through chat understanding"
-                )[beatTick % 4]
+                val hint = rememberRotatingHint()
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -749,6 +740,33 @@ class LauncherActivity : ComponentActivity() {
     }
 
     // ───────────────────────────── composables ─────────────────────────────
+
+    /**
+     * The command bar's hint line.
+     *
+     * This used to be driven by a screen-level `beatTick`, which recomposed the masthead, drawer and
+     * dock every ten seconds to change one string. The ticker now lives in the composable that reads
+     * it, so only this text recomposes.
+     */
+    @Composable
+    private fun rememberRotatingHint(): String {
+        val hints = remember {
+            listOf(
+                "search apps or ask in plain English",
+                "try: show disk space on my VM",
+                "try: list files in Termux",
+                "commands run through chat understanding"
+            )
+        }
+        var index by remember { mutableStateOf(0) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                delay(10_000)
+                index = (index + 1) % hints.size
+            }
+        }
+        return hints[index]
+    }
 
     /** Name, pulse, and cycle: the launcher's only status readout. */
     @Composable
