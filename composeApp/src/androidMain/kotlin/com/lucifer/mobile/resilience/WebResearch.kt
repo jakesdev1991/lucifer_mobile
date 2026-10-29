@@ -12,6 +12,9 @@ package com.lucifer.mobile.resilience
  *  - Hard budget on pages, bytes, and elapsed time; sequential with a minimum interval.
  *  - GET only. Nothing is submitted, posted, signed in to, or purchased.
  *  - Results are stored with URL provenance and treated as untrusted evidence.
+ *  - Egress is not checked here: the injected [PageFetcher] is where the socket opens, and that is
+ *    where [com.lucifer.mobile.privacy.NetworkGuard] is consulted. A fetcher that skips the guard
+ *    would make this class's "polite" claim untrue, so keep the two together.
  */
 data class FetchedPage(
     val url: String,

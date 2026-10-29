@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Psychology
@@ -48,9 +49,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lucifer.mobile.diagnostics.AndroidPlatformDiagnostics
+import com.lucifer.mobile.privacy.NetworkGuard
 import com.lucifer.mobile.ui.effects.SigilRule
 import com.lucifer.mobile.ui.effects.glassSurface
 import com.lucifer.mobile.ui.effects.shard
@@ -129,6 +132,17 @@ fun AnimatedSettingsPanel(
         }
         androidDiagnosticsBusy = false
     }
+    // Privacy: the switch and the egress ledger are read from NetworkGuard, not passed in, so the
+    // panel shows the real file-backed state instead of a copy that could drift.
+    var networkOnline by remember { mutableStateOf(true) }
+    var privacyLedger by remember { mutableStateOf("Reading the egress ledger…") }
+    var guardInstalled by remember { mutableStateOf(false) }
+    suspend fun refreshPrivacy() {
+        networkOnline = withContext(Dispatchers.IO) { NetworkGuard.isOnline(context) }
+        privacyLedger = withContext(Dispatchers.IO) { NetworkGuard.recent(context, 20) }
+        guardInstalled = NetworkGuard.installed
+    }
+    LaunchedEffect(context) { refreshPrivacy() }
     var shizukuPackageText by remember { mutableStateOf("com.mirfatif.permissionmanagerx") }
     var soulMdText by remember { mutableStateOf("") }
     var soulSaved by remember { mutableStateOf(0) }
@@ -158,6 +172,61 @@ fun AnimatedSettingsPanel(
     ) {
         statusMessage?.takeIf { it.isNotBlank() }?.let {
             Text(it, color = Morningstar.Gilded, fontSize = 12.sp, fontFamily = Morningstar.Body)
+        }
+
+        // ── PRIVACY · EGRESS — the one switch that makes the app silent ──
+        SettingsCard(title = "PRIVACY · EGRESS", icon = {
+            Icon(Icons.Filled.Lock, contentDescription = "Privacy", tint = Morningstar.Crimson, modifier = Modifier.size(24.dp))
+        }) {
+            Text(
+                "Every outbound request asks this switch first and is written to a local ledger: the host and the " +
+                    "path, never the query string. Device-local traffic (Termux, the VM bridge, the memory MCP) keeps " +
+                    "working while the network is off. This hides nothing from your carrier or your network — for that " +
+                    "you need a VPN, and Lucifer should not be your anonymity layer.",
+                color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body
+            )
+            Text(
+                if (guardInstalled) "GUARD INSTALLED · ${if (networkOnline) "NETWORK ON" else "NETWORK OFF"}"
+                else "GUARD NOT INSTALLED — egress is unguarded until LuciferApplication.onCreate runs",
+                color = if (guardInstalled && !networkOnline) Morningstar.Crimson else Morningstar.Ash,
+                fontSize = 10.sp, fontFamily = Morningstar.MonoTail
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        val next = !networkOnline
+                        NetworkGuard.setOnline(context, next)
+                        networkOnline = next
+                        diagnosticsScope.launch { refreshPrivacy() }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (networkOnline) Morningstar.GlassRaised else Morningstar.Blood,
+                        contentColor = Morningstar.Bone
+                    )
+                ) {
+                    Text(
+                        if (networkOnline) "GO DARK · NETWORK OFF" else "BACK ONLINE",
+                        fontSize = 10.sp, fontFamily = Morningstar.Body
+                    )
+                }
+                Button(
+                    onClick = {
+                        NetworkGuard.clear(context)
+                        diagnosticsScope.launch { refreshPrivacy() }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
+                ) { Text("CLEAR LEDGER", fontSize = 10.sp, fontFamily = Morningstar.Body) }
+            }
+            Text(
+                privacyLedger,
+                color = Morningstar.Ash,
+                fontSize = 10.sp,
+                fontFamily = Morningstar.MonoTail,
+                maxLines = 16,
+                overflow = TextOverflow.Ellipsis
+            )
         }
 
         // Soul.md Editor

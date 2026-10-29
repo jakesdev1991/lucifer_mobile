@@ -2,6 +2,8 @@ package com.lucifer.mobile.omni_bridge.knowledge
 
 import android.content.Context
 import android.util.Log
+import com.lucifer.mobile.privacy.EgressClass
+import com.lucifer.mobile.privacy.NetworkGuard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
@@ -24,6 +26,8 @@ import java.util.concurrent.ConcurrentHashMap
  * which takes precedence over the bundled assets. New pushes = new intuitions.
  */
 class EmbeddedToE(private val context: Context) {
+
+    /** One user action = one authorization. The switch is global, so the first check covers the loop. */
 
     companion object {
         private const val TAG = "EmbeddedToE"
@@ -163,6 +167,12 @@ class EmbeddedToE(private val context: Context) {
      * No git, no SSH, no auth (public repo). Returns a status summary.
      */
     suspend fun syncFromGithub(): String = withContext(Dispatchers.IO) {
+        val clearance = NetworkGuard.authorize(
+            "$GITHUB_API/git/trees/main?recursive=1",
+            userInitiated = true,
+            expected = EgressClass.CODE
+        )
+        if (clearance.blocked) return@withContext NetworkGuard.refusalMessage(clearance, "the corpus sync")
         try {
             // 1. List repo tree (knowledge paths)
             val conn = URL("$GITHUB_API/git/trees/main?recursive=1").openConnection() as HttpURLConnection

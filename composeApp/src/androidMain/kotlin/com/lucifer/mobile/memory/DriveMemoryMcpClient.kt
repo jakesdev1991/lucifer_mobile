@@ -2,6 +2,7 @@ package com.lucifer.mobile.memory
 
 import android.content.Context
 import android.util.Log
+import com.lucifer.mobile.privacy.NetworkGuard
 import com.lucifer.mobile.security.SecretStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -151,6 +152,13 @@ class DriveMemoryMcpClient(private val context: Context) {
         sessionId: String?,
         payload: JSONObject
     ): RpcResponse? {
+        // The MCP endpoint is user-editable, so "loopback-only" is the default, not a guarantee.
+        // A local URL passes even with the network off; anything remote respects the switch.
+        val clearance = NetworkGuard.authorize(endpoint, userInitiated = false)
+        if (clearance.blocked) {
+            Log.i(TAG, "memory MCP call skipped: ${clearance.reason}")
+            return null
+        }
         val connection = URL(endpoint).openConnection() as HttpURLConnection
         return try {
             connection.connectTimeout = CONNECT_TIMEOUT_MS

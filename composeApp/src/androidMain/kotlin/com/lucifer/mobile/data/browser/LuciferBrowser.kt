@@ -2,6 +2,8 @@ package com.lucifer.mobile.data.browser
 
 import android.util.Log
 import java.io.ByteArrayOutputStream
+import com.lucifer.mobile.privacy.EgressClass
+import com.lucifer.mobile.privacy.NetworkGuard
 import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.URL
@@ -46,6 +48,20 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
                 last?.disconnect()
                 current = validatePublicWebUrl(current)
                 val requestHost = java.net.URI(current).host.lowercase()
+                // Checked per hop, not once per navigation: a redirect is a new destination.
+                val clearance = NetworkGuard.authorize(current, userInitiated = true, expected = EgressClass.PAGE)
+                if (clearance.blocked) {
+                    return BrowserResult(
+                        url = current,
+                        title = "",
+                        html = "",
+                        text = NetworkGuard.refusalMessage(clearance, "the page fetch"),
+                        links = emptyList(),
+                        cookies = cookieJar[requestHost]?.toMap().orEmpty(),
+                        success = false,
+                        error = clearance.reason.ifBlank { "network off" }
+                    )
+                }
                 activeHost = requestHost
                 last = (URL(current).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"

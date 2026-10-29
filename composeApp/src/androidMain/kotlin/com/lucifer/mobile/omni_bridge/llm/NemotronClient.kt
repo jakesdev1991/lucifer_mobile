@@ -2,6 +2,8 @@ package com.lucifer.mobile.omni_bridge.llm
 
 import android.content.Context
 import android.util.Log
+import com.lucifer.mobile.privacy.EgressClass
+import com.lucifer.mobile.privacy.NetworkGuard
 import com.lucifer.mobile.security.SecretStore
 import com.lucifer.mobile.memory.DriveMemoryMcpClient
 import com.lucifer.mobile.memory.LocalConversationMemory
@@ -73,6 +75,11 @@ class NemotronClient(private val context: Context) {
             return "[LLM] No NVIDIA API keys configured."
         }
 
+        // Ask the egress guard before anything is prepared or sent. This is the only route that
+        // carries conversation content off the device, so it is the one that must check first.
+        val clearance = NetworkGuard.authorize(BASE_URL, userInitiated = true, expected = EgressClass.MODEL)
+        if (clearance.blocked) return NetworkGuard.refusalMessage(clearance, "the model call")
+
         // Retrieve local episodic memories first; optional Drive retrieval may add more context online.
         val preparedMessages = prepareMessages(messages)
         val models = modelChain()
@@ -113,6 +120,9 @@ class NemotronClient(private val context: Context) {
         }
         val keys = keyPool()
         if (keys.isEmpty()) return "[LLM] No NVIDIA API keys configured."
+        // A camera still is the most sensitive thing this app can send. Record it as VISION.
+        val clearance = NetworkGuard.authorize(BASE_URL, userInitiated = true, expected = EgressClass.VISION)
+        if (clearance.blocked) return NetworkGuard.refusalMessage(clearance, "the camera still")
         val preparedMessages = prepareMessages(messages)
         var lastErr = "unknown"
         for (key in keys) {

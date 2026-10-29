@@ -7,6 +7,7 @@ import com.lucifer.mobile.resilience.int
 import com.lucifer.mobile.resilience.long
 import com.lucifer.mobile.resilience.obj
 import com.lucifer.mobile.resilience.str
+import com.lucifer.mobile.privacy.NetworkGuard
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
@@ -236,8 +237,14 @@ class HttpVaultTransport(
         headers: Map<String, String>,
         body: String?
     ): VaultTransport.Reply {
-        val connection = URL(AuditVaultContract.normalizeUrl(baseUrl) + path)
-            .openConnection() as HttpURLConnection
+        val target = AuditVaultContract.normalizeUrl(baseUrl) + path
+        // A blocked call is an ordinary transport failure here: status 0, honest body, no throw, so
+        // the executor's existing fallback decides what to do instead of an exception escaping.
+        val clearance = NetworkGuard.authorize(target, userInitiated = true)
+        if (clearance.blocked) {
+            return VaultTransport.Reply(0, NetworkGuard.refusalMessage(clearance, "the audit vault call"))
+        }
+        val connection = URL(target).openConnection() as HttpURLConnection
         connection.instanceFollowRedirects = false
         connection.requestMethod = method
         connection.connectTimeout = timeoutMs

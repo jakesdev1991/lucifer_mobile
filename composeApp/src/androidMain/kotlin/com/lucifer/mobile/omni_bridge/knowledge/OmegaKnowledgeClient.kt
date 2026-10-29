@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import com.lucifer.mobile.privacy.NetworkGuard
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -39,6 +40,8 @@ class OmegaKnowledgeClient(
             .filterNotNull().distinct()
         for (base in candidates) {
             try {
+                // Probes the user-configured endpoint too, which may not be local.
+                if (NetworkGuard.authorize("$base/health", userInitiated = true).blocked) continue
                 val conn = URL("$base/health").openConnection() as HttpURLConnection
                 conn.connectTimeout = 1200
                 conn.readTimeout = 1200
@@ -64,6 +67,13 @@ class OmegaKnowledgeClient(
             "params" to params
         )
         val body = jsonEncode(payload)
+        // The endpoint is user-configured in Settings, so a LAN host is normal and a remote one is
+        // possible. Either way it asks the guard: local is allowed, remote respects the switch.
+        val clearance = NetworkGuard.authorize(url, userInitiated = true)
+        if (clearance.blocked) {
+            Log.i(TAG, "knowledge RPC blocked: ${clearance.reason}")
+            return null
+        }
         val conn = URL(url).openConnection() as HttpURLConnection
         return try {
             conn.connectTimeout = TIMEOUT_MS
