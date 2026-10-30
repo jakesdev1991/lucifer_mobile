@@ -19,7 +19,7 @@ A phone leaks identity in four layers. Lucifer is only ever able to touch the se
 | Layer | Who sees it | Does changing IMEI / location / microG help? |
 | --- | --- | --- |
 | Radio and subscriber | Carrier: IMSI, cell timing, billing identity | Not at all. The SIM and the tower are the identity. |
-| Network path | Carrier, ISP, any Wi-Fi operator: destination, SNI, volume, timing | Not at all. Needs a VPN or Tor, which is an OS-level decision. |
+| Network path | Carrier, ISP, any Wi-Fi operator: destination, SNI, volume, timing | Partly: Lucifer's own traffic can ride Tor (`NETWORK_AND_TOR.md`). Everything else on the phone still needs an OS-level VPN. |
 | Application content | Every server Lucifer talks to: prompts, pages, addresses | Partly — this is what the ledger and switch govern. |
 | Device identifiers | Apps and servers that ask for them | Marginally. Modern Android gates IMEI behind `READ_PRIVILEGED_PHONE_STATE`; apps get `ANDROID_ID` or nothing. |
 
@@ -54,7 +54,8 @@ A phone leaks identity in four layers. Lucifer is only ever able to touch the se
 | microG | **A device decision, not an app one** | `composeApp/build.gradle.kts` ships **zero** Google dependencies, so Lucifer needs nothing replaced — but microG is about the *other* apps on the phone, and that is a legitimate choice. See [MICROG_AND_PLAY_SERVICES.md](MICROG_AND_PLAY_SERVICES.md); note that microG's push still reaches Google. |
 | Mock location | Refused as theater | No location permission is declared and no location API is called, so there is nothing to mock within Lucifer. At the OS level a mock provider only feeds the app-facing `LocationManager`; the modem and Wi-Fi positioning databases still locate the handset. |
 | Mock IMEI | Refused | IMEI lives behind the radio and a privileged permission. Changing it means baseband commands or root-level telephony hooks: it bricks modems, breaks OTA and attestation, and is illegal in the US, UK and EU. It is also useless against the layers above. Lucifer will not implement it. |
-| Tor / VPN | Not implemented | There is no `VpnService` in this app. A VPN is the correct tool for the network-path layer, and it belongs at the OS level where it covers every app — not bolted inside one launcher. |
+| Tor for Lucifer's own traffic | **Implemented** | `privacy/TorRuntime.kt` + `net/Socks5.kt`: when TOR is selected, every remote request he makes goes through a SOCKS5 proxy (Orbot, loopback) with the **hostname sent unresolved**, so this phone never looks up a name it meant to keep private. If the proxy dies the request is refused, never sent direct. See [NETWORK_AND_TOR.md](NETWORK_AND_TOR.md). |
+| Device-wide VPN | **Deliberately not implemented** | A `VpnService` needs a userspace TCP/IP stack and `protect()` discipline; a half-built one reports "connected" and leaks. Use Orbot's VPN mode or WireGuard — Lucifer reads `TRANSPORT_VPN` and reports which is running instead of pretending to be it. |
 | Spoofed `ANDROID_ID` / attestation | Not implemented | Faking platform identifiers means hooking the framework, which is exactly what makes a device *distinctive*. |
 
 ## Attestation: this APK is identifiable on purpose
@@ -75,7 +76,7 @@ trade-off stays visible.
 
 ## What to do instead, in order of effect
 
-1. **Put the whole device behind a VPN or Tor**, chosen at the OS level (or on a travel router), so it
+1. **Put the whole device behind a VPN or Tor**, chosen at the OS level (Orbot's VPN mode, or a travel router), so it
    covers Lucifer, the browser and everything else. This is the only measure that touches layer 2.
 2. **Assume Lucifer's remote calls are attributable.** The NVIDIA key in `config/nvidia_key.txt` ties
    every prompt to an account. Use a separate key and a separate account from anything personal.

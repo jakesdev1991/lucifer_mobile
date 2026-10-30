@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Run every host-side verification in the repo, once, with one exit code.
 #
-# There are eight `verify_*_core.sh` harnesses and, until now, no way to run them together and no CI
+# There are nine `verify_*_core.sh` harnesses and, until now, no way to run them together and no CI
 # that ran them at all. A check nobody runs is a comment. This is the entry point CI uses and the one a
 # person should run before pushing:
 #
 #   ./scripts/verify_all.sh            # every harness
 #   ./scripts/verify_all.sh --quiet    # only the summary
 #
-# It keeps going after a failure so one broken harness does not hide the state of the other six, and it
+# It keeps going after a failure so one broken harness does not hide the state of the others, and it
 # reports SKIPPED separately from PASS: a harness whose Kotlin step could not compile is not a pass, it
 # is an unproven claim, and that difference is the whole point of these scripts.
 set -uo pipefail

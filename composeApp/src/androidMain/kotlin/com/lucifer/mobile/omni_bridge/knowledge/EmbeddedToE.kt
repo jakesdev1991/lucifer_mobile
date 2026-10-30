@@ -7,8 +7,6 @@ import com.lucifer.mobile.privacy.EgressHttp
 import com.lucifer.mobile.privacy.NetworkGuard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -174,22 +172,22 @@ class EmbeddedToE(private val context: Context) {
         if (clearance.blocked) return@withContext NetworkGuard.refusalMessage(clearance, "the corpus sync")
         try {
             // 1. List repo tree (knowledge paths)
-            val treeGrant = EgressHttp.openApproved(
-                "$GITHUB_API/git/trees/main?recursive=1",
-                clearance,
-                connectTimeoutMs = 10_000,
-                readTimeoutMs = 20_000
+            val treeReply = EgressHttp.exchange(
+                EgressHttp.Request(
+                    url = "$GITHUB_API/git/trees/main?recursive=1",
+                    userInitiated = true,
+                    expected = EgressClass.CODE,
+                    headers = mapOf("Accept" to "application/vnd.github+json"),
+                    connectTimeoutMs = 10_000,
+                    readTimeoutMs = 20_000,
+                    decision = clearance
+                )
             )
-            val conn = treeGrant.connection
-                ?: return@withContext treeGrant.refusal("the corpus sync")
-            conn.setRequestProperty("Accept", "application/vnd.github+json")
-            val code = conn.responseCode
-            if (code != 200) {
-                conn.disconnect()
-                return@withContext "[ERROR] GitHub API $code — check network"
+            if (treeReply.status != 200) {
+                return@withContext "[ERROR] GitHub API ${treeReply.status} — " +
+                    (treeReply.error.ifBlank { "check network" })
             }
-            val body = BufferedReader(InputStreamReader(conn.inputStream)).readText()
-            conn.disconnect()
+            val body = treeReply.text()
             val tree = org.json.JSONObject(body).optJSONArray("tree") ?: return@withContext "[ERROR] empty tree"
             // 2. Pick the knowledge files we bundle.
             // Full repo paths, not stripped ones: the dir prefix is what makes the raw URL valid.
@@ -221,23 +219,17 @@ class EmbeddedToE(private val context: Context) {
                 try {
                     // One socket per file. The old loop opened two — one to "$GITHUB_RAW/lean_proofs/$name"
                     // that was never read from, then a second to a guessed URL that usually 404'd.
-                    val grant = EgressHttp.openApproved(
-                        "$GITHUB_RAW/$path",
-                        clearance,
-                        connectTimeoutMs = 10_000,
-                        readTimeoutMs = 20_000
+                    val reply = EgressHttp.exchange(
+                        EgressHttp.Request(
+                            url = "$GITHUB_RAW/$path",
+                            userInitiated = true,
+                            expected = EgressClass.CODE,
+                            connectTimeoutMs = 10_000,
+                            readTimeoutMs = 20_000,
+                            decision = clearance
+                        )
                     )
-                    val fileConn = grant.connection
-                    if (fileConn == null) {
-                        fail++
-                        continue
-                    }
-                    val text = if (fileConn.responseCode == 200) {
-                        fileConn.inputStream.use { input -> BufferedReader(InputStreamReader(input)).readText() }
-                    } else {
-                        null
-                    }
-                    fileConn.disconnect()
+                    val text = if (reply.status == 200) reply.text() else null
                     if (text != null) {
                         java.io.File(liveDir, name).writeText(text)
                         cache.remove(name)

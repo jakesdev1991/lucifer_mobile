@@ -184,6 +184,14 @@ prepare timeout, 2-hour verification deadline; a timeout is never a pass). It ne
 
 ## 5. The Senses, the switch and the ledger
 
+**Transport · Tor for his own traffic.** Settings → Privacy has a TRANSPORT switch. On `VIA TOR`,
+every remote request Lucifer makes is tunnelled through a SOCKS5 proxy (Orbot, `127.0.0.1:9050`) with the
+hostname sent **unresolved**, so the phone never performs the DNS lookup that would otherwise defeat the
+proxy. TLS has hostname verification, `.onion` works only in this mode, and a dead proxy means the
+request is **refused — never sent directly**. `TEST CIRCUIT` asks Tor Project whether the exit is a Tor
+node. There is deliberately **no device-wide `VpnService`**: that needs a userspace TCP/IP stack, and a
+half-built one reports "connected" while leaking. See [NETWORK_AND_TOR.md](NETWORK_AND_TOR.md).
+
 **Egress ledger + kill switch.** Every outbound request is authorised by `privacy/NetworkGuard`
 immediately before its socket opens, and `privacy/EgressHttp` is the only place in the app that can open
 one — currently **9 gated call sites, 1 socket owner, 0 outside the gate**. Settings → Privacy offers
@@ -270,8 +278,10 @@ resistance is defence-in-depth, not a hardened boundary, and fetched text is unt
 - **No IMEI/baseband spoofing** (illegal in the US/UK/EU, needs privileged telephony hooks, breaks modems
   and attestation), **no mock location** (no location permission is declared and no location API is
   called), **no MAC or identifier spoofing**.
-- **No VPN.** No `VpnService`, no packet capture, no forwarding; it only *reports* whether a VPN transport
-  is active. Identity hiding is a ROM-level question, not an app-level one.
+- **No device-wide VPN.** Tor is implemented for *his own* traffic (`net/` + `privacy/TorRuntime`); a
+  `VpnService` that would cover every app is not, because a userspace TCP/IP stack is a months-long
+  project and a leaking VPN is worse than none. He *reports* whether an OS-level VPN is active. Identity
+  hiding remains a ROM-level question, not an app-level one.
 - **No Google.** Zero GMS/Firebase/play-services dependencies, enforced by the egress audit.
 - **No PMX tampering**, no hiding or suspending itself or its tools.
 - **No autonomous execution.** Recovery, the General, heartbeat and workflows all stop at "you confirm".
@@ -303,7 +313,7 @@ commented out in the active source. `KaiBridge` is a ping with stubs; no deploym
 
 ## 10. Repository tooling (host-side, not shipped)
 
-- **8 verification harnesses** (`scripts/verify_*_core.sh`) driven by `scripts/verify_all.sh`, plus **3
+- **9 verification harnesses** (`scripts/verify_*_core.sh`) driven by `scripts/verify_all.sh`, plus **3
   static audits** (`audit_egress.py`, `audit_config.py`, `audit_surfaces.py`) and the skill-library
   validator. Two of the harnesses (`privacy`, `surface`, `synth`) also have executable **Python mirrors** of
   their specs.
@@ -326,11 +336,12 @@ Run in this workspace, just now:
 | `python3 tools/privacy-core/spec_check.py` | **PASS · 90 checks** |
 | `python3 tools/surface-core/spec_check.py` | **PASS · 52 checks** |
 | `python3 tools/synth-core/spec_check.py` | **PASS · 128 checks** |
-| `python3 tools/privacy-core/audit_egress.py` | 9 gated sites · 1 socket owner · 0 outside the gate · 0 Google references |
+| `python3 tools/privacy-core/audit_egress.py` | 10 gated sites · 2 socket owners · 0 outside the gate · 0 Google references |
 | `python3 tools/surface-core/audit_surfaces.py` | 6 reasoning sites · 0 undeclared · 10 surfaces · 0 undescribed |
 | `python3 tools/config-core/audit_config.py` | every config path named once, every write atomic, no bypass writers |
 | `python3 scripts/validate_skill_library.py` | 100 skills, 10 packs, 53,392 bytes, all `REFERENCE_ONLY` |
-| `./scripts/verify_all.sh --quiet` | **PASS 3 · SKIP 8 · FAIL 0** |
+| `python3 tools/net-core/spec_check.py` | **PASS · 110 checks** |
+| `./scripts/verify_all.sh --quiet` | **PASS 3 · SKIP 9 · FAIL 0** |
 | `./scripts/verify_synth_core.sh` | PASS (Kotlin stage SKIPPED) |
 
 **Not verified anywhere:** there is no JDK, `kotlinc`, Gradle or Android SDK in this workspace, so

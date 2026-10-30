@@ -238,27 +238,25 @@ class HttpVaultTransport(
         val target = AuditVaultContract.normalizeUrl(baseUrl) + path
         // A blocked call is an ordinary transport failure here: status 0, honest body, no throw, so
         // the executor's existing fallback decides what to do instead of an exception escaping.
-        val grant = EgressHttp.open(
-            target,
-            userInitiated = true,
-            connectTimeoutMs = timeoutMs,
-            readTimeoutMs = timeoutMs
+        val reply = EgressHttp.exchange(
+            EgressHttp.Request(
+                url = target,
+                userInitiated = true,
+                method = method,
+                headers = headers + mapOf("Accept" to "application/json"),
+                body = body?.toByteArray(Charsets.UTF_8),
+                connectTimeoutMs = timeoutMs,
+                readTimeoutMs = timeoutMs,
+                maxBodyBytes = AuditVaultContract.MAX_BODY_BYTES
+            )
         )
-        if (grant.blocked) {
-            return VaultTransport.Reply(0, grant.refusal("the audit vault call"))
+        if (reply.status == 0) {
+            return VaultTransport.Reply(0, reply.refusal("the audit vault call"))
         }
-        val connection = grant.connection!!
-        connection.requestMethod = method
-        connection.setRequestProperty("Accept", "application/json")
-        headers.forEach { (name, value) -> connection.setRequestProperty(name, value) }
-        if (body != null) {
-            connection.doOutput = true
-            connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-        }
-        val status = connection.responseCode
-        val stream = if (status >= 400) connection.errorStream else connection.inputStream
-        val text = stream?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
-        return VaultTransport.Reply(status, text.take(AuditVaultContract.MAX_BODY_BYTES))
+        return VaultTransport.Reply(
+            reply.status,
+            reply.text().take(AuditVaultContract.MAX_BODY_BYTES)
+        )
     }
 }
 

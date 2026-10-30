@@ -25,9 +25,39 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 KOTLIN_ROOT = os.path.join(ROOT, "composeApp", "src", "androidMain", "kotlin")
 GUARD = "NetworkGuard.authorize"
-GATED = ("EgressHttp.open(", "EgressHttp.openApproved(", "EgressHttp.allowed(")
+GATED = ("EgressHttp.open(", "EgressHttp.openApproved(", "EgressHttp.allowed(", "EgressHttp.exchange(")
 SOCKET_OWNER = os.path.join("composeApp", "src", "androidMain", "kotlin", "com", "lucifer", "mobile",
                             "privacy", "EgressHttp.kt")
+
+# Socket construction is allowed in exactly two files: the dialer that speaks SOCKS5, and the local-only
+# door in EgressHttp. `SocketDialer` may only be called from those two. Everything remote goes through
+# `EgressHttp.exchange`, and `EgressHttp.open` is for loopback clients only.
+SOCKET_BUILDERS = {
+    os.path.join("composeApp", "src", "androidMain", "kotlin", "com", "lucifer", "mobile", "net",
+                 "SocketDialer.kt"): "the dialer (direct + SOCKS5 tunnel)",
+    SOCKET_OWNER: "the local-only door and the exchange transport",
+}
+DIALER_CALLERS = {
+    os.path.join("composeApp", "src", "androidMain", "kotlin", "com", "lucifer", "mobile", "privacy",
+                 "EgressHttp.kt"),
+    os.path.join("composeApp", "src", "androidMain", "kotlin", "com", "lucifer", "mobile", "privacy",
+                 "TorRuntime.kt"),
+}
+# Loopback-only clients. These are the only files permitted to use the HttpURLConnection door, because
+# their destinations never leave the device.
+LOCAL_CLIENTS = {
+    os.path.join("composeApp", "src", "androidMain", "kotlin", "com", "lucifer", "mobile", "memory",
+                 "DriveMemoryMcpClient.kt"),
+    os.path.join("composeApp", "src", "androidMain", "kotlin", "com", "lucifer", "mobile",
+                 "omni_bridge", "knowledge", "OmegaKnowledgeClient.kt"),
+}
+SOCKET_TOKENS = ("Socket(", "SSLSocketFactory", "DatagramSocket(", "openConnection()")
+# Listening sockets are inbound, not egress, but they are still a door into the process. Allowed only
+# where the bind address is loopback by construction.
+LISTENERS = {
+    os.path.join("composeApp", "src", "androidMain", "kotlin", "com", "lucifer", "mobile", "verification",
+                 "VerificationServer.kt"): "binds 127.0.0.1 for the Lean verifier's control plane",
+}
 
 # Destinations that are device-local by construction. A call site whose surrounding text only names
 # these needs no guard to be correct, but it is reported separately rather than hidden.
@@ -153,7 +183,7 @@ def gated_sites() -> list[dict]:
             if line.lstrip().startswith(("*", "//", "/*")):
                 continue
             if any(marker in line for marker in GATED):
-                verdict = [m for m in ("openApproved", "open", "allowed") if f"EgressHttp.{m}(" in line][0]
+                verdict = [m for m in ("openApproved", "exchange", "open", "allowed") if f"EgressHttp.{m}(" in line][0]
                 found.append({
                     "file": os.path.relpath(path, ROOT),
                     "line": index + 1,
@@ -188,6 +218,57 @@ def gate_breaches() -> list[dict]:
                     "code": line.strip()[:96],
                 })
     return breaches
+
+
+def socket_ownership() -> list[dict]:
+    """Socket construction outside the two owner files, and dialer calls outside the two callers."""
+    findings = []
+    for path in kotlin_files():
+        relative = os.path.relpath(path, ROOT)
+        try:
+            lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+        except OSError:
+            continue
+        for index, line in enumerate(lines):
+            if line.lstrip().startswith(("*", "//", "/*")):
+                continue
+            for node in ("SocketDialer.",):
+                if node in line and relative not in DIALER_CALLERS:
+                    findings.append({"file": relative, "line": index + 1, "code": line.strip()[:96],
+                                     "why": "opens a socket through the dialer without going through the guard"})
+            if relative in SOCKET_BUILDERS:
+                continue
+            if "ServerSocket(" in line and relative not in LISTENERS:
+                findings.append({"file": relative, "line": index + 1, "code": line.strip()[:96],
+                                 "why": "opens a listening socket that is not on the loopback allowlist"})
+                continue
+            if "ServerSocket(" in line:
+                continue
+            for token in SOCKET_TOKENS:
+                if token in line:
+                    findings.append({"file": relative, "line": index + 1, "code": line.strip()[:96],
+                                     "why": f"constructs a socket outside {', '.join(sorted(SOCKET_BUILDERS))}"})
+                    break
+    return findings
+
+
+def local_door_misuse() -> list[dict]:
+    """`EgressHttp.open` is loopback-only; a third caller would bypass the transport decision."""
+    findings = []
+    for path in kotlin_files():
+        relative = os.path.relpath(path, ROOT)
+        if relative in LOCAL_CLIENTS or relative == os.path.relpath(os.path.join(ROOT, SOCKET_OWNER), ROOT):
+            continue
+        try:
+            lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+        except OSError:
+            continue
+        for index, line in enumerate(lines):
+            if line.lstrip().startswith(("*", "//", "/*")):
+                continue
+            if "EgressHttp.open(" in line:
+                findings.append({"file": relative, "line": index + 1, "code": line.strip()[:96]})
+    return findings
 
 
 def dependencies() -> list[dict]:
@@ -253,6 +334,8 @@ def main() -> int:
     gated = gated_sites()
     breaches = gate_breaches()
     creep = google_creep()
+    ownership = socket_ownership()
+    door = local_door_misuse()
 
     if args.check:
         for site in sites:
@@ -271,8 +354,22 @@ def main() -> int:
                 print(f"GOOGLE-CREEP   {item['where']}:{item['line']}  {item['why']}")
             print("\nThis build is degoogled by policy: no GMS, no Firebase, no Play Services dependency.")
             exit_code = 1
+        if ownership:
+            for item in ownership:
+                print(f"SOCKET-OWNER   {item['file']}:{item['line']}  {item['code']}")
+                print(f"               {item['why']}")
+            print("\nSockets belong to net/SocketDialer.kt and privacy/EgressHttp.kt, and only EgressHttp or")
+            print("TorRuntime may call the dialer.")
+            exit_code = 1
+        if door:
+            for item in door:
+                print(f"LOCAL-DOOR     {item['file']}:{item['line']}  {item['code']}")
+            print("\nEgressHttp.open() is a loopback-only door. Remote requests use EgressHttp.exchange(),")
+            print("because only exchange() decides the transport; open() would connect directly under Tor.")
+            exit_code = 1
         if exit_code == 0:
-            print(f"\nOK · {len(gated)} gated call sites · 1 socket owner · none unguarded · no Google dependencies")
+            print(f"\nOK · {len(gated)} gated call sites · {len(SOCKET_BUILDERS)} socket owners · none unguarded · "
+                  f"no Google dependencies")
         return exit_code
 
     if args.markdown:
@@ -308,10 +405,22 @@ def main() -> int:
         print(f"  {item['where']}:{item['line']}  {item['why']}")
         print(f"    {item['what']}")
 
+    print("\nTRANSPORT — who may open the socket\n")
+    for path, why in sorted(SOCKET_BUILDERS.items()):
+        print(f"  {path.split('com/lucifer/mobile/')[-1]:<34} {why}")
+    print(f"  dialer callers: {', '.join(sorted(p.split('com/lucifer/mobile/')[-1] for p in DIALER_CALLERS))}")
+    print(f"  loopback-only HttpURLConnection clients: "
+          f"{', '.join(sorted(p.split('com/lucifer/mobile/')[-1] for p in LOCAL_CLIENTS))}")
+    for item in ownership:
+        print(f"  SOCKET-OWNER {item['file']}:{item['line']}  {item['why']}")
+    for item in door:
+        print(f"  LOCAL-DOOR   {item['file']}:{item['line']}  {item['code']}")
+
     print()
-    print(f"{len(gated)} gated call sites · 1 socket owner · {len(breaches)} outside the gate · "
-          f"{len(unguarded)} unguarded · {len(deps)} attestation flags · {len(creep)} google references")
-    return 0 if not unguarded and not breaches and not creep else 1
+    print(f"{len(gated)} gated call sites · {len(SOCKET_BUILDERS)} socket owners · {len(breaches)} outside the gate · "
+          f"{len(unguarded)} unguarded · {len(ownership)} misplaced sockets · {len(door)} local-door misuses · "
+          f"{len(deps)} attestation flags · {len(creep)} google references")
+    return 0 if not unguarded and not breaches and not creep and not ownership and not door else 1
 
 
 if __name__ == "__main__":

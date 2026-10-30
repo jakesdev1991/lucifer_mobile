@@ -17,7 +17,6 @@ import java.math.BigDecimal
 import java.math.BigInteger
 import com.lucifer.mobile.privacy.EgressClass
 import com.lucifer.mobile.privacy.EgressHttp
-import java.net.HttpURLConnection
 import java.security.SecureRandom
 
 /**
@@ -153,38 +152,37 @@ class LuciferWallet(private val context: Context? = null) {
         val rpc = CHAIN_RPC[chain.lowercase()] ?: return null
         // A balance query hands a wallet address to a third-party node. That is a link between this
         // device and an address, so it goes through the same gate as everything else.
-        val grant = EgressHttp.open(rpc, userInitiated = true, expected = EgressClass.RPC)
-        if (grant.blocked) {
-            Log.i(TAG, "balance lookup blocked: ${grant.decision.reason}")
+        val body = JSONObject().apply {
+            put("jsonrpc", "2.0")
+            put("id", 1)
+            put("method", "eth_getBalance")
+            put("params", org.json.JSONArray().put(address).put("latest"))
+        }
+        // Through EgressHttp: a balance query carries the address, so it rides the same transport as
+        // everything else — direct, or Tor when that is selected, with no fallback between them.
+        val reply = EgressHttp.exchange(
+            EgressHttp.Request(
+                url = rpc,
+                userInitiated = true,
+                expected = EgressClass.RPC,
+                method = "POST",
+                headers = mapOf("Content-Type" to "application/json", "Accept" to "application/json"),
+                body = body.toString().toByteArray(Charsets.UTF_8)
+            )
+        )
+        if (reply.status != 200) {
+            Log.i(TAG, "balance lookup returned ${reply.status}: ${reply.error}")
             return null
         }
-        var conn: HttpURLConnection? = null
         return try {
-            conn = grant.connection!!.apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("Content-Type", "application/json")
-            }
-            val body = JSONObject().apply {
-                put("jsonrpc", "2.0")
-                put("id", 1)
-                put("method", "eth_getBalance")
-                put("params", org.json.JSONArray().put(address).put("latest"))
-            }
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-            if (conn.responseCode == 200) {
-                val text = conn.inputStream.bufferedReader().use { it.readText() }
-                val hexWei = JSONObject(text).optString("result", "")
-                if (hexWei.startsWith("0x") && hexWei.length > 2) {
-                    BigDecimal(BigInteger(hexWei.substring(2), 16))
-                        .divide(BigDecimal("1000000000000000000")).toPlainString()
-                } else null
+            val hexWei = JSONObject(reply.text()).optString("result", "")
+            if (hexWei.startsWith("0x") && hexWei.length > 2) {
+                BigDecimal(BigInteger(hexWei.substring(2), 16))
+                    .divide(BigDecimal("1000000000000000000")).toPlainString()
             } else null
         } catch (e: Exception) {
-            Log.w(TAG, "getBalance failed: ${e.message}")
+            Log.w(TAG, "getBalance parse failed: ${e.message}")
             null
-        } finally {
-            conn?.disconnect()
         }
     }
 

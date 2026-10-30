@@ -56,6 +56,8 @@ import com.lucifer.mobile.diagnostics.AndroidPlatformDiagnostics
 import com.lucifer.mobile.privacy.NetworkGuard
 import com.lucifer.mobile.privacy.PlayClassifier
 import com.lucifer.mobile.privacy.PlayEnvironmentProbe
+import com.lucifer.mobile.privacy.TorRuntime
+import com.lucifer.mobile.net.EgressTransport
 import com.lucifer.mobile.skills.SkillSynthRuntime
 import com.lucifer.mobile.ui.effects.SigilRule
 import com.lucifer.mobile.ui.effects.glassSurface
@@ -228,6 +230,62 @@ fun AnimatedSettingsPanel(
                     colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
                 ) { Text("CLEAR LEDGER", fontSize = 10.sp, fontFamily = Morningstar.Body) }
             }
+            // ── TRANSPORT · Tor for Lucifer's own traffic ──
+            SigilRule()
+            var transportLabel by remember { mutableStateOf("DIRECT") }
+            var torStatus by remember { mutableStateOf("…") }
+            var circuitBusy by remember { mutableStateOf(false) }
+            var transportRevision by remember { mutableStateOf(0) }
+            LaunchedEffect(transportRevision) {
+                withContext(Dispatchers.IO) {
+                    transportLabel = TorRuntime.transport().label
+                    torStatus = TorRuntime.status(context)
+                }
+            }
+            Text(
+                "TRANSPORT · where Lucifer's own requests go. VIA TOR sends every remote request through a " +
+                    "SOCKS5 proxy (Orbot's 127.0.0.1:9050 by default) with the hostname handed to the proxy, " +
+                    "so this phone never resolves a name it meant to keep private. If the proxy stops answering, " +
+                    "requests are refused — never quietly sent directly.",
+                color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body
+            )
+            Text(torStatus, color = Morningstar.Gilded, fontSize = 10.sp, fontFamily = Morningstar.MonoTail)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        diagnosticsScope.launch {
+                            val next = if (transportLabel == "TOR") EgressTransport.DIRECT else EgressTransport.TOR
+                            withContext(Dispatchers.IO) { TorRuntime.setTransport(context, next) }
+                            withContext(Dispatchers.IO) { torStatus = TorRuntime.status(context) }
+                            transportLabel = TorRuntime.transport().label
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (transportLabel == "TOR") Morningstar.SuccessDim else Morningstar.GlassRaised,
+                        contentColor = Color.White
+                    )
+                ) { Text(if (transportLabel == "TOR") "USE DIRECT" else "VIA TOR", fontSize = 10.sp, fontFamily = Morningstar.Body) }
+                Button(
+                    onClick = {
+                        circuitBusy = true
+                        diagnosticsScope.launch {
+                            val line = TorRuntime.testCircuit(context)
+                            torStatus = line
+                            circuitBusy = false
+                            transportRevision++
+                        }
+                    },
+                    enabled = !circuitBusy && transportLabel == "TOR",
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
+                ) { Text(if (circuitBusy) "CHECKING…" else "TEST CIRCUIT", fontSize = 10.sp, fontFamily = Morningstar.Body) }
+            }
+            Text(
+                TorRuntime.SCOPE_NOTE,
+                color = Morningstar.Warning, fontSize = 10.sp, fontFamily = Morningstar.Body
+            )
+
             SigilRule()
             Text(
                 playReport,

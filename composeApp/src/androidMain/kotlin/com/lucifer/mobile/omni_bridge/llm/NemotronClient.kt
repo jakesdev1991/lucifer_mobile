@@ -15,7 +15,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.net.HttpURLConnection
 
 /**
  * NemotronClient — Lucifer's native mind.
@@ -171,8 +170,8 @@ class NemotronClient(private val context: Context) {
     }
 
     /**
-     * Raw HTTPS call. HttpURLConnection — zero deps beyond org.json (Android core).
-     * Blocking I/O; callers run on Dispatchers.IO.
+     * Raw HTTPS call through EgressHttp, which owns the socket, the transport decision and the
+     * timeouts. Blocking I/O; callers run on Dispatchers.IO.
      */
     private fun call(
         key: String,
@@ -184,69 +183,61 @@ class NemotronClient(private val context: Context) {
         decision: EgressDecision,
         imageJpeg: ByteArray? = null
     ): String {
-        // The turn was authorised once; each retry is still a real socket, so it opens through the
-        // same gate rather than around it.
-        val grant = EgressHttp.openApproved(
-            BASE_URL,
-            decision,
-            connectTimeoutMs = requestTimeoutMs.coerceAtMost(15_000),
-            readTimeoutMs = requestTimeoutMs
+        // The turn was authorised once, so each retry rides the same decision — but every retry is a
+        // real socket, and the transport (direct or Tor) is re-decided for each one. A prompt carries
+        // the user's own words, which is the single biggest thing this app must not leak in the clear
+        // while Tor is selected.
+        val body = JSONObject().apply {
+            put("model", model)
+            put("max_tokens", maxTokens)
+            put("temperature", temperature)
+            val imageMessageIndex = if (imageJpeg != null) messages.indexOfLast { it.first == "user" } else -1
+            val imageDataUrl = imageJpeg?.let {
+                "data:image/jpeg;base64,${android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP)}"
+            }
+            put("messages", JSONArray().apply {
+                messages.forEachIndexed { index, (role, content) ->
+                    put(JSONObject().apply {
+                        put("role", role)
+                        if (index == imageMessageIndex && imageDataUrl != null) {
+                            put("content", JSONArray().apply {
+                                put(JSONObject().put("type", "text").put("text", content))
+                                put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", imageDataUrl)))
+                            })
+                        } else {
+                            put("content", content)
+                        }
+                    })
+                }
+            })
+        }
+
+        val reply = EgressHttp.exchange(
+            EgressHttp.Request(
+                url = BASE_URL,
+                userInitiated = true,
+                expected = EgressClass.MODEL,
+                method = "POST",
+                headers = mapOf(
+                    "Authorization" to "Bearer $key",
+                    "Content-Type" to "application/json",
+                    "Accept" to "application/json"
+                ),
+                body = body.toString().toByteArray(Charsets.UTF_8),
+                connectTimeoutMs = requestTimeoutMs.coerceAtMost(15_000),
+                readTimeoutMs = requestTimeoutMs,
+                decision = decision
+            )
         )
-        if (grant.blocked) return grant.refusal("the model call")
-        var conn: HttpURLConnection? = null
-        try {
-            conn = grant.connection!!.apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("Authorization", "Bearer $key")
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Accept", "application/json")
-            }
 
-            val body = JSONObject().apply {
-                put("model", model)
-                put("max_tokens", maxTokens)
-                put("temperature", temperature)
-                val imageMessageIndex = if (imageJpeg != null) messages.indexOfLast { it.first == "user" } else -1
-                val imageDataUrl = imageJpeg?.let {
-                    "data:image/jpeg;base64,${android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP)}"
-                }
-                put("messages", JSONArray().apply {
-                    messages.forEachIndexed { index, (role, content) ->
-                        put(JSONObject().apply {
-                            put("role", role)
-                            if (index == imageMessageIndex && imageDataUrl != null) {
-                                put("content", JSONArray().apply {
-                                    put(JSONObject().put("type", "text").put("text", content))
-                                    put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", imageDataUrl)))
-                                })
-                            } else {
-                                put("content", content)
-                            }
-                        })
-                    }
-                })
-            }
-
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
-
-            when (conn.responseCode) {
-                200 -> {
-                    val text = conn.inputStream.bufferedReader().use { it.readText() }
-                    return parseContent(text)
-                }
-                401, 403 -> throw LlmAuthException("HTTP ${conn.responseCode}")
-                404 -> throw LlmGoneException("HTTP 404 model removed")
-                429 -> throw LlmAuthException("HTTP 429 rate-limited, rotating key")
-                else -> {
-                    val err = try {
-                        conn.errorStream?.bufferedReader()?.use { it.readText() }?.take(200) ?: ""
-                    } catch (_: Exception) { "" }
-                    throw RuntimeException("HTTP ${conn.responseCode} $err")
-                }
-            }
-        } finally {
-            conn?.disconnect()
+        // A transport that could not even open a socket is not an auth failure: say what happened.
+        if (reply.status == 0) throw RuntimeException(reply.refusal("the model call"))
+        return when (reply.status) {
+            200 -> parseContent(reply.text())
+            401, 403 -> throw LlmAuthException("HTTP ${reply.status}")
+            404 -> throw LlmGoneException("HTTP 404 model removed")
+            429 -> throw LlmAuthException("HTTP 429 rate-limited, rotating key")
+            else -> throw RuntimeException("HTTP ${reply.status} ${reply.text().take(200)}")
         }
     }
 
