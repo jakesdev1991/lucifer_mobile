@@ -398,7 +398,7 @@ in the export bundle.
 ## 9. Verification
 
 ```
-python3 tools/cognition-core/spec_check.py         PASS · 200 checks
+python3 tools/cognition-core/spec_check.py         PASS · 202 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
 ./scripts/verify_cognition_core.sh                 PASS (Kotlin half SKIPPED — no kotlinc)
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run

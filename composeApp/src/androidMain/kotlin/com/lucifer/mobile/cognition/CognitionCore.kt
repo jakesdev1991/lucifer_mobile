@@ -639,6 +639,10 @@ object CognitionKnowledge {
         appendLine("device without having read it. The answer ends with a confidence line, and the trace is")
         appendLine("kept in the Skills tab.")
         appendLine()
+        appendLine("You can watch it happen — the launcher, the overlay and the chat each print the step as it")
+        appendLine("runs — and you can stop it: STOP cancels the turn, and the record says it was stopped rather")
+        appendLine("than pretending it failed. A follow-up is answered with the previous two turns in view.")
+        appendLine()
         append("You can ask for depth explicitly with /deep before your question. I cannot ask for a")
         append("shallower answer — the cheap path is already the default.")
     }

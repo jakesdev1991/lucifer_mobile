@@ -919,6 +919,10 @@ def case_drift() -> None:
           "fun forSurface(surfaceId: String)" in core)
     check("drift: the reasoning answer can carry the real record",
           "record: String = \"\"" in knowledge and "if (record.isNotBlank())" in knowledge)
+    check("drift: the self-description mentions stopping",
+          "STOP cancels the turn" in knowledge)
+    check("drift: and that the previous two turns are in view",
+          "previous two turns" in knowledge)
     check("drift: the protocol finding is documented",
           "PROTOCOL_IN_ANSWER" in open(os.path.join(ROOT, "COGNITION.md"), encoding="utf-8").read())
     check("drift: the calculator is not an eval",
