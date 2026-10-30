@@ -253,8 +253,15 @@ object CognitionRunner {
                 break
             }
 
+            // A tool is bounded too. `web_research` may fetch four pages at up to fifteen seconds each,
+            // and the guard only runs *between* steps — without this, one tool could overrun the whole
+            // budget and leave the answer with no room to be written.
+            val toolRemaining = (budget.maxElapsedMs - (System.currentTimeMillis() - started))
+                .coerceAtLeast(3_000L)
             val result = try {
-                toolbox.run(call)
+                withTimeout(toolRemaining) { toolbox.run(call) }
+            } catch (timeout: TimeoutCancellationException) {
+                ToolResult.failed("${call.tool} did not finish within ${toolRemaining / 1000}s")
             } catch (error: Exception) {
                 ToolResult.failed("${call.tool} threw ${error.javaClass.simpleName}")
             }

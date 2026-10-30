@@ -266,6 +266,11 @@ per-step bound, one slow call silently breaks the promise the footer makes. Each
 inside `withTimeout(remaining)` with a 5 s floor, and a timeout is reported as `TIME_EXHAUSTED`, not as a
 failure of the answer.
 
+Tools get the same treatment. `web_research` may fetch four pages at up to fifteen seconds each, and
+`LoopGuard` only runs *between* steps, so an unbounded tool could consume the whole budget and leave no
+room for the answer. Each call runs inside `withTimeout(toolRemaining)` with a 3 s floor; a tool that
+times out is a failed observation the loop can reason about, not a crash.
+
 ### 9.3 Every deep run leaves a record
 
 `CognitionLedger` appends one JSON line per run to `files/cognition/runs.jsonl` (rotated at 256 KB):
