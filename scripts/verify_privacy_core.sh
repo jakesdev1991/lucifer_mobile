@@ -15,6 +15,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LEDGER="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/privacy/EgressLedger.kt"
+# The Play classifier the harness also exercises. It lives in its own Android-free file, so it can be
+# compiled here — it used to sit beside the Context-reading probe, which made this harness uncompilable.
+PLAY_CORE="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/privacy/PlayEnvironmentCore.kt"
 HARNESS="$ROOT/tools/privacy-core/EgressCoreTests.kt"
 SPEC="$ROOT/tools/privacy-core/spec_check.py"
 AUDIT="$ROOT/tools/privacy-core/audit_egress.py"
@@ -39,7 +42,7 @@ echo
 echo "== 2. egress policy + ledger (real Kotlin) =="
 if [[ "$have_kotlin" -eq 1 ]]; then
   mkdir -p "$OUT"
-  if "$KOTLINC_BIN" "$LEDGER" "$HARNESS" -d "$OUT/privacy-tests.jar" -nowarn; then
+  if "$KOTLINC_BIN" "$LEDGER" "$PLAY_CORE" "$HARNESS" -d "$OUT/privacy-tests.jar" -nowarn; then
     STDLIB="$(dirname "$(command -v "$KOTLINC_BIN")")/../lib/kotlin-stdlib.jar"
     if [[ -f "$STDLIB" ]]; then
       java -cp "$OUT/privacy-tests.jar:$STDLIB" com.lucifer.mobile.privacy.harness.EgressCoreTestsKt || status=1
