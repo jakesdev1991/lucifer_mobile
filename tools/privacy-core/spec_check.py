@@ -223,7 +223,10 @@ class Log:
             return "No outbound requests recorded."
         tail = self.entries[-maximum:]
         lines = [
-            f"{e['kind']} {e['host']}{e['route']}" + ("" if e["outcome"] == "ALLOWED" else f" · {label(e['outcome'])}")
+            f"{e['kind']} {e['host']}{e['route']}"
+            + ("" if e["outcome"] == "ALLOWED" else f" · {label(e['outcome'])}")
+            # Who asked matters as much as where it went: an unmarked line is one a person started.
+            + ("" if e.get("userInitiated", True) else " · on his own")
             for e in tail
         ]
         return "\n".join(lines) + "\n" + self.summary()
@@ -331,6 +334,11 @@ def case_ledger() -> None:
     check("log: blocked counted", log2.blocked() == 1)
     check("log: summary shape", log2.summary().startswith("2 attempts · 1 allowed · 1 blocked"))
     check("log: class order preserved", log2.summary().endswith("MODEL 1 · SEARCH 1"))
+    own = Log()
+    own.record({"epoch": 1, "host": "example.com", "route": "/a", "kind": "PAGE",
+                "userInitiated": False, "outcome": "ALLOWED", "hadQuery": False})
+    check("log: a self-started fetch is marked", "on his own" in own.render())
+    check("log: an owner fetch is not marked", "on his own" not in log2.render())
 
     # Never a query string, even when the URL had one.
     host, route = parse("https://html.duckduckgo.com/html/?q=my+private+search")[0], parse(

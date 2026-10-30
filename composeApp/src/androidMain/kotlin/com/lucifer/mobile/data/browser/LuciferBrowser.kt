@@ -36,8 +36,19 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
 
     fun initialize() { /* connection-per-request; nothing to warm */ }
 
-    /** GET a URL and extract readable text. Redirects followed up to 5 hops. */
-    suspend fun navigate(url: String, timeoutMs: Int = DEFAULT_TIMEOUT): BrowserResult {
+    /**
+     * GET a URL and extract readable text. Redirects followed up to 5 hops.
+     *
+     * [userInitiated] is recorded in the egress ledger. It defaults to true because most callers are a
+     * person typing or tapping a link; a heartbeat probe or a fetch the reasoning loop chose on its own
+     * passes false, so the ledger can tell "I went here" from "he went here for me". It does not change
+     * what is allowed — only what is recorded.
+     */
+    suspend fun navigate(
+        url: String,
+        timeoutMs: Int = DEFAULT_TIMEOUT,
+        userInitiated: Boolean = true
+    ): BrowserResult {
         var current = url
         var hops = 0
         return try {
@@ -59,7 +70,7 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
                 val reply = EgressHttp.exchange(
                     EgressHttp.Request(
                         url = current,
-                        userInitiated = true,
+                        userInitiated = userInitiated,
                         expected = EgressClass.PAGE,
                         headers = headers,
                         connectTimeoutMs = timeoutMs,

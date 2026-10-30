@@ -267,7 +267,8 @@ class ResilienceEngine(context: Context) {
         val agent = ResearchAgent(
             fetcher = object : PageFetcher {
                 override suspend fun fetch(url: String): FetchedPage {
-                    val result = browser.navigate(url, timeoutMs = 15_000)
+                    // Nobody asked for this URL: recovery research runs because the app decided to.
+                    val result = browser.navigate(url, timeoutMs = 15_000, userInitiated = false)
                     return if (result.success) {
                         FetchedPage(url = result.url, status = 200, body = result.html.ifBlank { result.text })
                     } else {

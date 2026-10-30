@@ -60,6 +60,21 @@ else
 fi
 
 echo
+echo "== 2b. the ledger says who asked =="
+BROWSER="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/data/browser/LuciferBrowser.kt"
+CORE_SRC="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/cognition/CognitionRunner.kt"
+HEARTBEAT="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/omni_bridge/heartbeat/HeartbeatService.kt"
+
+claim() { # file needle why
+  if grep -qF -- "$2" "$1"; then echo "  ok    $3"; else echo "  MISSING  $3" >&2; echo "        ↳ expected \`$2\` in $(basename "$1")" >&2; status=1; fi
+}
+claim "$LEDGER" 'if (userInitiated) "" else " · on his own"' "a self-started request is marked in the log"
+claim "$BROWSER" 'userInitiated: Boolean = true' "the browser takes who asked, instead of assuming"
+claim "$BROWSER" 'userInitiated = userInitiated' "and passes it to the exchange that records it"
+claim "$CORE_SRC" 'browser.navigate(url, userInitiated = false)' "a fetch the reasoning loop chose is his, not the owner's"
+claim "$HEARTBEAT" 'userInitiated = false' "so is a heartbeat probe"
+
+echo
 echo "== 3. every socket asks the guard first =="
 if python3 "$AUDIT" --check; then
   :

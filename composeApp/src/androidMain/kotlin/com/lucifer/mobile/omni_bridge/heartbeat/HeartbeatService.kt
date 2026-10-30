@@ -165,7 +165,7 @@ class HeartbeatSessionEngine(context: Context) {
         return buildString {
             for (url in urls) {
                 try {
-                    val result = browser.navigate(url, timeoutMs = 7_000)
+                    val result = browser.navigate(url, timeoutMs = 7_000, userInitiated = false)
                     if (result.success) {
                         appendLine("SOURCE $url (${result.title}):")
                         appendLine(result.text.take(2_000))

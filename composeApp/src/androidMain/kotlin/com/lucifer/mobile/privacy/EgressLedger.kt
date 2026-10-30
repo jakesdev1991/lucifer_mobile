@@ -81,10 +81,16 @@ data class EgressRecord(
     val outcome: EgressOutcome,
     val hadQueryString: Boolean
 ) {
-    /** `14:02 MODEL integrate.api.nvidia.com/v1/chat/completions` */
+    /**
+     * `14:02 MODEL integrate.api.nvidia.com/v1/chat/completions`
+     *
+     * A line Lucifer started is marked, because the difference between "I asked for this" and "he
+     * asked on his own" is the whole reason a person reads an egress log.
+     */
     fun summary(): String {
         val flag = if (outcome == EgressOutcome.ALLOWED) "" else " · ${outcome.label}"
-        return "${kind.label} $host$route$flag"
+        val who = if (userInitiated) "" else " · on his own"
+        return "${kind.label} $host$route$flag$who"
     }
 }
 

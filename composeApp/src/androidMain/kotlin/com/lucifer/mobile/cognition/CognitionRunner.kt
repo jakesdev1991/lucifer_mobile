@@ -476,7 +476,8 @@ object AndroidCognitionTools {
                         if (!url.startsWith("http://") && !url.startsWith("https://")) {
                             return@withContext ToolResult.refused("only http(s) URLs can be fetched")
                         }
-                        val page = browser.navigate(url)
+                        // The model chose this URL, not the owner — the ledger must say so.
+                        val page = browser.navigate(url, userInitiated = false)
                         if (page.success) {
                             ToolResult.ok("${page.title}\n${page.text}".take(4_000), "fetched through the egress gate")
                         } else {
@@ -495,7 +496,7 @@ object AndroidCognitionTools {
                         val agent = ResearchAgent(
                             fetcher = object : PageFetcher {
                                 override suspend fun fetch(url: String): FetchedPage {
-                                    val page = browser.navigate(url, timeoutMs = 15_000)
+                                    val page = browser.navigate(url, timeoutMs = 15_000, userInitiated = false)
                                     return if (page.success) {
                                         FetchedPage(url = page.url, status = 200, body = page.html.ifBlank { page.text })
                                     } else {

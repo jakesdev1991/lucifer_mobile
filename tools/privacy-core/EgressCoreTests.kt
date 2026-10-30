@@ -239,7 +239,15 @@ fun main() {
         expectEq(entry.host, "news.ycombinator.com", "host")
         expectEq(entry.route, "/", "route")
         expectEq(entry.userInitiated, false, "attribution")
-        expectEq(entry.summary(), "PAGE news.ycombinator.com/", "summary line")
+        expectEq(entry.summary(), "PAGE news.ycombinator.com/ · on his own", "summary marks a self-started fetch")
+
+        val mine = EgressPolicy.record(
+            "https://news.ycombinator.com/",
+            EgressPolicy.decide("https://news.ycombinator.com/", online = true, userInitiated = true),
+            43L,
+            userInitiated = true
+        )
+        expectEq(mine.summary(), "PAGE news.ycombinator.com/", "an owner fetch is unmarked")
     }
 
     test("ledger: a blocked record says so") {
