@@ -84,10 +84,13 @@ object SkillSynth {
         val pending = state.pending?.takeIf { now - it.at in 0..SynthLimits.PENDING_TTL_MS }
         if (pending == null) {
             val draft = if (feedback == Feedback.DIRECTIVE) learnDirective(state, text, surface, now) else null
-            // Return the stored record, not the draft: consolidate() is what promotes it, and a caller
-            // that showed the draft would always see CANDIDATE.
-            val stored = draft?.let { updated(state, it, now) }.orEmpty()
-            return Outcome(clearPending(state, now), feedback, stored, 0)
+            // Upsert first, then read the record back out of the *new* state. The previous version built
+            // the outcome from the old state, so a directive learned outside a pending turn was reported
+            // and then thrown away — "keep your answers short" never actually stuck, and a refused
+            // preference was never counted. Found by the Kotlin harness, which had never compiled.
+            val merged = if (draft != null) upsert(state, draft, now) else state
+            val stored = listOfNotNull(draft?.let { merged.byId(it.id) })
+            return Outcome(clearPending(merged, now), feedback, stored, 0)
         }
 
         var next = state
@@ -129,11 +132,6 @@ object SkillSynth {
     }
 
     /** Upsert a draft and read it back, so callers see the promoted record rather than the draft. */
-    private fun updated(state: SynthState, draft: SynthesizedSkill, now: Long): List<SynthesizedSkill> {
-        val next = upsert(state, draft, now)
-        return listOfNotNull(next.byId(draft.id))
-    }
-
     /**
      * A command that failed and a tactic that fixed it. The synthesizer does not choose tactics — the
      * recovery loop does — it only remembers which one was chosen and how it went.

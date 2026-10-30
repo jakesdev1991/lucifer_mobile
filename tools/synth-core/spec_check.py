@@ -895,9 +895,14 @@ def check_drift() -> None:
         eq(f"kotlin {name} matches the spec", product, value)
 
     detector = open(detector_path, encoding="utf-8").read()
-    kotlin_patterns = {
-        literal.replace("\\\\", "\\") for literal in re.findall(r'Regex\("((?:[^"\\]|\\.)*)"\)', detector)
-    }
+    # Both literal forms are accepted, because the detector uses raw strings (a regex written inside an
+    # ordinary string needs every backslash doubled, and one of them — \\s — is not a valid Kotlin escape).
+    kotlin_patterns = set()
+    for literal in re.findall(r'Regex\("(?:[^"\\]|\\.)*"\)', detector):
+        body = literal[len('Regex("'):-len('")')]
+        kotlin_patterns.add(body.replace("\\\\", "\\"))
+    for literal in re.findall(r'Regex\("""(.*?)"""\)', detector, re.S):
+        kotlin_patterns.add(literal)
     python_patterns = set(CORRECTION_ANY + CORRECTION_PREFIX + PRAISE_ANY + DIRECTIVE_ANY +
                           [pattern for _rule, pattern in SAFETY_RULES])
     missing = {p for p in python_patterns if p not in kotlin_patterns}

@@ -73,8 +73,8 @@ fun main() {
 
     test("clamp bounds text and marks the cut") {
         expectEq(Text.clamp("short", 20), "short", "short text is untouched")
-        expect(Text.clamp("x" * 500, 40).endsWith("…"), "longer text is marked as cut")
-        expect(Text.clamp("x" * 500, 40).length <= 41, "the clamp is a bound, not a suggestion")
+        expect(Text.clamp("x".repeat(500), 40).endsWith("…"), "longer text is marked as cut")
+        expect(Text.clamp("x".repeat(500), 40).length <= 41, "the clamp is a bound, not a suggestion")
     }
 
     test("signature keeps content words") {

@@ -21,15 +21,15 @@ object FeedbackDetector {
     // ── correction ────────────────────────────────────────────────────
     /** Unambiguous anywhere in a short message: the user is telling him the last answer was wrong. */
     private val CORRECTION_ANY = listOf(
-        Regex("\bthat'?s not what i (asked|meant|said|wanted)\b"),
-        Regex("\bnot what i (asked|meant|said|wanted)\b"),
-        Regex("\bi (meant|asked for|said)\b"),
-        Regex("\byou (said|told me|got it wrong|missed|forgot|ignored)\b"),
-        Regex("\bthat'?s (wrong|incorrect|not (right|correct|it))\b"),
-        Regex("\b(wrong|incorrect) (answer|number|port|path|command|file|name|one)\b"),
-        Regex("\bcorrection\b\s*:"),
-        Regex("\byou'?re (wrong|mistaken)\b"),
-        Regex("\bno,? (that'?s|it'?s|its) (wrong|not)\b")
+        Regex("""\bthat'?s not what i (asked|meant|said|wanted)\b"""),
+        Regex("""\bnot what i (asked|meant|said|wanted)\b"""),
+        Regex("""\bi (meant|asked for|said)\b"""),
+        Regex("""\byou (said|told me|got it wrong|missed|forgot|ignored)\b"""),
+        Regex("""\bthat'?s (wrong|incorrect|not (right|correct|it))\b"""),
+        Regex("""\b(wrong|incorrect) (answer|number|port|path|command|file|name|one)\b"""),
+        Regex("""\bcorrection\b\s*:"""),
+        Regex("""\byou'?re (wrong|mistaken)\b"""),
+        Regex("""\bno,? (that'?s|it'?s|its) (wrong|not)\b""")
     )
 
     /**
@@ -37,21 +37,21 @@ object FeedbackDetector {
      * is a report about Wi-Fi, not a complaint about the last answer.
      */
     private val CORRECTION_PREFIX = listOf(
-        Regex("^(wrong|incorrect|false)\b"),
-        Regex("^(no|nope|nah)[,!.]")
+        Regex("""^(wrong|incorrect|false)\b"""),
+        Regex("""^(no|nope|nah)[,!.]""")
     )
 
     // ── praise ────────────────────────────────────────────────────────
     private val PRAISE_ANY = listOf(
-        Regex("\bthat'?s (right|correct|it|exactly)\b"),
-        Regex("\b(exactly|perfect|spot on)\b"),
-        Regex("\bgood (job|work|answer|call)\b"),
-        Regex("\bnice (work|one)\b"),
-        Regex("\bwell done\b"),
-        Regex("\b(that|it) (worked|works|fixed it|did it)\b"),
-        Regex("\bworks now\b"),
-        Regex("\bthank(s| you)\b.{0,24}\b(work|help|fix|perfect)\b"),
-        Regex("^(yes|yep|yeah|yup)[,!.]")
+        Regex("""\bthat'?s (right|correct|it|exactly)\b"""),
+        Regex("""\b(exactly|perfect|spot on)\b"""),
+        Regex("""\bgood (job|work|answer|call)\b"""),
+        Regex("""\bnice (work|one)\b"""),
+        Regex("""\bwell done\b"""),
+        Regex("""\b(that|it) (worked|works|fixed it|did it)\b"""),
+        Regex("""\bworks now\b"""),
+        Regex("""\bthank(s| you)\b.{0,24}\b(work|help|fix|perfect)\b"""),
+        Regex("""^(yes|yep|yeah|yup)[,!.]""")
     )
 
     // ── directive ─────────────────────────────────────────────────────
@@ -59,15 +59,15 @@ object FeedbackDetector {
     const val MAX_DIRECTIVE_CHARS = 300
 
     private val DIRECTIVE_ANY = listOf(
-        Regex("\b(from now on|every time|always|never)\b"),
-        Regex("\b(don'?t|do not|stop) (ask|asking|say|saying|add|adding|use|using|explain|explaining|repeat|repeating)\b"),
-        Regex("\b(keep (it|your answers?|replies) (short|brief|simple|plain))\b"),
-        Regex("\b(be (brief|concise|short|direct))\b"),
-        Regex("\b(answer|reply|respond) (in|with|using|briefly)\b"),
-        Regex("\b(too (long|verbose|wordy|short|vague|technical))\b"),
-        Regex("\b(no more than \w+ (sentences?|words?|lines?|bullet))\b"),
-        Regex("\b(use|prefer) (plain|simple|metric) (english|words|units)\b"),
-        Regex("\b(call me|address me as)\b")
+        Regex("""\b(from now on|every time|always|never)\b"""),
+        Regex("""\b(don'?t|do not|stop) (ask|asking|say|saying|add|adding|use|using|explain|explaining|repeat|repeating)\b"""),
+        Regex("""\b(keep (it|your answers?|replies) (short|brief|simple|plain))\b"""),
+        Regex("""\b(be (brief|concise|short|direct))\b"""),
+        Regex("""\b(answer|reply|respond) (in|with|using|briefly)\b"""),
+        Regex("""\b(too (long|verbose|wordy|short|vague|technical))\b"""),
+        Regex("""\b(no more than \w+ (sentences?|words?|lines?|bullet))\b"""),
+        Regex("""\b(use|prefer) (plain|simple|metric) (english|words|units)\b"""),
+        Regex("""\b(call me|address me as)\b""")
     )
 
     /**
@@ -107,14 +107,14 @@ object SkillSafety {
 
     /** Rules are named so the UI can explain a refusal instead of just saying "no". */
     private val RULES: List<Pair<String, Regex>> = listOf(
-        "privilege is not escalated quietly" to Regex("\\b(root|magisk|lsposed|shizuku|dhizuku|device owner|pm grant|appops)\\b.{0,60}\\b(without|bypass|silently|no confirm|unasked)\\b"),
-        "the network switch stays under the user's hand" to Regex("\\b(disable|turn off|bypass|ignore|remove|silence)\\b.{0,40}\\b(network guard|network switch|egress|privacy switch|go dark|ledger)\\b"),
-        "secrets are not sent anywhere" to Regex("\\b(send|upload|post|email|share|paste)\\b.{0,60}\\b(key|token|password|secret|credential|passphrase)\\b"),
-        "he does not claim work he did not do" to Regex("\\b(pretend|claim|say|tell\\w*)\\b.{0,40}\\b(you )?(ran|executed|checked|verified|tested|succeeded|completed|deployed)\\b"),
-        "the learning rules are not up for negotiation" to Regex("\\b(disable|remove|forget|ignore|turn off)\\b.{0,40}\\b(skill synth|synthesizer|learning|guardrail|boundary|rule)\\b"),
-        "confirmation is not optional" to Regex("\\b(don'?t|dont|stop|never) (ask|asking|check|confirm)\\b.{0,40}\\b(before|first|again|me)\\b"),
-        "confirmation is not optional" to Regex("\\b(skip|bypass|without|no need for|not needed|unnecessary|stop asking|auto[- ]?(run|approve|confirm|execute))\\b.{0,60}\\b(confirm|confirmation|asking|permission|approval)\\b"),
-        "confirmation is not optional" to Regex("\\b(confirm|confirmation|asking|permission)\\b.{0,40}\\b(skip|bypass|not needed|unnecessary|stop|never|auto)\\b"),
+        "privilege is not escalated quietly" to Regex("""\b(root|magisk|lsposed|shizuku|dhizuku|device owner|pm grant|appops)\b.{0,60}\b(without|bypass|silently|no confirm|unasked)\b"""),
+        "the network switch stays under the user's hand" to Regex("""\b(disable|turn off|bypass|ignore|remove|silence)\b.{0,40}\b(network guard|network switch|egress|privacy switch|go dark|ledger)\b"""),
+        "secrets are not sent anywhere" to Regex("""\b(send|upload|post|email|share|paste)\b.{0,60}\b(key|token|password|secret|credential|passphrase)\b"""),
+        "he does not claim work he did not do" to Regex("""\b(pretend|claim|say|tell\w*)\b.{0,40}\b(you )?(ran|executed|checked|verified|tested|succeeded|completed|deployed)\b"""),
+        "the learning rules are not up for negotiation" to Regex("""\b(disable|remove|forget|ignore|turn off)\b.{0,40}\b(skill synth|synthesizer|learning|guardrail|boundary|rule)\b"""),
+        "confirmation is not optional" to Regex("""\b(don'?t|dont|stop|never) (ask|asking|check|confirm)\b.{0,40}\b(before|first|again|me)\b"""),
+        "confirmation is not optional" to Regex("""\b(skip|bypass|without|no need for|not needed|unnecessary|stop asking|auto[- ]?(run|approve|confirm|execute))\b.{0,60}\b(confirm|confirmation|asking|permission|approval)\b"""),
+        "confirmation is not optional" to Regex("""\b(confirm|confirmation|asking|permission)\b.{0,40}\b(skip|bypass|not needed|unnecessary|stop|never|auto)\b"""),
     )
 
     data class Verdict(val allowed: Boolean, val rule: String = "")
