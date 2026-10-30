@@ -79,7 +79,7 @@ not arrival:
 |---|---|---|
 | `GOAL`, `CONSTRAINT` | pinned | always (a constraint like "no root" must outlive everything) |
 | `DECISION` | 1 | almost always |
-| `QUESTION` | 2 | usually |
+| `QUESTION`, `CONTEXT` | 2 | usually — and `CONTEXT` is how a follow-up survives pressure |
 | `FACT` | 3 | late |
 | `REFLECTION` | 4 | before facts |
 | `ACTION` | 5 | before reflections |
@@ -216,6 +216,14 @@ nothing to protect against there — the cheap path is already the default.
 
 ---
 
+### 7.2 A follow-up is not blind
+
+`and why?` is 8 characters and contains no clue about entropy. The engine keeps the last two
+(question, answer) pairs and seeds them into working memory as `CONTEXT` entries at the same priority as
+the question itself, so observation pressure evicts tool output before it evicts the thing being talked
+about. Bounded: two turns, 300 characters of question and 400 of answer each, discarded when the engine
+is destroyed. It is not a transcript — the transcript is what `LocalConversationMemory` is for.
+
 ## 8. What it does not do
 
 - **No self-modification.** The loop cannot change its own prompts, tools or budgets; those are compiled
@@ -282,7 +290,7 @@ in the export bundle.
 ## 9. Verification
 
 ```
-python3 tools/cognition-core/spec_check.py         PASS · 173 checks
+python3 tools/cognition-core/spec_check.py         PASS · 176 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
 ./scripts/verify_cognition_core.sh                 PASS (Kotlin half SKIPPED — no kotlinc)
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run

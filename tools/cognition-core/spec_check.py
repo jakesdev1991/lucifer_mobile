@@ -40,7 +40,7 @@ def check(name: str, condition: bool, detail: str = "") -> None:
 # Working memory
 # ─────────────────────────────────────────────────────────────────────────────
 
-PRIORITY = {"GOAL": 0, "CONSTRAINT": 0, "DECISION": 1, "QUESTION": 2, "FACT": 3,
+PRIORITY = {"GOAL": 0, "CONSTRAINT": 0, "DECISION": 1, "QUESTION": 2, "CONTEXT": 2, "FACT": 3,
             "REFLECTION": 4, "ACTION": 5, "OBSERVATION": 6}
 
 
@@ -128,6 +128,12 @@ def case_memory() -> None:
 
     check("memory: blank appends are ignored", Memory().append("FACT", "   ").entries == [])
     check("memory: summary names what is held", "1 goal" in Memory().append("GOAL", "g").summary())
+
+    # Prior turns are as protected as a question: a follow-up dies without them.
+    c = Memory(capacity=6).append("GOAL", "and why?").append("CONTEXT", "we were discussing entropy")
+    for i in range(8):
+        c.append("OBSERVATION", f"o{i}")
+    check("memory: context survives observation pressure", "CONTEXT" in c.kinds(), str(c.kinds()))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -780,6 +786,8 @@ def case_drift() -> None:
 
     # The engine must reach the runner, and keep the council as the fallback.
     check("drift: the engine calls the loop", "CognitionRunner.run(" in engine)
+    check("drift: the loop sees the previous turn", "priorTurns = priorTurns()" in engine)
+    check("drift: the engine keeps two turns", "recentTurns.size > 2" in engine)
     check("drift: the engine gates the loop on triage", "CognitionTriage.assess(" in engine)
     check("drift: an explicit /deep overrides triage", "directive.forced" in engine)
     check("drift: the directive is stripped before the model sees it", "directive.input" in engine)

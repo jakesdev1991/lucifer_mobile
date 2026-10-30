@@ -40,6 +40,18 @@ class ToEReasoningEngine(
     /** Built once: the planner holds a client, and a client per turn would re-read the key and config. */
     private val cognitionPlanner by lazy { NemotronCognitionPlanner(appContext) }
 
+    /** The last few (question, answer) pairs, so a follow-up in the loop is not blind. */
+    private val recentTurns = java.util.ArrayDeque<String>()
+
+    private fun rememberTurn(goal: String, answer: String) {
+        synchronized(recentTurns) {
+            recentTurns.addLast("asked: ${goal.take(200)}\nanswered: ${answer.take(400)}")
+            while (recentTurns.size > 2) recentTurns.removeFirst()
+        }
+    }
+
+    private fun priorTurns(): List<String> = synchronized(recentTurns) { recentTurns.toList() }
+
     /** The last deep run, for a status surface. Guarded because the launcher and the core both read it. */
     @Volatile
     var lastCognition: CognitionOutcome? = null
@@ -181,9 +193,11 @@ class ToEReasoningEngine(
             toolbox = AndroidCognitionTools.toolbox(appContext),
             confirmedTools = confirmedTools,
             budget = budget,
-            onStep = onStep
+            onStep = onStep,
+            priorTurns = priorTurns()
         )
         lastCognition = outcome
+        rememberTurn(input, outcome.answer)
         // The loop's decisions are unauditable unless something writes them down. Names and counts only;
         // what a tool returned is never persisted.
         CognitionLedger.record(appContext, outcome, input)

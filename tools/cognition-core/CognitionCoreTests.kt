@@ -107,6 +107,12 @@ object CognitionCoreTests {
         check("render keeps the goal", rendered.contains("goal line"))
         check("render keeps constraints", rendered.contains("constraint line"))
 
+        val context = WorkingMemory(capacity = 6)
+            .append(EntryKind.GOAL, "and why?")
+            .append(EntryKind.CONTEXT, "we were discussing entropy")
+        repeat(8) { context.append(EntryKind.OBSERVATION, "o$it") }
+        check("context outlives observation pressure", context.count(EntryKind.CONTEXT) == 1, context.summary())
+
         val ordered = WorkingMemory().append(EntryKind.OBSERVATION, "old").append(EntryKind.OBSERVATION, "new")
         check("newest renders first within a kind", ordered.render().indexOf("new") < ordered.render().indexOf("old"))
         check("blank appends are ignored", WorkingMemory().append(EntryKind.FACT, "   ").isEmpty())

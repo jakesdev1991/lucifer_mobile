@@ -99,6 +99,9 @@ enum class EntryKind(val priority: Int) {
     DECISION(1),
     /** Something still unknown, worth resolving. Dropped last. */
     QUESTION(2),
+
+    /** What was said immediately before this turn — a follow-up needs it more than any observation. */
+    CONTEXT(2),
     /** Established knowledge, with its source. Dropped late. */
     FACT(3),
     /** The loop's own judgement about its progress. Dropped before facts. */

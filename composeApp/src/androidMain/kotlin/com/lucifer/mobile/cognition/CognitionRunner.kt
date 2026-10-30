@@ -154,12 +154,16 @@ object CognitionRunner {
         toolbox: CognitionToolbox,
         confirmedTools: Set<String> = emptySet(),
         budget: LoopBudget = LoopBudget(),
-        onStep: ((StepRecord) -> Unit)? = null
+        onStep: ((StepRecord) -> Unit)? = null,
+        priorTurns: List<String> = emptyList()
     ): CognitionOutcome = withContext(Dispatchers.Default) {
         val started = System.currentTimeMillis()
         val tools = toolbox.specs()
         val memory = WorkingMemory()
             .append(EntryKind.GOAL, goal, "user")
+            // A follow-up ("and why?") is unanswerable without the turn before it. Two lines, capped,
+            // pinned at the same priority as a question so they survive observation pressure.
+            .appendAll(EntryKind.CONTEXT, priorTurns.map { it.take(300) }.takeLast(4), "earlier turn")
         val trace = mutableListOf<StepRecord>()
         val calls = mutableListOf<ToolCall>()
         val observations = mutableListOf<String>()
