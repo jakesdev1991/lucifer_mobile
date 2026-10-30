@@ -168,6 +168,11 @@ object SurfaceAnswers {
                 appendLine()
                 appendLine(spec.whatItIs)
                 appendLine()
+                // The one thing every capability answer must admit: the list is compiled in, the screen
+                // is not observed. Without this sentence a capability list reads like eyesight.
+                appendLine("I am describing this from the app's own description of the interface, not from")
+                appendLine("looking at it — I cannot see your screen.")
+                appendLine()
                 appendLine("What I can do here:")
                 spec.canDo.forEach { appendLine("· $it") }
                 appendLine()
@@ -201,6 +206,9 @@ object SurfaceAnswers {
                 appendLine()
                 appendLine("If you need something this surface cannot do, tell me the target — for example " +
                     "run it on TERMUX, on the VM, or locally — and I will say whether that one can.")
+                appendLine()
+                appendLine("One limit is the same everywhere: I know this interface from the app's own")
+                appendLine("description of it, because the app tells me which surface I am on. I cannot see your screen.")
                 append("Live right now: " + facts.snapshot().joinToString(" · "))
             }
 

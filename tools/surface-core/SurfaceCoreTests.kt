@@ -192,12 +192,17 @@ fun main() {
     }
 
     test("awareness never claims sight") {
-        val answer = SurfaceAnswers.answer("what can you do here?", Surface.LAUNCHER_CHAT, ONLINE)
-            ?: throw AssertionError("no answer")
-        expect(
-            answer.contains("cannot see your screen", ignoreCase = true),
-            "must state that it does not see the screen"
-        )
+        // Every answer that describes the interface, not only "where am I?", must admit it is reading a
+        // description. A capability list that omits this reads like eyesight.
+        val questions = listOf("where am I talking to you from?", "what can you do here?", "what can't you do here?")
+        for (question in questions) {
+            val answer = SurfaceAnswers.answer(question, Surface.LAUNCHER_CHAT, ONLINE)
+                ?: throw AssertionError("no answer to: $question")
+            expect(
+                answer.contains("cannot see your screen", ignoreCase = true),
+                "\"$question\" must state that it does not see the screen"
+            )
+        }
     }
 
     test("unregistered questions return null so normal chat continues") {
