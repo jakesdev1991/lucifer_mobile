@@ -33,7 +33,11 @@ fi
 mkdir -p "$OUT"
 
 echo "== compile + run verification control-plane checks =="
-"$KOTLINC_BIN" "$SRC/resilience/JsonLite.kt" \
+# AuditVaultContract/AuditVaultExecutor live in the same file as the HTTP transport that reaches the
+# vault, so the egress door is stubbed here too. The harness never opens it: it checks the contract
+# (canonical body, HMAC, headers), which is pure.
+"$KOTLINC_BIN" "$ROOT/tools/verification-core/android-stubs/EgressStubs.kt" \
+  "$SRC/resilience/JsonLite.kt" \
   "$SRC/verification/VerificationCore.kt" "$SRC/verification/VerificationRuntime.kt" \
   "$SRC/verification/VerificationServer.kt" "$SRC/verification/AuditVault.kt" \
   "$SRC/verification/StatementGates.kt" \

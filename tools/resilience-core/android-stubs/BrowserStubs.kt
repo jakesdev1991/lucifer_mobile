@@ -13,5 +13,5 @@ data class BrowserResult(
 )
 
 class LuciferBrowser(private val context: android.content.Context? = null) {
-    suspend fun navigate(url: String, timeoutMs: Int = 20_000): BrowserResult = BrowserResult()
+    suspend fun navigate(url: String, timeoutMs: Int = 20_000, userInitiated: Boolean = true): BrowserResult = BrowserResult()
 }
