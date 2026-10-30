@@ -435,7 +435,7 @@ in the export bundle.
 ```
 python3 tools/cognition-core/spec_check.py         PASS · 204 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
-./scripts/verify_cognition_core.sh                PASS · 141 + 21 + 10 + 9 + 13 Kotlin checks + 49 static claims
+./scripts/verify_cognition_core.sh                PASS · 141 + 21 + 10 + 9 + 13 + 9 Kotlin checks + 49 static claims
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run
 ```
 
@@ -459,6 +459,13 @@ looks like:
   invented answer, and the answer says which of the three happened
 - a thin draft to a long question is repaired exactly once; a draft that fails twice is reported, not shipped
 - confidence is `LOW` with no observations and the footer says "nothing was consulted"
+
+A sixth harness, `PlannerTests` (9 checks), executes `NemotronCognitionPlanner` — the prompt the model
+actually reads on every step. It proves that the system prompt carries the plan format, every tool, the
+surface block and the loop's own failure record; that the user prompt restates the task and what is
+known; that a tool result is fenced by the planner as well as by the runner and no live control line
+survives in it; that exactly one fence is emitted; and that a transport error (`[LLM] …`) or a blank
+reply is never returned as a repair.
 
 A fifth harness, `ToolsTests` (13 checks), executes the toolbox the app actually ships —
 `AndroidCognitionTools.toolbox(context)`, called with arguments a model could send. The six collaborating

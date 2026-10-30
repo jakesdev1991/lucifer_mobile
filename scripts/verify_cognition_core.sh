@@ -23,6 +23,7 @@ RUNNER_HARNESS="$ROOT/tools/cognition-core/RunnerTests.kt"
 LEDGER_HARNESS="$ROOT/tools/cognition-core/LedgerTests.kt"
 SCORES_HARNESS="$ROOT/tools/cognition-core/ScoresTests.kt"
 TOOLS_HARNESS="$ROOT/tools/cognition-core/ToolsTests.kt"
+PLANNER_HARNESS="$ROOT/tools/cognition-core/PlannerTests.kt"
 STUBS="$ROOT/tools/cognition-core/android-stubs"
 SPEC="$ROOT/tools/cognition-core/spec_check.py"
 OUT="${TMPDIR:-/tmp}/lucifer-cognition-build"
@@ -139,6 +140,23 @@ if [[ "$have_kotlin" -eq 1 ]]; then
   fi
 else
   echo "SKIPPED — kotlinc and/or java not found, so AndroidCognitionTools has NOT been executed."
+fi
+
+echo
+echo "== 2f. the prompt the model actually reads =="
+if [[ "$have_kotlin" -eq 1 ]]; then
+  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$PLANNER_HARNESS" -d "$OUT/planner-tests.jar" -nowarn; then
+    if [[ -f "$STDLIB" ]]; then
+      java -cp "$OUT/planner-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.PlannerTestsKt || status=1
+    else
+      java -cp "$OUT/planner-tests.jar" com.lucifer.mobile.cognition.harness.PlannerTestsKt || status=1
+    fi
+  else
+    echo "kotlinc failed to compile the planner harness" >&2
+    status=1
+  fi
+else
+  echo "SKIPPED — kotlinc and/or java not found, so NemotronCognitionPlanner has NOT been executed."
 fi
 
 echo
