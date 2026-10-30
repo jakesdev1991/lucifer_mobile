@@ -19,6 +19,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CORE="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/cognition"
 ENGINE="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/omni_bridge/knowledge/ToEReasoningEngine.kt"
 HARNESS="$ROOT/tools/cognition-core/CognitionCoreTests.kt"
+RUNNER_HARNESS="$ROOT/tools/cognition-core/RunnerTests.kt"
+STUBS="$ROOT/tools/cognition-core/android-stubs"
 SPEC="$ROOT/tools/cognition-core/spec_check.py"
 OUT="${TMPDIR:-/tmp}/lucifer-cognition-build"
 
@@ -64,6 +66,24 @@ else
   fi
   echo "SKIPPED — kotlinc and/or java not found. The Python spec above covers the same cases;"
   echo "          the Kotlin harness has NOT run in this workspace. Set KOTLINC=/path/to/kotlinc."
+fi
+
+echo
+echo "== 2b. the loop itself, executed (scripted model, recording toolbox) =="
+if [[ "$have_kotlin" -eq 1 ]]; then
+  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE/CognitionCore.kt" "$CORE/AnswerAudit.kt" \
+      "$CORE/CognitionRunner.kt" "$RUNNER_HARNESS" -d "$OUT/runner-tests.jar" -nowarn; then
+    if [[ -f "$STDLIB" ]]; then
+      java -cp "$OUT/runner-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.RunnerTestsKt || status=1
+    else
+      java -cp "$OUT/runner-tests.jar" com.lucifer.mobile.cognition.harness.RunnerTestsKt || status=1
+    fi
+  else
+    echo "kotlinc failed to compile the runner harness" >&2
+    status=1
+  fi
+else
+  echo "SKIPPED — kotlinc and/or java not found, so CognitionRunner.run has NOT been executed."
 fi
 
 echo
