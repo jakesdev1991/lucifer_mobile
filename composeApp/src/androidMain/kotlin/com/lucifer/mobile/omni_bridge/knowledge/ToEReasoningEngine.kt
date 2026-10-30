@@ -81,7 +81,11 @@ class ToEReasoningEngine(
      *   turn carries a surface block so "here" means something. Callers must pass their real surface;
      *   the [Surface.UNKNOWN] default reports an unnamed surface rather than inventing a launcher.
      */
-    suspend fun reason(input: String, surface: Surface = Surface.UNKNOWN): String {
+    suspend fun reason(
+        input: String,
+        surface: Surface = Surface.UNKNOWN,
+        onStep: ((com.lucifer.mobile.cognition.StepRecord) -> Unit)? = null
+    ): String {
         SurfaceRuntime.answerIfAboutSurface(appContext, input, surface)?.let { return it }
 
         // Before the single-pass council: is this a question that needs work, and does the work succeed?
@@ -94,7 +98,7 @@ class ToEReasoningEngine(
         val triage = CognitionTriage.assess(question, AndroidCognitionTools.specs().size)
         if (triage.deep || directive.forced) {
             val outcome = try {
-                deepReason(question, surface)
+                deepReason(question, surface, onStep = onStep)
             } catch (error: Exception) {
                 null
             }
@@ -166,13 +170,15 @@ class ToEReasoningEngine(
     suspend fun deepReason(
         input: String,
         surface: Surface = Surface.UNKNOWN,
-        confirmedTools: Set<String> = emptySet()
+        confirmedTools: Set<String> = emptySet(),
+        onStep: ((com.lucifer.mobile.cognition.StepRecord) -> Unit)? = null
     ): CognitionOutcome {
         val outcome = CognitionRunner.run(
             goal = input,
             planner = cognitionPlanner,
             toolbox = AndroidCognitionTools.toolbox(appContext),
-            confirmedTools = confirmedTools
+            confirmedTools = confirmedTools,
+            onStep = onStep
         )
         lastCognition = outcome
         // The loop's decisions are unauditable unless something writes them down. Names and counts only;

@@ -1091,7 +1091,20 @@ class MainActivity : ComponentActivity() {
                                                         when (route) {
                                                             ChatRoute.Conversation -> {
                                                                 val answer = try {
-                                                                    reasoner.reason(cmd, Surface.CORE_CHAT)
+                                                                    reasoner.reason(
+                                                                        cmd,
+                                                                        Surface.CORE_CHAT,
+                                                                        // One line per tool call, as it happens: a ninety-second
+                                                                        // silence reads as a hang, and the trace is the honest
+                                                                        // answer to "what is it doing".
+                                                                        onStep = { record ->
+                                                                            if (record.call != null) {
+                                                                                scope.launch(Dispatchers.Main) {
+                                                                                    appendTerminalLines(listOf("[THINK] " + record.brief()))
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    )
                                                                 } catch (e: Exception) {
                                                                     "[CHAT ERROR] ${e.message ?: "Could not answer"}"
                                                                 }

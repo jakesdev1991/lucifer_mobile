@@ -81,6 +81,18 @@ data class StepRecord(
     val result: ToolResult?,
     val note: String = ""
 ) {
+    /** One line for a chat transcript, while the loop is still running. */
+    fun brief(): String {
+        val call = this.call ?: return "answered"
+        val mark = when {
+            result == null -> "…"
+            result.ok -> "✓"
+            else -> "✗"
+        }
+        val detail = result?.detail?.takeIf { it.isNotBlank() }?.let { " ($it)" }.orEmpty()
+        return "$call $mark$detail"
+    }
+
     fun render(): String = buildString {
         append("${index + 1}. ")
         append(if (thought.isBlank()) "(no stated reason)" else thought)

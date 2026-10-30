@@ -98,12 +98,18 @@ Pure recovery/self-learning logic has a host-side harness that does not need the
 ./scripts/verify_design_core.sh       # Morningstar geometry: 16 assertions
 ./scripts/verify_privilege_core.sh    # privilege routing + the world: 22 assertions
 ./scripts/verify_verification_core.sh # Lean verifier: 32 control-plane + 23 runtime/transport assertions
-./scripts/verify_surface_core.sh      # surface awareness: 52 checks + call-site audit
+./scripts/verify_surface_core.sh      # surface awareness: 60 checks + call-site audit
 ./scripts/verify_privacy_core.sh      # egress policy: 90 checks + socket-owner audit
+./scripts/verify_browser_core.sh      # interactive browser policy + WebView hardening: 77 + 17
+./scripts/verify_voice_core.sh        # press-to-talk: 12 static properties
+./scripts/verify_cognition_core.sh    # the reasoning loop: 172 checks + a 10-invariant fuzz pass
+./scripts/cognition_sweep.sh --loop 0 # the same, on repeat, with a new fuzz seed each pass
 ```
 
-`verify_all.sh` runs all seven harnesses and all three static audits (`audit_egress.py`,
-`audit_surfaces.py`, `audit_config.py`) and reports **PASS / SKIP / FAIL** separately. A harness whose
+`verify_all.sh` runs all twelve harnesses and all five static audits (`audit_egress.py`,
+`audit_surfaces.py`, `audit_config.py`, `audit_manifest.py`, `audit_locals.py`) and reports
+**PASS / SKIP / FAIL** separately. `audit_locals.py` is a compile-lite check for a local used before its
+own declaration — the error that reads perfectly and does not compile. A harness whose
 Kotlin step cannot compile because `kotlinc` is missing reports **SKIPPED**, not PASS — it did not run,
 and saying otherwise is the one thing a verification script must never do. Set
 `LUCIFER_REQUIRE_KOTLIN=1` (as CI does) to turn a missing toolchain into a failure.

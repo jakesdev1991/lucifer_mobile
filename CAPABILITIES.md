@@ -101,6 +101,22 @@ confirmation. Laplace-smoothed confidence, promotion at 2, retirement at 3 losse
 stale drop, directive supersession. Caps: 64 skills, 5 lines / 1200 chars per prompt, one atomic file.
 Injected as *habits, not permissions*, with a footer that says so. See [SKILL_SYNTHESIS.md](SKILL_SYNTHESIS.md).
 
+**The reasoning loop** (`cognition/`, [COGNITION.md](COGNITION.md)). A message is triaged first: greetings,
+short facts and anything with no tools available take the existing single-pass path. A multi-part question,
+a reasoning shape ("design", "debug", "why does") with a second clause, or `/deep` enters a bounded
+think-act-observe loop — 8 steps, 90 seconds, 24 000 characters of observation — where each step is one
+model call, one tool, and one result. Seven tools, each with a declared side effect: corpus search, local
+memory search, device facts (`DEVICE_READ`), clock, exact arithmetic (a real parser, not a guess), a page
+read, and bounded web research — the last two through the egress gate, so they appear in the ledger and
+ride Tor. Anything that writes, changes the device or sends outward requires the owner's confirmation and
+**none ship**, so the loop reads and concludes and changes nothing. Before the answer is shown it is
+audited: grounded in what a tool returned, no certainty it has not earned, no claim about this device
+without a device read. One repair attempt on a blocker, then it says so. Confidence is a four-rung ladder
+that is never HIGH without two observations. Tool output is treated as hostile: a fetched page cannot
+speak the control format, because every observation is defanged before it reaches a prompt. Every run is
+logged to `files/cognition/runs.jsonl` (names, counts, confidence — never what a tool returned), and the
+last run's step-by-step trace is in the Skills tab.
+
 **Reference library.** 100 reference-only skills in 10 packs (`assets/skills/skill_library.json`, 53 KB),
 schema-validated and fail-closed, lexically retrieved into Four Horsemen and workflow prompts. Immutable,
 `REFERENCE_ONLY`, never a tool.
