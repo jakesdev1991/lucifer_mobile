@@ -377,6 +377,9 @@ object SurfaceKnowledge {
             appendLine("Cannot do here: " + spec.cannotDo.take(3).joinToString(" ") { it.trimEnd('.') + "." })
             appendLine("Confirmation: ${spec.confirmation}")
             appendLine("Live state: " + facts.snapshot().joinToString(" · "))
+            // Every call, not just the loop's: a model that does not know it can look will answer from
+            // recollection and sound certain about it.
+            appendLine(com.lucifer.mobile.cognition.CognitionKnowledge.promptLine())
             appendLine(
                 "Rules: state only what this surface can actually do. You know which surface you are on " +
                     "because the app told you; you cannot see the screen. If you are unsure, say so."

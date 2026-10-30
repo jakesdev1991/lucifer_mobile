@@ -1,5 +1,7 @@
 package com.lucifer.mobile.cognition
 
+import java.util.Locale
+
 /**
  * The scaffold a model needs before it can be said to *think* about something rather than answer it.
  *
@@ -172,8 +174,10 @@ class WorkingMemory(
                 .filter { (_, entry) -> entry.kind.priority > 0 }
                 .maxWithOrNull(compareBy({ it.value.kind.priority }, { -it.index }))
                 ?.value
-                ?: entries.removeAt(entries.size - 1) // all pinned: drop the newest, never the goal
-            entries.remove(victim)
+            // `remove(victim)` on a data class removes the first *equal* entry, which is the wrong one
+            // when two pinned entries happen to be identical. Remove by value only for the found victim,
+            // and fall back to dropping the newest when everything left is pinned.
+            if (victim != null) entries.remove(victim) else entries.removeAt(entries.size - 1)
         }
     }
 
@@ -511,6 +515,110 @@ object CognitionTriage {
 }
 
 /**
+ * The catalogue of what the loop can do — declared here, in the pure core, so three things can read the
+ * same list without drifting: the toolbox that executes it, the prompt that offers it, and the answer
+ * Lucifer gives when asked what tools he has.
+ *
+ * Ids are constants rather than strings at the call sites so a rename cannot leave a tool unreachable.
+ */
+object ToolCatalogue {
+
+    const val CORPUS = "corpus_search"
+    const val MEMORY = "memory_search"
+    const val DEVICE = "device_facts"
+    const val CLOCK = "clock"
+    const val PAGE = "page_read"
+    const val CALCULATE = "calculate"
+    const val RESEARCH = "web_research"
+
+    fun specs(): List<ToolSpec> = listOf(
+        ToolSpec(CORPUS, "search the embedded Omega ToE corpus", SideEffect.NONE, "query", 200),
+        ToolSpec(MEMORY, "search what Lucifer remembers from earlier conversations", SideEffect.NONE, "query", 200),
+        ToolSpec(DEVICE, "read this device's real state", SideEffect.DEVICE_READ, "topic: build|apps|network|memory|all", 40),
+        ToolSpec(CLOCK, "current local date and time", SideEffect.NONE, "ignored", 20),
+        ToolSpec(
+            PAGE,
+            "fetch a public page's text through the egress gate",
+            SideEffect.NETWORK_READ,
+            "https URL",
+            400
+        ),
+        ToolSpec(
+            CALCULATE,
+            "exact arithmetic: + - * / % ^, parentheses, sqrt/ln/log/min/max/pow…",
+            SideEffect.NONE,
+            "expression",
+            300
+        ),
+        ToolSpec(
+            RESEARCH,
+            "search public sources and read the best few, through the egress gate",
+            SideEffect.NETWORK_READ,
+            "question",
+            300
+        )
+    )
+}
+
+/**
+ * How he reasons, in his own words, generated from the machinery rather than written beside it.
+ *
+ * This exists because "I want Lucifer to be totally aware of his surface" is a standing requirement, and
+ * a capability he cannot describe accurately is one he will describe inaccurately. The tool list, the
+ * budgets and the confirmation rule are all read from the live objects, so this answer cannot drift from
+ * the code the way a hand-written paragraph does.
+ */
+object CognitionKnowledge {
+
+    fun describe(tools: List<ToolSpec> = ToolCatalogue.specs(), budget: LoopBudget = LoopBudget()): String = buildString {
+        appendLine("Here is how I actually work, not how a chatbot describes itself.")
+        appendLine()
+        appendLine("A message is triaged first. Most get one pass. A question that is multi-part, or shaped")
+        appendLine("like reasoning ("design", "debug", "why does"), enters a bounded loop:")
+        appendLine("think → use one tool → read the result → think again.")
+        appendLine()
+        appendLine("The loop is bounded at ${budget.maxSteps} steps, ${budget.maxElapsedMs / 1000} seconds and " +
+            "${budget.maxObservationChars} characters of tool output, and it stops on repetition too — three")
+        appendLine("identical calls is not exploration. When it stops without an answer it says which budget")
+        appendLine("ran out instead of trailing off.")
+        appendLine()
+        appendLine("Tools it can use mid-thought:")
+        for (spec in tools) {
+            appendLine("· ${spec.id} — ${spec.title} (${spec.effect.label}" +
+                if (spec.needsConfirmation) ", needs your confirmation)" else ")")
+        }
+        appendLine()
+        appendLine("Reads are free. Anything that writes, changes the device or sends something outward needs")
+        appendLine("your confirmation, and none of those ship today — so the loop reads and concludes, and")
+        appendLine("changes nothing.")
+        appendLine()
+        appendLine("Before any deep answer is shown it is audited: is it grounded in what a tool actually")
+        appendLine("returned, does it claim certainty it has not earned, does it say something about this")
+        appendLine("device without having read it. The answer ends with a confidence line, and the trace is")
+        appendLine("kept in the Skills tab.")
+        appendLine()
+        append("You can ask for depth explicitly with /deep before your question. I cannot ask for a")
+        append("shallower answer — the cheap path is already the default.")
+    }
+
+    /** The two-line version injected into every model call, so he never answers as if he had no tools. */
+    fun promptLine(tools: List<ToolSpec> = ToolCatalogue.specs()): String = buildString {
+        appendLine("=== HOW YOU WORK ===")
+        appendLine(
+            "You may answer in one pass, or — on a hard question — reason in steps with these tools: " +
+                tools.joinToString(", ") { it.id } + "."
+        )
+        append("Anything about this device must come from a tool result in this turn. If you cannot check " +
+            "it, say you cannot check it.")
+    }
+
+    /** One line for a status card. */
+    fun summary(): String =
+        "${ToolCatalogue.specs().size} tools · ${LoopBudget().maxSteps} steps · " +
+            "${LoopBudget().maxElapsedMs / 1000}s · every deep answer audited"
+}
+
+/**
  * A way to *ask* for depth instead of guessing whether the question deserves it.
  *
  * `/deep why does the transport policy refuse a WebView under Tor?` runs the loop regardless of length or
@@ -587,12 +695,16 @@ object Calculator {
     fun format(value: Double): String {
         if (value == 0.0) return "0"
         val magnitude = Math.abs(value)
-        if (magnitude >= 1e15 || magnitude < 1e-9) return String.format("%.6e", value).replace("e+", "e")
+        // Locale.US, always. On a phone set to German the default locale prints "2,5", and a calculator
+        // that returns a comma is a calculator the model will misread on the next step.
+        if (magnitude >= 1e15 || magnitude < 1e-9) {
+            return String.format(Locale.US, "%.6e", value).replace("e+", "e")
+        }
         val rounded = Math.round(value).toDouble()
-        return if (Math.abs(value - rounded) < 1e-9) String.format("%.0f", rounded)
-        else {
-            val raw = String.format("%.10f", value)
-            raw.trimEnd('0').trimEnd('.')
+        return if (Math.abs(value - rounded) < 1e-9) {
+            String.format(Locale.US, "%.0f", rounded)
+        } else {
+            String.format(Locale.US, "%.10f", value).trimEnd('0').trimEnd('.')
         }
     }
 

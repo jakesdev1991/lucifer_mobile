@@ -248,11 +248,12 @@ object CognitionRunner {
             }
             calls += call
             val bounded = result.output.take(budget.maxObservationChars.coerceAtMost(6_000))
+            // A tool result is untrusted text — a fetched page can be written by someone who knows this
+            // loop reads pages. It is defanged before it reaches the observations, memory, or the next
+            // prompt. (Declared before use: this line was in the wrong order until it was re-read.)
+            val safe = ObservationFence.sanitize(bounded)
             observations += safe
             observedChars += bounded.length
-            // A tool result is untrusted text — a fetched page can be written by someone who knows this
-            // loop reads pages. It is defanged before it reaches memory or the next prompt.
-            val safe = ObservationFence.sanitize(bounded)
             lastObservation = if (result.ok) safe else "FAILED — ${result.detail.ifBlank { "no detail" }}"
             memory
                 .append(EntryKind.ACTION, "${call.render()} → ${if (result.ok) "ok" else "failed"}", spec.id)
@@ -389,23 +390,16 @@ object CognitionRunner {
 /** The tools Lucifer can actually use mid-thought. Each one is real; nothing here is aspirational. */
 object AndroidCognitionTools {
 
-    const val CORPUS = "corpus_search"
-    const val MEMORY = "memory_search"
-    const val DEVICE = "device_facts"
-    const val CLOCK = "clock"
-    const val PAGE = "page_read"
-    const val CALCULATE = "calculate"
-    const val RESEARCH = "web_research"
+    const val CORPUS = ToolCatalogue.CORPUS
+    const val MEMORY = ToolCatalogue.MEMORY
+    const val DEVICE = ToolCatalogue.DEVICE
+    const val CLOCK = ToolCatalogue.CLOCK
+    const val PAGE = ToolCatalogue.PAGE
+    const val CALCULATE = ToolCatalogue.CALCULATE
+    const val RESEARCH = ToolCatalogue.RESEARCH
 
-    fun specs(): List<ToolSpec> = listOf(
-        ToolSpec(CORPUS, "search the embedded Omega ToE corpus", SideEffect.NONE, "query", 200),
-        ToolSpec(MEMORY, "search what Lucifer remembers from earlier conversations", SideEffect.NONE, "query", 200),
-        ToolSpec(DEVICE, "read this device's real state", SideEffect.DEVICE_READ, "topic: build|apps|network|memory|all", 40),
-        ToolSpec(CLOCK, "current local date and time", SideEffect.NONE, "ignored", 20),
-        ToolSpec(PAGE, "fetch a public page's text through the egress gate", SideEffect.NETWORK_READ, "https URL", 400),
-        ToolSpec(CALCULATE, "exact arithmetic: + - * / % ^, parentheses, sqrt/ln/log/min/max/pow…", SideEffect.NONE, "expression", 300),
-        ToolSpec(RESEARCH, "search public sources and read the best few, through the egress gate", SideEffect.NETWORK_READ, "question", 300)
-    )
+    /** The catalogue lives in the pure core so the prompt, the toolbox and the answer cannot drift. */
+    fun specs(): List<ToolSpec> = ToolCatalogue.specs()
 
     fun toolbox(context: Context): CognitionToolbox {
         val app = context.applicationContext

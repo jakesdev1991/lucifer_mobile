@@ -1,5 +1,7 @@
 package com.lucifer.mobile.surface
 
+import com.lucifer.mobile.cognition.CognitionKnowledge
+
 /**
  * Deterministic answers about Lucifer's own interfaces.
  *
@@ -28,6 +30,9 @@ enum class SurfaceQuestion {
 
     /** "Will you ask before running something?" */
     CONFIRMATION,
+
+    /** "How do you think? Do you use tools? Are you just guessing?" */
+    REASONING,
 
     /** "Which interfaces can I reach you from?" */
     LIST,
@@ -83,6 +88,16 @@ object SurfaceQuestions {
         Regex("(?i)\\bcan you run (it|that|this) (without|with no) (asking|confirmation|approval)\\b")
     )
 
+    private val REASONING = listOf(
+        Regex("(?i)\\bhow (do|does) (you|he|lucifer) (think|reason|decide|work (it|that) out|figure|check)\\b"),
+        Regex("(?i)\\bdo you (use|have) (any )?(tools?|a loop|steps|reasoning)\\b"),
+        Regex("(?i)\\bare you (just )?(guessing|making (it|that|things) up|hallucinating|improvising)\\b"),
+        Regex("(?i)\\bhow (many )?steps\\b"),
+        Regex("(?i)\\bwhat tools (do you|have you|are)\\b"),
+        Regex("(?i)\\b(step by step|chain of thought|think harder|go deeper)\\b"),
+        Regex("(?i)\\bhow (do|can) you (know|verify|confirm) (that|this|it)\\b")
+    )
+
     private val LIST = listOf(
         Regex("(?i)\\b(what|which) (interfaces?|surfaces?|ways|places) (can i|do i|to)\\b"),
         Regex("(?i)\\bwhere (can|do) i (talk|reach|message) (to )?you\\b"),
@@ -105,6 +120,7 @@ object SurfaceQuestions {
         if (LIMITS.any { it.containsMatchIn(text) }) return SurfaceQuestion.LIMITS
         if (DATA.any { it.containsMatchIn(text) }) return SurfaceQuestion.DATA
         if (CONFIRMATION.any { it.containsMatchIn(text) }) return SurfaceQuestion.CONFIRMATION
+        if (REASONING.any { it.containsMatchIn(text) }) return SurfaceQuestion.REASONING
         if (WHERE.any { it.containsMatchIn(text) }) return SurfaceQuestion.WHERE
         if (CAPABILITIES.any { it.containsMatchIn(text) }) return SurfaceQuestion.CAPABILITIES
         if (LIST.any { it.containsMatchIn(text) }) return SurfaceQuestion.LIST
@@ -132,6 +148,8 @@ object SurfaceAnswers {
                 appendLine("Live right now: " + facts.snapshot().joinToString(" · "))
                 append("I know this because the app tells me which surface I am on. I cannot see your screen.")
             }
+
+            SurfaceQuestion.REASONING -> CognitionKnowledge.describe()
 
             SurfaceQuestion.CAPABILITIES -> buildString {
                 appendLine("Here is what I can actually do from ${surface.displayName}.")

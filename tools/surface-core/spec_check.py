@@ -63,6 +63,15 @@ CAPABILITIES = [
     # Articles allowed: "run a shell", "send the command".
     r"\bcan you (run|execute|type|launch|control) (a |an |the )?(commands?|shell|terminal|termux|vm)\b",
 ]
+REASONING = [
+    r"\bhow (do|does) (you|he|lucifer) (think|reason|decide|work (it|that) out|figure|check)\b",
+    r"\bdo you (use|have) (any )?(tools?|a loop|steps|reasoning)\b",
+    r"\bare you (just )?(guessing|making (it|that|things) up|hallucinating|improvising)\b",
+    r"\bhow (many )?steps\b",
+    r"\bwhat tools (do you|have you|are)\b",
+    r"\b(step by step|chain of thought|think harder|go deeper)\b",
+    r"\bhow (do|can) you (know|verify|confirm) (that|this|it)\b",
+]
 LIST = [
     r"\b(what|which) (interfaces?|surfaces?|ways|places) (can i|do i|to)\b",
     r"\bwhere (can|do) i (talk|reach|message) (to )?you\b",
@@ -92,6 +101,8 @@ def classify(raw: str) -> str:
         return "DATA"
     if _any(CONFIRMATION, text):
         return "CONFIRMATION"
+    if _any(REASONING, text):
+        return "REASONING"
     if _any(WHERE, text):
         return "WHERE"
     if _any(CAPABILITIES, text):
@@ -182,6 +193,19 @@ def case_classifier():
     check("empty is NONE", classify("") == "NONE")
     check("very long is NONE", classify("what can you do here? " + "x" * 300) == "NONE")
     check("statement is NONE", classify("the overlay is nice") == "NONE")
+
+    # The reasoning category: how he works is a surface question too, and it must not swallow
+    # ordinary questions about reasoning or about tools the user names themselves.
+    check("reasoning: 'how do you think?'", classify("how do you think?") == "REASONING")
+    check("reasoning: 'do you use tools?'", classify("do you use tools?") == "REASONING")
+    check("reasoning: 'are you just guessing?'", classify("are you just guessing?") == "REASONING")
+    check("reasoning: 'what tools do you have'", classify("what tools do you have?") == "REASONING")
+    check("reasoning: 'step by step'", classify("explain step by step?") == "REASONING")
+    check("reasoning: 'how do you check that?'", classify("how do you check that?") == "REASONING")
+    check("reasoning: a statement about thinking is NONE",
+          classify("thinking about the terminal is hard") == "NONE")
+    check("reasoning: confirmation still wins",
+          classify("will you confirm before you think?") == "CONFIRMATION")
 
 
 # ── answer shape ─────────────────────────────────────────────────────

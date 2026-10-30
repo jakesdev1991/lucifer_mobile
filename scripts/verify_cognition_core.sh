@@ -111,11 +111,18 @@ else
   echo "  ok    the pure core has no Android imports"
 fi
 
-# And the adapters must not add a tool that reaches the network or the device without declaring it.
-if grep -q "SideEffect.NONE" "$RUNNER"; then
+# And the catalogue must keep declaring an effect for every tool: no tool may reach the network or the
+# device without saying so, and at least one must be a pure read.
+if grep -q "SideEffect.NONE" "$CORE/CognitionCore.kt"; then
   echo "  ok    side effects are declared per tool"
 else
   echo "  FAILED  no tool declares SideEffect.NONE — the effect model has been bypassed" >&2
+  status=1
+fi
+if [[ "$(grep -c "ToolSpec(" "$CORE/CognitionCore.kt")" -ge 7 ]]; then
+  echo "  ok    seven tools in the catalogue, each with a declared effect"
+else
+  echo "  FAILED  the catalogue lost tools" >&2
   status=1
 fi
 

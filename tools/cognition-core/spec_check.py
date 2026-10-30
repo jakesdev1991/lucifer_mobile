@@ -791,13 +791,24 @@ def case_drift() -> None:
 
     # No tool in the shipped toolbox may claim a side effect it does not have, and every tool id must
     # be one the parser would accept.
-    ids = re.findall(r'ToolSpec\((\w+),', runner)
-    check("drift: the toolbox declares tools as constants", len(ids) >= 3, str(ids))
-    for tool_id in ("CORPUS", "MEMORY", "DEVICE", "CLOCK", "PAGE"):
-        check(f"drift: tool {tool_id} exists", f'const val {tool_id} =' in runner)
-    check("drift: exactly two tools reach the network", runner.count("SideEffect.NETWORK_READ") == 2)
-    check("drift: a calculator tool exists", 'CALCULATE = "calculate"' in runner)
-    check("drift: research is a tool", 'RESEARCH = "web_research"' in runner)
+    ids = re.findall(r"ToolSpec\(\s*(\w+),", core)
+    check("drift: the catalogue declares at least seven tools", len(ids) >= 7, str(ids))
+    for tool_id in ("CORPUS", "MEMORY", "DEVICE", "CLOCK", "PAGE", "CALCULATE", "RESEARCH"):
+        check(f"drift: tool {tool_id} is in the catalogue", f"const val {tool_id} =" in core)
+    check("drift: exactly two tools reach the network", core.count("SideEffect.NETWORK_READ") == 2)
+    check("drift: a calculator tool exists", 'CALCULATE = "calculate"' in core)
+    check("drift: research is a tool", 'RESEARCH = "web_research"' in core)
+    # The awareness answer is generated *from* the catalogue rather than written beside it, which is
+    # stronger than any list of names: it cannot mention a tool that does not exist, or omit one that does.
+    knowledge = core.split("object CognitionKnowledge")[1]
+    check("drift: the self-description is generated from the catalogue", "tools: List<ToolSpec> = ToolCatalogue.specs()" in knowledge)
+    check("drift: it iterates the tools it will name", "for (spec in tools)" in knowledge and "spec.id" in knowledge)
+    check("drift: the prompt line joins the same ids", "tools.joinToString(", ") { it.id }" in
+          knowledge.split("fun promptLine")[1])
+    check("drift: the surface prompt carries the tool fact",
+          "CognitionKnowledge.promptLine(" in open(
+              os.path.join(ROOT, "composeApp", "src", "androidMain", "kotlin", "com", "lucifer", "mobile",
+                           "surface", "Surfaces.kt"), encoding="utf-8").read())
     check("drift: the calculator is not an eval",
           "eval(" not in core.split("object Calculator")[1])
     check("drift: the calculator is total", "catch (error: Exception)" in core.split("object Calculator")[1])
