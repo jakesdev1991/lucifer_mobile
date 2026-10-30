@@ -249,6 +249,9 @@ found four more defects that no static check could have:
   only appeared inside the page as a `querySelector` SyntaxError, which the user reads as nothing
   happening.
 
+- **"Stopped by you" also counted model failures.** The ledger marked every `CANCELLED` run as the owner's
+  decision, but a planner that threw and an unavailable model route are `CANCELLED` too — so a transport
+  failure was reported as "1 stopped by you". The interrupted flag is the record now, not the termination.
 - **A pasted document was re-sent in full on every step.** Working memory's renderer exempted pinned
   entries from its character budget, so a 5 000-character goal reached the model whole on every step
   while the observations meant to answer it were squeezed out. Pinned entries are still never dropped —
@@ -427,7 +430,7 @@ in the export bundle.
 ```
 python3 tools/cognition-core/spec_check.py         PASS · 204 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
-./scripts/verify_cognition_core.sh                PASS · 137 + 21 Kotlin checks + 49 static claims
+./scripts/verify_cognition_core.sh                PASS · 137 + 21 + 10 Kotlin checks + 49 static claims
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run
 ```
 
@@ -452,7 +455,13 @@ looks like:
 - a thin draft to a long question is repaired exactly once; a draft that fails twice is reported, not shipped
 - confidence is `LOW` with no observations and the footer says "nothing was consulted"
 
-What the runner harness still cannot see: the real `NemotronCognitionPlanner` has never been called
+A third harness, `LedgerTests` (10 checks), executes the ledger against a real (small) JSON
+implementation and a temporary filesystem, because the promises there are about the file: **what a tool
+returned is never written down**, the goal is capped at 160 characters, an interrupted run is recorded as
+the owner's decision, a corrupt line cannot poison the summary or the panel, rotation keeps the file
+under 256 KB and keeps the newest runs, and clearing deletes the file rather than emptying it.
+
+What these harnesses still cannot see: the real `NemotronCognitionPlanner` has never been called
 (no key, no network), none of the six real tools has ever run against a device, and the coroutines shim
 that stands in for kotlinx is not kotlinx — `withTimeout` is a daemon thread rather than cooperative
 cancellation, so structured concurrency is untested.

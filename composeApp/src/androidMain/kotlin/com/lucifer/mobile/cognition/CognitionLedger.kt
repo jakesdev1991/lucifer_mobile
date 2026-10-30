@@ -74,6 +74,10 @@ object CognitionLedger {
                 put("tools", org.json.JSONArray())
                 put("elapsedMs", elapsedMs)
                 put("termination", Termination.CANCELLED.name)
+                // The flag, not the termination, is what makes this the owner's decision. A model call
+                // that threw or an unavailable route is *also* CANCELLED, and counting those as "stopped
+                // by you" would credit the owner with a failure he never chose.
+                put("interrupted", true)
                 put("stopDetail", "stopped by the owner after ${elapsedMs / 1000}s")
                 put("concluded", false)
                 put("confidence", AnswerAudit.Confidence.NONE.name)
@@ -148,7 +152,7 @@ object CognitionLedger {
         // Parenthesised on purpose: `a ?: 0 > 0` parses as `a ?: (0 > 0)`, which does not compile.
         val withFindings = runs.count { (it.optJSONArray("findings")?.length() ?: 0) > 0 }
         val avgSteps = runs.map { it.optInt("steps") }.average().let { (it * 10).toInt() / 10.0 }
-        val interrupted = runs.count { it.optString("termination") == Termination.CANCELLED.name }
+        val interrupted = runs.count { it.optBoolean("interrupted") }
         return "${runs.size} run(s) · $concluded concluded · $withFindings with caveats · " +
             (if (interrupted > 0) "$interrupted stopped by you · " else "") +
             "${avgSteps} steps on average"

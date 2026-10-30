@@ -385,7 +385,7 @@ Run in this workspace, just now:
 | `python3 tools/cognition-core/fuzz.py` | **FUZZ OK · 13 invariants** |
 | `python3 tools/cognition-core/loop_sim.py` | **LOOP SIM OK · 7 invariants, scripted runs** |
 | `./scripts/verify_all.sh --quiet` | **PASS 18 · SKIP 0 · FAIL 0** |
-| `./scripts/verify_cognition_core.sh` | **PASS · 137 Kotlin checks** + 49 static claims |
+| `./scripts/verify_cognition_core.sh` | **PASS · 137 + 21 + 10 Kotlin checks** + 49 static claims |
 | `./scripts/verify_synth_core.sh` | **PASS · 128 spec checks + 28 Kotlin checks** |
 | `./scripts/verify_verification_core.sh` | **PASS · 32 + 23 Kotlin checks** + adapter type-check |
 

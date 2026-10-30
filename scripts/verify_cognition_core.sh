@@ -20,6 +20,7 @@ CORE="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/cognition"
 ENGINE="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/omni_bridge/knowledge/ToEReasoningEngine.kt"
 HARNESS="$ROOT/tools/cognition-core/CognitionCoreTests.kt"
 RUNNER_HARNESS="$ROOT/tools/cognition-core/RunnerTests.kt"
+LEDGER_HARNESS="$ROOT/tools/cognition-core/LedgerTests.kt"
 STUBS="$ROOT/tools/cognition-core/android-stubs"
 SPEC="$ROOT/tools/cognition-core/spec_check.py"
 OUT="${TMPDIR:-/tmp}/lucifer-cognition-build"
@@ -84,6 +85,25 @@ if [[ "$have_kotlin" -eq 1 ]]; then
   fi
 else
   echo "SKIPPED — kotlinc and/or java not found, so CognitionRunner.run has NOT been executed."
+fi
+
+echo
+echo "== 2c. the ledger a run leaves behind =="
+if [[ "$have_kotlin" -eq 1 ]]; then
+  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE/CognitionCore.kt" "$CORE/AnswerAudit.kt" \
+      "$CORE/CognitionRunner.kt" "$CORE/CognitionLedger.kt" "$LEDGER_HARNESS" \
+      -d "$OUT/ledger-tests.jar" -nowarn; then
+    if [[ -f "$STDLIB" ]]; then
+      java -cp "$OUT/ledger-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.LedgerTestsKt || status=1
+    else
+      java -cp "$OUT/ledger-tests.jar" com.lucifer.mobile.cognition.harness.LedgerTestsKt || status=1
+    fi
+  else
+    echo "kotlinc failed to compile the ledger harness" >&2
+    status=1
+  fi
+else
+  echo "SKIPPED — kotlinc and/or java not found, so CognitionLedger has NOT been executed."
 fi
 
 echo
