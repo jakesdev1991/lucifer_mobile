@@ -438,7 +438,7 @@ in the export bundle.
 ```
 python3 tools/cognition-core/spec_check.py         PASS · 204 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
-./scripts/verify_cognition_core.sh                PASS · 176 + 21 + 10 + 9 + 13 + 9 Kotlin checks + 200-run loop fuzz + 49 static claims
+./scripts/verify_cognition_core.sh                PASS · 176 + 21 + 11 + 9 + 13 + 9 Kotlin checks + 200-run loop fuzz + 49 static claims
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run
 ```
 
@@ -493,7 +493,7 @@ and three are advice, that a call which returned nothing is not a success, that 
 not counted, that the record is capped at 24 tools and stays under 2 KB, and that a corrupt count restarts
 instead of breaking the turn.
 
-A third harness, `LedgerTests` (10 checks), executes the ledger against a real (small) JSON
+A third harness, `LedgerTests` (11 checks), executes the ledger against a real (small) JSON
 implementation and a temporary filesystem, because the promises there are about the file: **what a tool
 returned is never written down**, the goal is capped at 160 characters, an interrupted run is recorded as
 the owner's decision, a corrupt line cannot poison the summary or the panel, rotation keeps the file

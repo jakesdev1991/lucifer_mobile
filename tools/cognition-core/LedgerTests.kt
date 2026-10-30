@@ -247,6 +247,19 @@ fun main() {
         expect(file.readLines().filter { it.isNotBlank() }.size >= 50, "a minimum history is kept")
     }
 
+    test("the summary follows the file, cached or not") {
+        val (context, _) = freshContext()
+        expectEq(CognitionLedger.summary(context), "no deep runs recorded yet", "before anything")
+        CognitionLedger.record(context, runOnce(), "one")
+        expectContains(CognitionLedger.summary(context), "1 run(s)", "after one run")
+        // The card asks for this on every recomposition; the answer is remembered against the file, so
+        // this also proves the cache is invalidated by a write rather than served stale.
+        CognitionLedger.record(context, runOnce(), "two")
+        expectContains(CognitionLedger.summary(context), "2 run(s)", "after two")
+        CognitionLedger.clear(context)
+        expectEq(CognitionLedger.summary(context), "no deep runs recorded yet", "after clearing")
+    }
+
     test("count and clear behave") {
         val (context, file) = freshContext()
         CognitionLedger.record(context, runOnce(), "one")

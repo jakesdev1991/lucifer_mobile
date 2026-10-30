@@ -138,15 +138,37 @@ object CognitionLedger {
         emptyList()
     }
 
-    /** One line for a card: how many runs, how many concluded, how many needed a caveat. */
+    /**
+     * One line for a card: how many runs, how many concluded, how many needed a caveat.
+     *
+     * The Skills card asks for this whenever it recomposes, and answering means reading up to 500 lines
+     * and parsing every one of them. The result only changes when the file does, so it is remembered
+     * against the file's size and modification time — a cheap key that cannot go stale silently, because
+     * every write appends (the size changes) or rotates (the size changes again).
+     */
     fun summary(context: Context): String {
-        val runs = recent(context, max = 500).mapNotNull {
-            try {
-                JSONObject(it)
-            } catch (_: Exception) {
-                null
+        val target = file(context)
+        val key = if (target.isFile) target.length() to target.lastModified() else -1L to -1L
+        cachedSummary?.let { (cachedKey, value) -> if (cachedKey == key) return value }
+        val computed = computeSummary(target)
+        cachedSummary = key to computed
+        return computed
+    }
+
+    @Volatile
+    private var cachedSummary: Pair<Pair<Long, Long>, String>? = null
+
+    private fun computeSummary(target: File): String {
+        val runs = if (!target.isFile) emptyList() else target.readLines(Charsets.UTF_8)
+            .filter { it.isNotBlank() }
+            .takeLast(500)
+            .mapNotNull { line ->
+                try {
+                    JSONObject(line)
+                } catch (_: Exception) {
+                    null
+                }
             }
-        }
         if (runs.isEmpty()) return "no deep runs recorded yet"
         val concluded = runs.count { it.optBoolean("concluded") }
         // Parenthesised on purpose: `a ?: 0 > 0` parses as `a ?: (0 > 0)`, which does not compile.
