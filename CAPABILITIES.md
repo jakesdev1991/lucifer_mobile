@@ -384,15 +384,23 @@ Run in this workspace, just now:
 | `python3 tools/cognition-core/spec_check.py` | **PASS · 202 checks** |
 | `python3 tools/cognition-core/fuzz.py` | **FUZZ OK · 13 invariants** |
 | `python3 tools/cognition-core/loop_sim.py` | **LOOP SIM OK · 7 invariants, scripted runs** |
-| `./scripts/verify_all.sh --quiet` | **PASS 6 · SKIP 11 · FAIL 0** |
-| `./scripts/verify_synth_core.sh` | PASS (Kotlin stage SKIPPED) |
+| `./scripts/verify_all.sh --quiet` | **PASS 18 · SKIP 0 · FAIL 0** |
+| `./scripts/verify_cognition_core.sh` | **PASS · 134 Kotlin checks** + 49 static claims |
+| `./scripts/verify_synth_core.sh` | **PASS · 128 spec checks + 28 Kotlin checks** |
+| `./scripts/verify_verification_core.sh` | **PASS · 32 + 23 Kotlin checks** + adapter type-check |
 
-**Not verified anywhere:** there is no JDK, `kotlinc`, Gradle or Android SDK in this workspace, so
-**no Kotlin in this repository has ever been compiled here**, no Gradle build has run, no lint or APK was
-produced, and nothing has been executed on a phone. Every "implemented" claim above is a code reading, not
-a device result — including the whole UI, the Shizuku DHCP path, VM SSH pinning, the overlay chat, the
-heartbeat camera, the Lean server's service wrapper and the World actions. The single biggest open item
-(P0 in the audit) is exactly that: give CI a JDK 17 + SDK and run `:composeApp:assembleDebug`.
+**Compiled and executed on the host, not on a device.** A JDK (`jdk4py`) and `kotlin-compiler` (npm)
+were installed into this sandbox, so every harness now compiles the real logic and runs it: the counts
+above are executed checks, not reviews, and the first compile found five defects that no static check
+had seen — an unescaped-quote syntax error in `CognitionCore.kt`, a loop guard that skipped its own
+observation check, a preference the synthesizer learned and then discarded, `div)` accepted as a CSS
+selector, and three harness/stub signatures that had drifted from the code they stand in for.
+
+**Still not verified anywhere:** there is no Gradle, Android SDK, emulator or phone in this workspace, so
+no Gradle build has run, no lint or APK was produced, and nothing has been executed on a device — the
+whole UI, the Shizuku DHCP path, VM SSH pinning, the overlay chat, the heartbeat camera, the Lean server's
+service wrapper, the World actions, and any real Tor circuit. The single biggest open item (P0 in the
+audit) is unchanged: give CI a JDK 17 + SDK and run `:composeApp:assembleDebug`.
 
 Two smaller caveats worth carrying: the harnesses are **host logic + type-check**, so they prove the rules
 and signatures, not behaviour; and the Python mirrors prove the *spec* the Kotlin is supposed to implement,

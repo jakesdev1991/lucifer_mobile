@@ -132,15 +132,18 @@ Verified here:
 
 - `python3 tools/synth-core/spec_check.py` → **PASS · 128 checks**, including a drift check that the
   detector's rule list and limits match this document's numbers.
-- `./scripts/verify_synth_core.sh` → **PASS** (spec mirror, import purity, no-network scan).
-- `./scripts/verify_all.sh --quiet` → **PASS 3 · SKIP 8 · FAIL 0** (all eight harnesses discover the
-  new one; each skips only its Kotlin stage, which needs a toolchain this machine does not have).
+- `./scripts/verify_synth_core.sh` → **PASS · 128 spec checks + 28 Kotlin checks** (spec mirror, import
+  purity, no-network scan, and the real `SkillSynth` compiled and executed).
+- `./scripts/verify_all.sh --quiet` → **PASS 18 · SKIP 0 · FAIL 0** with `kotlinc` on PATH; without it the
+  Kotlin stages report SKIPPED rather than PASS.
 
-**Review-only, not proven:**
+**Not proven:**
 
-- No `kotlinc`, JDK or Android SDK on the machine this was written on, so **none of the Kotlin has been
-  compiled**, including `SkillSynthCoreTests.kt` and every call site above. The CI job
-  `kotlin-harnesses` (opt-in via `RUN_KOTLIN_HARNESSES=true`) is what would close that gap.
+- A JDK and `kotlinc` were installed into the sandbox on 2026-10-30, so the Kotlin above **is** compiled
+  and run now — that is how the "preference is recorded and then thrown away" defect was found,
+  after twenty passes in which it had been a code reading. There is still no Android SDK or device, so
+  **nothing has run on a phone**; the CI job `kotlin-harnesses` (opt-in via `RUN_KOTLIN_HARNESSES=true`)
+  is what would keep it compiled once this sandbox is gone.
 - Not device-tested. Nobody has watched a real correction promote a real skill on a phone yet.
 - The quality of the learned lines depends on `FeedbackDetector`'s English patterns. It is deliberately
   conservative: when it is unsure it returns `NONE` rather than guessing, so expect it to miss some

@@ -1,10 +1,12 @@
 # The cognition scaffold
 
 **Date:** 2026-10-30
-**State:** implemented as pure Kotlin + an Android adapter, verified by 103 executable spec checks and a
-9-invariant fuzz harness. **Nothing here has been compiled or run on a device** — this workspace has no
-JDK, kotlinc or Android SDK, so every Kotlin claim below is a code review, not a test result. The Python
-spec that mirrors it does run, on every push.
+**State:** implemented as pure Kotlin + an Android adapter, verified by 202 executable spec checks, a
+11-invariant fuzz harness, and **134 Kotlin checks compiled and executed on the host** with a real
+`kotlinc` and JDK. Nothing here has run on a device: there is still no Gradle, Android SDK or emulator,
+so the loop has never called a live model or run a tool against a real surface. What *has* changed is
+that the claims below are no longer code review only — the Kotlin compiles, the harness executes it, and
+four defects it found are listed in §7.8.
 
 ---
 
@@ -221,19 +223,38 @@ nothing to protect against there — the cheap path is already the default.
 
 ---
 
-### 7.8 What the harnesses cannot see
+### 7.8 What the harnesses could not see, and now can
 
-No Kotlin compiler exists in this workspace, so every Kotlin step in every harness reports SKIPPED. That
-blind spot produced two real defects this pass, both invisible to a green run:
+For twenty passes this workspace had no Kotlin compiler, so every Kotlin step in every harness reported
+SKIPPED. That blind spot produced two real defects that a green run could not show:
 
 - `verify_surface_core.sh` compiled `Surfaces.kt` and `SurfaceAnswers.kt` but not the cognition core they
   now name. It would have failed to compile on a machine with `kotlinc` and never here.
 - `WalletControlPanel.kt` — a panel the wallet tab opens — was one `}` short and could not compile at all.
 
-The responses are static, not hopeful: the compile file list is asserted by the surface spec, and
-`tools/kotlin-core/audit_braces.py` balances every compiled Kotlin file after stripping string literals,
-character literals, line comments, nested block comments and multi-line `${…}` templates. It runs as part
-of `verify_all.sh` and it is what found the brace.
+The brace audit (`tools/kotlin-core/audit_braces.py`) caught the second. A JDK from the `jdk4py` wheel and
+`kotlin-compiler` from the npm registry gave the sandbox a working `kotlinc`, and the first real compile
+found four more defects that no static check could have:
+
+- **`CognitionCore.kt:617` did not compile at all.** Quotes inside the self-description string were
+  unescaped — a syntax error in a file that had been reviewed at least four times.
+- **The loop guard skipped its own observation check.** It returned early when there was no tool call,
+  which also skipped the "two identical observations" check underneath it. A refusal produces an
+  observation and no call, so an agent refused twice for the same reason never registered as stalled.
+- **A preference learned outside a pending turn was thrown away.** `observeIncoming` built its outcome
+  from the pre-upsert state, so the directive was reported to the user and then discarded. "Keep your
+  answers short" never stuck, and a refused preference was never counted.
+- **`div)` was an accepted selector.** The click/type allowlist kept parentheses and commas; the failure
+  only appeared inside the page as a `querySelector` SyntaxError, which the user reads as nothing
+  happening.
+
+Two harness bugs are worth naming because they are the same kind of thing: the cognition harness asked
+for a working-memory capacity of 6 when the class requires at least 8, and named a parameter `budget`
+that the function calls `charBudget`. A harness that cannot compile is a harness nobody has checked.
+
+`./scripts/verify_all.sh` now reports **PASS 18 · SKIP 0 · FAIL 0** with `kotlinc` on PATH. Without it the
+Kotlin halves still report SKIPPED rather than PASS, and `LUCIFER_REQUIRE_KOTLIN=1` turns a missing
+toolchain into an error.
 
 ### 7.7 Erasable, like everything else he keeps
 
@@ -400,7 +421,7 @@ in the export bundle.
 ```
 python3 tools/cognition-core/spec_check.py         PASS · 202 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
-./scripts/verify_cognition_core.sh                 PASS (Kotlin half SKIPPED — no kotlinc)
+./scripts/verify_cognition_core.sh                 PASS · 134 Kotlin checks + 49 static claims
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run
 ```
 

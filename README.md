@@ -102,7 +102,7 @@ Pure recovery/self-learning logic has a host-side harness that does not need the
 ./scripts/verify_privacy_core.sh      # egress policy: 92 checks + socket-owner audit
 ./scripts/verify_browser_core.sh      # interactive browser policy + WebView hardening: 77 + 17
 ./scripts/verify_voice_core.sh        # press-to-talk: 12 static properties
-./scripts/verify_cognition_core.sh    # the reasoning loop: 202 checks, 13-invariant fuzz, end-to-end sim
+./scripts/verify_cognition_core.sh    # the reasoning loop: 202 spec + 134 Kotlin checks, fuzz, end-to-end sim
 ./scripts/cognition_sweep.sh --loop 0 # the same, on repeat, with a new fuzz seed each pass
 ```
 
@@ -119,7 +119,12 @@ and saying otherwise is the one thing a verification script must never do. Set
 
 The resilience harness compiles the `resilience/` core with 46 assertions and type-checks its Android adapter against stubs. The verifier harness compiles the verifier core, runtime and HTTP transport, runs them against a real loopback socket, and type-checks its service, controller and SSH adapter against stubs. The agents harness compiles the `agents/` and `tactician/` cores with 50 assertions and type-checks the prompt store, observation bus, signal collector, runner, service, and the heartbeat engine. Neither covers Compose UI, Gradle, or device runtime.
 
-The repository also includes native build/deploy scripts; use them only if your target workflow needs those components. They have not been validated as part of this audit. The current audit environment has no Java runtime, so Gradle compilation and tests were not run.
+The repository also includes native build/deploy scripts; use them only if your target workflow needs those components. They have not been validated as part of this audit.
+
+Every Kotlin harness now compiles and executes on the host: a JDK and `kotlinc` are installed into the
+sandbox, and `verify_all.sh` reports **PASS 18 · SKIP 0 · FAIL 0**. There is still no Gradle, Android SDK
+or emulator, so the Gradle build has never run here, no APK exists, and nothing has been executed on a
+phone.
 
 ## Active project layout
 
