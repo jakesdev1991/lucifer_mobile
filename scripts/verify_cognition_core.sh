@@ -24,6 +24,7 @@ LEDGER_HARNESS="$ROOT/tools/cognition-core/LedgerTests.kt"
 SCORES_HARNESS="$ROOT/tools/cognition-core/ScoresTests.kt"
 TOOLS_HARNESS="$ROOT/tools/cognition-core/ToolsTests.kt"
 PLANNER_HARNESS="$ROOT/tools/cognition-core/PlannerTests.kt"
+FUZZ_RUNNER="$ROOT/tools/cognition-core/RunnerFuzz.kt"
 STUBS="$ROOT/tools/cognition-core/android-stubs"
 SPEC="$ROOT/tools/cognition-core/spec_check.py"
 OUT="${TMPDIR:-/tmp}/lucifer-cognition-build"
@@ -157,6 +158,25 @@ if [[ "$have_kotlin" -eq 1 ]]; then
   fi
 else
   echo "SKIPPED — kotlinc and/or java not found, so NemotronCognitionPlanner has NOT been executed."
+fi
+
+echo
+echo "== 2g. the loop under a hostile model (property test) =="
+if [[ "$have_kotlin" -eq 1 ]]; then
+  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$FUZZ_RUNNER" -d "$OUT/runner-fuzz.jar" -nowarn; then
+    if [[ -f "$STDLIB" ]]; then
+      java -cp "$OUT/runner-fuzz.jar:$STDLIB" com.lucifer.mobile.cognition.harness.RunnerFuzzKt \
+        "${RUNNER_FUZZ_RUNS:-200}" "${RUNNER_FUZZ_SEED:-20261030}" || status=1
+    else
+      java -cp "$OUT/runner-fuzz.jar" com.lucifer.mobile.cognition.harness.RunnerFuzzKt \
+        "${RUNNER_FUZZ_RUNS:-200}" "${RUNNER_FUZZ_SEED:-20261030}" || status=1
+    fi
+  else
+    echo "kotlinc failed to compile the runner fuzz" >&2
+    status=1
+  fi
+else
+  echo "SKIPPED — kotlinc and/or java not found, so the loop has NOT been fuzzed."
 fi
 
 echo

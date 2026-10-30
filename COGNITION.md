@@ -435,7 +435,7 @@ in the export bundle.
 ```
 python3 tools/cognition-core/spec_check.py         PASS · 204 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
-./scripts/verify_cognition_core.sh                PASS · 141 + 21 + 10 + 9 + 13 + 9 Kotlin checks + 49 static claims
+./scripts/verify_cognition_core.sh                PASS · 141 + 21 + 10 + 9 + 13 + 9 Kotlin checks + 200-run loop fuzz + 49 static claims
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run
 ```
 
@@ -459,6 +459,14 @@ looks like:
   invented answer, and the answer says which of the three happened
 - a thin draft to a long question is repaired exactly once; a draft that fails twice is reported, not shipped
 - confidence is `LOW` with no observations and the footer says "nothing was consulted"
+
+And `RunnerFuzz` (deterministic, 200 runs in the script, 300+ on demand) points a hostile model at the
+loop: eighteen possible replies from ordinary answers to invented tools, `file://` fetches, injected
+`TOOL:` lines, a missing-key error and an empty string, with tools that throw, fail and return hostile
+text. Seven invariants hold on every run: it always terminates within budget with a reason; calls and
+trace never exceed the step budget; a `DEVICE_CHANGE` tool never runs unconfirmed; the answer is never
+blank and never a transport error; "answered" never reads like a conclusion the audit blocked; confidence
+is never granted to a blocked answer; the confidence line is always well-formed.
 
 A sixth harness, `PlannerTests` (9 checks), executes `NemotronCognitionPlanner` — the prompt the model
 actually reads on every step. It proves that the system prompt carries the plan format, every tool, the
