@@ -293,21 +293,38 @@ resistance is defence-in-depth, not a hardened boundary, and fetched text is unt
 
 ## 9. Declared but not connected
 
-`AndroidManifest.xml` declares `BLUETOOTH*`, `NFC`, `USE_BIOMETRIC`/`USE_FINGERPRINT`,
-`READ/WRITE_EXTERNAL_STORAGE`, `ACCESS_LOCAL_NETWORK`, `CAMERA`, `RECORD_AUDIO` is *not* present, and
-`FOREGROUND_SERVICE_*` types. Declarations were restored deliberately as scope, and the manifest says in
-a comment that a declaration is not consent and not an implementation. In practice: **Bluetooth, NFC,
-biometric, storage export and local-network features are not wired up.** There is **no voice input**
-(`LuciferVoice` is TextToSpeech output only — no `SpeechRecognizer`), **no SMS/contacts/calendar/alarm
-integration** (no such permissions), no camera control outside the heartbeat, and no notification
-listener.
+This section used to list eleven manifest permissions with no call site. That is now **zero**: the
+manifest is audited by `tools/manifest-core/audit_manifest.py`, which fails the build for any permission
+that is neither used by code nor granted outright by the platform, and `verify_all.sh` runs it on every
+push.
 
-**Dead or overstated modules.** `omni_bridge/{gepa,taro,qstar,rcod,meta_cognitive,ring_buffer,atoms,appa,
-compression,evidence_ledger}` have **zero call sites from the running app** — GEPA and TARo are design
-sketches with no engine behind the names, and the docs' P2 section flags them as needing removal or
-labelling. `native/lucifer_native.cpp` (197 lines, JNI + unix sockets) exists but `System.loadLibrary` is
-commented out in the active source. `KaiBridge` is a ping with stubs; no deployment is wired. The
-`commonMain` tree and `androidMain/kotlin.backup` are stale and uncompiled.
+What changed:
+
+| Permission | Before | Now |
+|---|---|---|
+| `BLUETOOTH*` (4) | declared, nothing called it | **withdrawn.** Nothing to connect was ever built; radio toggling stays in Settings |
+| `NFC` | declared, no `NfcAdapter` | **withdrawn.** No reader mode, no tag dispatch |
+| `USE_FINGERPRINT` | deprecated alias | **withdrawn**, superseded by `USE_BIOMETRIC` |
+| `READ/WRITE_EXTERNAL_STORAGE` | declared, unused | **withdrawn.** Export goes through the system file picker (SAF), which grants one URI and no permission |
+| `USE_BIOMETRIC` | declared, unused | **wired** — `security/BiometricGate.kt` in front of owner calls and world changes |
+| `RECORD_AUDIO` | absent | **added and wired** — press-to-talk `SpeechRecognizer`, destroyed after each answer. The rest of the voice work is in `BROWSER_AND_VOICE.md` |
+| `CAMERA`, `ACCESS_LOCAL_NETWORK`, `FOREGROUND_SERVICE_*` | declared | unchanged, each with a call site |
+
+**Dead or overstated modules.** The ten `omni_bridge` subpackages
+(`gepa`, `taro`, `qstar`, `rcod`, `meta_cognitive`, `ring_buffer`, `atoms`, `appa`, `compression`,
+`evidence_ledger`) are **deleted**, not re-advertised. They claimed capabilities this architecture cannot
+have: TARo steers *token logits* and QSTAR routes on *model internals*, but Lucifer talks to a hosted
+API over HTTPS and never sees a logit, a KV cache or a gradient. RCOD detects "phase transitions" in a
+state vector that nothing produces. `evidence_ledger`'s BLAKE3 Merkle tree is superseded by the egress
+ledger and the privilege ledger, which record real events. A delete is the honest fix; a stub would
+have been a quieter lie. The `rcod` name survives only in `git log`.
+
+Still genuinely absent: SMS/contacts/calendar/alarm integration (no such permissions), no notification
+listener, no camera control outside the heartbeat, no wallet send/export, and no `VpnService` of its
+own (Tor is Orbot's, reached over its SOCKS port). `native/lucifer_native.cpp` (197 lines, JNI + unix
+sockets) exists but `System.loadLibrary` is commented out in the active source. `KaiBridge` is a ping
+with stubs; no deployment is wired. The `commonMain` tree and `androidMain/kotlin.backup` are stale and
+uncompiled.
 
 ---
 

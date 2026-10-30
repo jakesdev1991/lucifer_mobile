@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -104,6 +105,8 @@ fun AnimatedSettingsPanel(
     localMemoryBytes: Long = 0L,
     onLocalMemoryToggle: (Boolean) -> Unit = {},
     onLocalMemoryClear: () -> Unit = {},
+    onExportBundle: () -> Unit = {},
+    biometricStatus: String = "…",
     voiceEnabled: Boolean = true,
     knowledgeStatus: String = "…",
     corpusInfo: String = "124 files · 54 volumes",
@@ -745,6 +748,25 @@ fun AnimatedSettingsPanel(
                     colors = ButtonDefaults.buttonColors(containerColor = Morningstar.CrimsonDim, contentColor = Color.White)
                 ) { Text("DELETE LOCAL MEMORY") }
             }
+        }
+
+        // The way out: everything he knows, written where you point, uploaded nowhere.
+        SettingsCard(title = "EXPORT · YOUR DATA, YOUR FILE", icon = { Icon(Icons.Filled.Share, contentDescription = "Export your data", tint = Morningstar.Info, modifier = Modifier.size(24.dp)) }) {
+            Text(
+                "Writes one JSON document through the system file picker: the settings that are set, every " +
+                    "learned skill, the egress ledger, and record counts. Secrets are excluded by name — the " +
+                    "file records only whether each one exists. Nothing is uploaded; there is no code path " +
+                    "from the export to a socket, and no storage permission is held because the picker grants " +
+                    "the single file you choose.",
+                color = Morningstar.Ash, fontSize = 12.sp, fontFamily = Morningstar.Body
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            SystemStatusRow("Biometric gate", biometricStatus, Morningstar.Info)
+            Spacer(modifier = Modifier.height(6.dp))
+            Button(
+                onClick = onExportBundle,
+                colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Color.White)
+            ) { Text("EXPORT BUNDLE", fontSize = 12.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold) }
         }
 
         // Always-on skill synthesis: local, bounded, and reversible from here.

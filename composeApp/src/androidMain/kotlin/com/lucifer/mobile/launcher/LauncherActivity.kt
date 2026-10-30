@@ -110,6 +110,9 @@ import java.util.Locale
  */
 class LauncherActivity : ComponentActivity() {
 
+    /** Held so a microphone session can be ended from a lifecycle callback, not only from the UI. */
+    private var voiceHandle: LuciferVoice? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -122,6 +125,7 @@ class LauncherActivity : ComponentActivity() {
         // His voice obeys the persisted Settings toggle on every cold start.
         val voice = LuciferVoice(this)
         voice.setEnabled(loadVoiceEnabledPref())
+        voiceHandle = voice
         val brain = FourHorsemenOrchestrator(this)
         val reasoner = ToEReasoningEngine(this, brain)
         setContent { LuciferLauncherScreen(voice, reasoner) }
@@ -129,6 +133,25 @@ class LauncherActivity : ComponentActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() { /* true launcher: BACK on home does nothing */ }
+
+    /**
+     * A microphone session must never outlive the screen that started it.
+     *
+     * The launcher is a home screen: it stays alive while the user goes elsewhere, so a recogniser
+     * opened here and forgotten would keep the microphone open in a background app — the exact
+     * behaviour the press-to-talk design exists to avoid. Stopping here is not belt-and-braces; it is
+     * the only thing that closes that window.
+     */
+    override fun onStop() {
+        voiceHandle?.stopListening()
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        voiceHandle?.shutdown()
+        voiceHandle = null
+        super.onDestroy()
+    }
 
     private fun journalLaunch(tag: String) {
         try {
@@ -283,7 +306,42 @@ class LauncherActivity : ComponentActivity() {
         var chatMessages by remember { mutableStateOf(listOf<ChatMessage>()) }
         var voiceMuted by remember { mutableStateOf(false) }
         var chatThinking by remember { mutableStateOf(false) }
+        var listening by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
+
+        // Voice input: one press, one session, nothing ambient. The recogniser is created on the press
+        // and destroyed when it answers, so no microphone session outlives the request.
+        val micPermission = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            showChat = true
+            chatMessages = chatMessages + ChatMessage(
+                if (granted) "[VOICE] Microphone granted. Press MIC again."
+                else "[VOICE] Microphone permission was not granted. Type instead, or grant it in Settings → Apps → Lucifer → Permissions.",
+                true
+            )
+        }
+
+        fun startListening(onHeard: (String) -> Unit) {
+            if (listening) return
+            listening = true
+            voice.listen(
+                this@LauncherActivity,
+                onPartial = { query = it },
+                onFinal = { heard ->
+                    listening = false
+                    query = ""
+                    showChat = true
+                    onHeard(heard)
+                },
+                onError = { message ->
+                    listening = false
+                    showChat = true
+                    chatMessages = chatMessages + ChatMessage("[VOICE] $message", true)
+                },
+                onDone = { listening = false }
+            )
+        }
         val executor = remember { TerminalExecutor(this@LauncherActivity) }
         val router = remember { NaturalLanguageRouter(this@LauncherActivity) }
         val localMemory = remember { LocalConversationMemory(this@LauncherActivity) }
@@ -568,6 +626,38 @@ class LauncherActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
+                    Text(
+                        text = if (listening) "◉" else "MIC",
+                        style = Morningstar.caption(10).copy(
+                            color = if (listening) Morningstar.Crimson else Morningstar.Ash
+                        ),
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .clickable(interactionSource = MutableInteractionSource(), indication = null) {
+                                if (listening) {
+                                    voice.stopListening()
+                                    listening = false
+                                    return@clickable
+                                }
+                                if (!voice.canListen(this@LauncherActivity)) {
+                                    showChat = true
+                                    chatMessages = chatMessages + ChatMessage(
+                                        "[VOICE] No speech recognition service on this device. Install one, or type instead.",
+                                        true
+                                    )
+                                    return@clickable
+                                }
+                                val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                                    this@LauncherActivity,
+                                    android.Manifest.permission.RECORD_AUDIO
+                                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                if (granted) {
+                                    startListening { heard -> sendChatMessage(heard) }
+                                } else {
+                                    micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+                                }
+                            }
+                    )
                     Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),

@@ -1,6 +1,9 @@
 # Lucifer Mobile — adversarial application review
 
 **Review date:** 2026-10-26
+
+> **Superseded in part.** 2026-10-30: the manifest declarations this audit describes as "restored but unconnected" have been resolved — permissions with no call site are withdrawn, biometric and voice input are wired, the browser is interactive behind confirmation, and the ten dormant `omni_bridge` subpackages are deleted. Current state: `CAPABILITIES.md` §9 and `BROWSER_AND_VOICE.md`. The text below is kept as the record of what was true on the audit date.
+
 **Review type:** source-based security, privacy, safety, correctness, availability, UX, Android-platform, dependency/build/release, and dormant-code review. This is not a penetration test, build certification, or device validation.
 
 ## Executive assessment

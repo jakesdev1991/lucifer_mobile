@@ -64,6 +64,8 @@ import com.lucifer.mobile.resilience.RecoveryMove
 import com.lucifer.mobile.resilience.ResilienceEngine
 import com.lucifer.mobile.ui.components.RecoveryControlPanel
 import com.lucifer.mobile.security.SecretStore
+import com.lucifer.mobile.security.BiometricGate
+import com.lucifer.mobile.data.export.ExportBundle
 import com.lucifer.mobile.memory.DriveMemoryMcpClient
 import com.lucifer.mobile.memory.LocalConversationMemory
 import com.lucifer.mobile.skills.SkillLibrary
@@ -92,6 +94,7 @@ import com.lucifer.mobile.privilege.Provider
 import com.lucifer.mobile.privilege.ProviderPlan
 import com.lucifer.mobile.world.WorldAction
 import com.lucifer.mobile.world.WorldManager
+import com.lucifer.mobile.world.WorldCharter
 import com.lucifer.mobile.ui.components.AgentsPanel
 import com.lucifer.mobile.ui.components.WorldPanel
 import com.lucifer.mobile.ui.components.WorldUiState
@@ -305,6 +308,26 @@ class MainActivity : ComponentActivity() {
                 // Shared launcher: the tactician asks only for POST_NOTIFICATIONS, and this flag
                 // decides which foreground service to start once the grant returns.
                 var tacticianPermissionRequested by remember { mutableStateOf(false) }
+                // ── getting the data out, through the system picker ──
+                var biometricStatus by remember { mutableStateOf(BiometricGate.capability(this@MainActivity).detail) }
+                LaunchedEffect(Unit) {
+                    biometricStatus = BiometricGate.capability(this@MainActivity).detail
+                }
+                val exportLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.CreateDocument("application/json")
+                ) { uri ->
+                    if (uri == null) {
+                        settingsToast = "Export cancelled — nothing was written."
+                    } else {
+                        scope.launch(Dispatchers.IO) {
+                            val result = ExportBundle.write(this@MainActivity, uri)
+                            withContext(Dispatchers.Main) {
+                                settingsToast = result.getOrElse { "Export failed: ${it.message ?: "unknown error"}" }
+                            }
+                        }
+                    }
+                }
+
                 val heartbeatPermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestMultiplePermissions()
                 ) { _ ->
@@ -765,7 +788,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                fun runWorldAction(action: WorldAction) {
+                fun performWorldAction(action: WorldAction) {
                     worldState = worldState.copy(busy = true)
                     scope.launch(Dispatchers.IO) {
                         val world = worldManager.snapshot().world
@@ -799,6 +822,20 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                fun runWorldAction(action: WorldAction) {
+                    if (WorldCharter.requiresConfirmation(action) || action == WorldAction.CREATE_WORLD) {
+                        val shown = BiometricGate.require(
+                            this@MainActivity,
+                            title = "Confirm ${action.label.lowercase()}",
+                            subtitle = "This changes Lucifer's world on this device.",
+                            onDenied = { reason -> settingsToast = "${action.label} cancelled — $reason" },
+                            onConfirmed = { performWorldAction(action) }
+                        )
+                        if (shown) return
+                    }
+                    performWorldAction(action)
+                }
+
                 fun launchInWorld(pkg: String) {
                     if (!PrivilegeCommands.validPackage(pkg)) {
                         settingsToast = "Enter a valid Android package name to launch inside the world."
@@ -816,12 +853,31 @@ class MainActivity : ComponentActivity() {
                 }
 
                 fun runOwnerOp(op: PrivilegeOp) {
-                    scope.launch(Dispatchers.IO) {
-                        val outcome = privilegeRouter.run(op, confirmed = true)
-                        withContext(Dispatchers.Main) {
-                            publishWorld(outcome.headline)
-                            settingsToast = outcome.headline
+                    // An owner call changes another app on this device. The dialog asked "do it?"; this
+                    // asks "are you the owner?". Both, or neither.
+                    val proceed = {
+                        scope.launch(Dispatchers.IO) {
+                            val outcome = privilegeRouter.run(op, confirmed = true)
+                            withContext(Dispatchers.Main) {
+                                publishWorld(outcome.headline)
+                                settingsToast = outcome.headline
+                            }
                         }
+                    }
+                    val shown = BiometricGate.require(
+                        this@MainActivity,
+                        title = "Confirm owner action",
+                        subtitle = op.label,
+                        onDenied = { reason ->
+                            settingsToast = "Owner action cancelled — $reason"
+                            publishWorld("Owner action cancelled: $reason")
+                        },
+                        onConfirmed = { proceed() }
+                    )
+                    if (!shown) {
+                        // No sensor and no device lock: say so once, then let the confirmation stand.
+                        settingsToast = "No biometric gate on this device · the confirmation dialog was the only check."
+                        proceed()
                     }
                 }
 
@@ -1147,6 +1203,12 @@ class MainActivity : ComponentActivity() {
                                             onWorldPanelOpen = { selectedTab = 10 },
                                             onManageWallets = { selectedTab = 4 },
                                             onHeartbeatOpen = { selectedTab = 6 },
+                                            biometricStatus = biometricStatus,
+                                            onExportBundle = {
+                                                val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
+                                                    .format(java.util.Date())
+                                                exportLauncher.launch("lucifer-export-$stamp.json")
+                                            },
                                             shizukuStatus = shizukuStatus.message,
                                             onShizukuRequest = {
                                                 settingsToast = if (ShizukuAccess.requestPermission()) {

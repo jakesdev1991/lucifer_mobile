@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Run every host-side verification in the repo, once, with one exit code.
 #
-# There are nine `verify_*_core.sh` harnesses and, until now, no way to run them together and no CI
-# that ran them at all. A check nobody runs is a comment. This is the entry point CI uses and the one a
-# person should run before pushing:
+# There are eleven `verify_*_core.sh` harnesses plus the static audits under `tools/*-core/`, and this is
+# the only way to run them together. A check nobody runs is a comment. This is the entry point CI uses
+# and the one a person should run before pushing:
 #
 #   ./scripts/verify_all.sh            # every harness
 #   ./scripts/verify_all.sh --quiet    # only the summary

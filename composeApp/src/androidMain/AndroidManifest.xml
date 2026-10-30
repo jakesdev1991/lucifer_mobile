@@ -2,7 +2,27 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Declarations restore requested platform capability scope; Android still requires runtime consent for dangerous permissions, and declaration alone does not implement a feature. -->
+    <!--
+        Every line below is claimed by code that runs. The rule this file now follows: if a permission has
+        no call site, it is not declared — a declared-but-dead permission is a promise the APK cannot keep,
+        and it widens the surface the OS (and anyone reading the manifest) must assume.
+
+        Withdrawn in this revision, with the reason:
+          BLUETOOTH / BLUETOOTH_ADMIN / BLUETOOTH_CONNECT / BLUETOOTH_SCAN
+              no Bluetooth API call anywhere in the tree. Radio toggling is user-controlled in Settings,
+              which the Settings tab already opens. Nothing to connect was ever built.
+          NFC
+              no NfcAdapter, no reader mode, no tag dispatch. Nothing read, nothing written.
+          USE_FINGERPRINT
+              deprecated alias, superseded by USE_BIOMETRIC, which is now actually used (security/BiometricGate.kt).
+          READ_EXTERNAL_STORAGE / WRITE_EXTERNAL_STORAGE
+              never had a call site, and are not needed for the export path: ExportBundle writes through the
+              system file picker (SAF), which grants one URI without granting a storage permission. Scoped
+              storage also makes WRITE_EXTERNAL_STORAGE a no-op on API 30+.
+
+        ACCESS_LOCAL_NETWORK stays because the Terminal serves a local website on 127.0.0.1:8080 for the
+        user's own browser (terminal/LocalWebsiteManager.kt); Android 16 gates that with this permission.
+    -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="moe.shizuku.manager.permission.API_V23" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -14,17 +34,15 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.CAMERA" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <!-- Voice input: SpeechRecognizer streams audio to the system speech service. Requested at runtime,
+         only when the MIC control is pressed; the recogniser is destroyed when it answers. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />
-    <uses-permission android:name="android.permission.BLUETOOTH" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
-    <uses-permission android:name="android.permission.NFC" />
+    <!-- Wired: security/BiometricGate.kt puts a fingerprint/face/PIN check in front of owner calls and
+         world changes. On a device with no sensor and no lock the gate says so and the confirmation
+         dialog stands alone. -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
-    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
 
     <!-- Package visibility (Android 11+): a launcher must see every other app -->
