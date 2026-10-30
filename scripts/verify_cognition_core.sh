@@ -129,6 +129,13 @@ require "$CORE/CognitionCore.kt" "val OVERLAY = LoopBudget(maxSteps = 4, maxElap
   "the overlay does not make someone wait ninety seconds"
 require "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/terminal/FloatingChatService.kt" \
   "LoopBudget.OVERLAY" "and it uses that budget instead of a second copy of the numbers"
+# Every surface listed as short-budget in forSurface must really pass it, or the description lies.
+for surface_file in \
+  "composeApp/src/androidMain/kotlin/com/lucifer/mobile/launcher/LauncherActivity.kt" \
+  "composeApp/src/androidMain/kotlin/com/lucifer/mobile/terminal/FloatingChatService.kt"; do
+  require "$ROOT/$surface_file" "LoopBudget.OVERLAY" \
+    "$(basename "$surface_file") runs on the budget it advertises"
+done
 require "$ENGINE" "horsemen.deliberate(" "the council must survive as the fallback"
 require "$ENGINE" "confirmedTools: Set<String> = emptySet()" "chat cannot pre-approve a state change"
 require "$ENGINE" "CognitionLedger.record(" "every deep run must leave a record the owner can audit"

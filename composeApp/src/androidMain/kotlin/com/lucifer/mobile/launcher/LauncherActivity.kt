@@ -399,7 +399,17 @@ class LauncherActivity : ComponentActivity() {
                 }
                 when (route) {
                     ChatRoute.Conversation -> {
-                        val answer = try { reasoner.reason(text, Surface.LAUNCHER_CHAT) } catch (e: Exception) { "I couldn't complete that reply: ${e.message}" }
+                        val answer = try {
+                            // The launcher is a home-screen overlay: it gets the overlay budget, the same
+                            // one its own "how do you think?" answer quotes.
+                            reasoner.reason(
+                                text,
+                                Surface.LAUNCHER_CHAT,
+                                budget = com.lucifer.mobile.cognition.LoopBudget.OVERLAY
+                            )
+                        } catch (e: Exception) {
+                            "I couldn't complete that reply: ${e.message}"
+                        }
                         localMemory.rememberExchange(text, answer)
                         // Attributed to the learned skills that were in this turn's prompt: a
                         // correction of this answer becomes their loss, praise becomes their win.
