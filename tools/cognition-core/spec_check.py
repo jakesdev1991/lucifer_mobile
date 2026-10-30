@@ -903,6 +903,10 @@ def case_drift() -> None:
           "CognitionKnowledge.promptLine(" in open(
               os.path.join(ROOT, "composeApp", "src", "androidMain", "kotlin", "com", "lucifer", "mobile",
                            "surface", "Surfaces.kt"), encoding="utf-8").read())
+    check("drift: the overlay budget is named once",
+          "val OVERLAY = LoopBudget(maxSteps = 4" in core and "LoopBudget.OVERLAY" not in core)
+    check("drift: a surface's budget is resolvable from its id",
+          "fun forSurface(surfaceId: String)" in core)
     check("drift: the reasoning answer can carry the real record",
           "record: String = \"\"" in knowledge and "if (record.isNotBlank())" in knowledge)
     check("drift: the calculator is not an eval",

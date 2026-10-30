@@ -223,7 +223,23 @@ data class LoopBudget(
     val maxRepeats: Int = 2,
     /** Total characters of observation the loop will hold. */
     val maxObservationChars: Int = 24_000
-)
+) {
+    companion object {
+        /**
+         * The floating overlay over Termux: a person is mid-command and watching, so the loop takes the
+         * cheap path sooner. Named here rather than written inline at the call site, because the same
+         * numbers are quoted when he is asked how long he thinks — two copies would drift.
+         */
+        val OVERLAY = LoopBudget(maxSteps = 4, maxElapsedMs = 40_000, maxObservationChars = 12_000)
+
+        /** Surface ids that run on the overlay's short budget. Odd, untyped strings: this is a pure core. */
+        private val OVERLAY_SURFACES = setOf("overlay-termux", "overlay-vm", "launcher")
+
+        /** The budget actually in force for a surface, so a description cannot overstate his patience. */
+        fun forSurface(surfaceId: String): LoopBudget =
+            if (surfaceId in OVERLAY_SURFACES) OVERLAY else LoopBudget()
+    }
+}
 
 enum class Termination(val line: String) {
     ANSWERED("answered"),

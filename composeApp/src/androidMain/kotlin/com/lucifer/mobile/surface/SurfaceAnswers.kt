@@ -155,7 +155,13 @@ object SurfaceAnswers {
                 append("I know this because the app tells me which surface I am on. I cannot see your screen.")
             }
 
-            SurfaceQuestion.REASONING -> CognitionKnowledge.describe(record = toolRecord)
+            SurfaceQuestion.REASONING -> CognitionKnowledge.describe(
+                // The budget he is actually on here, not the app-wide default: the overlay gets four
+                // steps and forty seconds, and telling someone eight and ninety would be a small lie
+                // in the exact answer that exists to prevent small lies.
+                budget = com.lucifer.mobile.cognition.LoopBudget.forSurface(surface.id),
+                record = toolRecord
+            )
 
             SurfaceQuestion.CAPABILITIES -> buildString {
                 appendLine("Here is what I can actually do from ${surface.displayName}.")

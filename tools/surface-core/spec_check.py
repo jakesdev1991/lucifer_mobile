@@ -212,7 +212,14 @@ def case_classifier():
     answers = open(os.path.join(ROOT, "composeApp", "src", "androidMain", "kotlin", "com", "lucifer",
                                 "mobile", "surface", "SurfaceAnswers.kt"), encoding="utf-8").read()
     check("reasoning: the answer accepts the real tool record", "toolRecord: String = \"\"" in answers)
-    check("reasoning: and passes it to describe()", "CognitionKnowledge.describe(record = toolRecord)" in answers)
+    check("reasoning: and passes it to describe()", "record = toolRecord" in answers)
+    check("reasoning: with the budget actually in force here",
+          "LoopBudget.forSurface(surface.id)" in answers)
+    core = open(os.path.join(ROOT, "composeApp", "src", "androidMain", "kotlin", "com", "lucifer",
+                             "mobile", "cognition", "CognitionCore.kt"), encoding="utf-8").read()
+    check("reasoning: the overlay budget is one named thing", "val OVERLAY = LoopBudget(" in core)
+    check("reasoning: the overlay surface is on that budget",
+          '"overlay-termux", "overlay-vm"' in core)
     check("reasoning: the runtime supplies it from the device", "CognitionScores.report(context)" in runtime)
     check("reasoning: a statement about thinking is NONE",
           classify("thinking about the terminal is hard") == "NONE")
