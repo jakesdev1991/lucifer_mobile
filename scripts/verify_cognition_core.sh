@@ -96,6 +96,10 @@ require "$RUNNER" "withTimeout(remaining)" "one slow model call cannot overrun t
 require "$RUNNER" "withTimeout(toolRemaining)" "one slow tool cannot overrun it either"
 require "$RUNNER" "Calculator.evaluate(" "arithmetic is computed, not guessed"
 require "$RUNNER" "ResearchAgent(" "research goes through the existing bounded, robots-aware searcher"
+require "$RUNNER" "parsed.answer ?: raw.trim().takeIf { parsed.unstructured" \
+  "a THOUGHT with no ANSWER must never be shipped as the reply"
+require "$RUNNER" "thoughtsOnly >= 3" "and three in a row stops the loop instead of burning the budget"
+require "$RUNNER" "call a tool, or answer" "with one plain correction first"
 require "$CORE/CognitionCore.kt" "object Calculator" "the calculator lives in the testable core"
 
 echo

@@ -188,6 +188,7 @@ def case_guard() -> None:
 TOOL_LINE = re.compile(r"^\s*(TOOL|ACTION|CALL)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)\s*$",
                        re.I | re.M)
 ANSWER_LINE = re.compile(r"^\s*(ANSWER|FINAL|RESPONSE)\s*[:\-\u2013]\s*", re.I | re.M)
+THOUGHT_LINE = re.compile(r"^\s*(THOUGHT|REASONING|THINKING)\s*:\s*", re.I | re.M)
 QUESTION_LINE = re.compile(r"^\s*QUESTION\s*:\s*(.+)$", re.I | re.M)
 KNOWN = {"corpus_search", "memory_search", "device_facts", "clock", "page_read"}
 
@@ -211,6 +212,11 @@ def parse(raw: str, max_arg: int = 400) -> dict:
         if name not in KNOWN:
             return {"tool": "__unknown__", "argument": arg, "questions": questions, "unstructured": True}
         return {"tool": name, "argument": arg[:max_arg], "questions": questions}
+    # A thought and nothing else is not an answer: the loop must not show "THOUGHT: ..." to a person.
+    t = THOUGHT_LINE.search(text)
+    if t:
+        return {"thought": text[t.end():].strip(),
+                "questions": [q.strip() for q in QUESTION_LINE.findall(text)][:4]}
     return {"answer": text, "unstructured": True}
 
 
@@ -243,6 +249,13 @@ def case_parser() -> None:
     check("parser: and it is flagged", step.get("unstructured") is True)
 
     check("parser: empty input yields nothing", parse("   ").get("unstructured") is True)
+
+    # The protocol must not leak into the product: "THOUGHT: x" is not an answer.
+    step = parse("THOUGHT: I should look at the corpus first.")
+    check("parser: a thought-only reply is not an answer", "answer" not in step, str(step))
+    check("parser: and the thought is still available", step.get("thought", "").startswith("I should look"))
+    step = parse("THINKING: one\nTHOUGHT: two")
+    check("parser: several thought lines are still not an answer", "answer" not in step, str(step))
 
     step = parse('ANSWER: Here is the call you would use.\nTOOL: corpus_search("entropy")')
     check("parser: a TOOL line inside an answer is not executed", "tool" not in step, str(step))

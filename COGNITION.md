@@ -216,6 +216,21 @@ nothing to protect against there — the cheap path is already the default.
 
 ---
 
+### 7.5 A thought is not an answer
+
+The loop asks for `THOUGHT:` + `ANSWER:` or `THOUGHT:` + `TOOL:`. A model that writes only a thought — and
+they do, especially after a failed tool — used to have that literal text shipped to the owner as the
+reply, because the parser treated "no tool call" as "this is the answer". The word `THOUGHT:` appeared in
+the product. Now:
+
+- a reply that used `THOUGHT` and stopped is **not** an answer (`answer == null`, `thought` filled);
+- free prose is still accepted as an answer, because refusing it would make the loop worse for every
+  model that ignores format;
+- the loop nudges once — "you sent a THOUGHT with no TOOL and no ANSWER" — and if it happens three times
+  in a row it stops as `STALLED` instead of burning the budget on chatter.
+
+The fuzz harness holds this as a property: no protocol marker may ever be the first word of an answer.
+
 ### 7.4 What the tools have actually done here
 
 A scaffold that keeps trying a fetch which failed three times is not careful, it is forgetful. Two
@@ -332,7 +347,7 @@ in the export bundle.
 ## 9. Verification
 
 ```
-python3 tools/cognition-core/spec_check.py         PASS · 191 checks
+python3 tools/cognition-core/spec_check.py         PASS · 195 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
 ./scripts/verify_cognition_core.sh                 PASS (Kotlin half SKIPPED — no kotlinc)
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run

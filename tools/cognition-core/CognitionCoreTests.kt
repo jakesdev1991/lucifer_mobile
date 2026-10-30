@@ -391,6 +391,11 @@ object CognitionCoreTests {
         check("directive: 'deep:' works", DepthDirective.parse("deep: why").input == "why")
         check("directive: case does not matter", DepthDirective.parse("/DEEP why").forced)
         check("directive: mid-sentence is not a directive", !DepthDirective.parse("go deep on this").forced)
+        val thoughtOnly = PlanParser.parse("THOUGHT: I should look at the corpus first.", TOOLS)
+        check("parser: a thought-only reply is not an answer", thoughtOnly.answer == null)
+        check("parser: and the thought is kept", thoughtOnly.thought.startsWith("I should look"))
+        check("parser: free prose is still an answer", PlanParser.parse("Entropy grows.", TOOLS).answer == "Entropy grows.")
+
         check("directive: a bare /deep leaves nothing", DepthDirective.parse("/deep").input.isEmpty())
 
         val rows = ToolRecord.tally(

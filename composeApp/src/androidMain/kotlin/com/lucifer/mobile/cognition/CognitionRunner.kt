@@ -171,6 +171,8 @@ object CognitionRunner {
         var observedChars = 0
         var lastObservation: String? = null
         var step = 0
+        // Consecutive replies that were only a thought: a format failure, not progress.
+        var thoughtsOnly = 0
         var stop = StopReason(Termination.ANSWERED, "concluded after $step step(s)")
         var concluded = false
         var draft: String? = null
@@ -216,7 +218,33 @@ object CognitionRunner {
 
             val call = parsed.call
             if (call == null) {
-                draft = parsed.answer ?: raw.trim()
+                // `ANSWER:` is the answer. Free prose is accepted as an answer, but a reply that used the
+                // protocol and stopped at THOUGHT is not one — shipping it would show the owner the
+                // literal string "THOUGHT: ..." as Lucifer's reply.
+                val said = parsed.answer ?: raw.trim().takeIf { parsed.unstructured && it.isNotBlank() }
+                if (said == null) {
+                    thoughtsOnly++
+                    val record = StepRecord(
+                        step - 1, parsed.thought, null, null, "thought with no tool and no answer"
+                    )
+                    trace += record
+                    onStep?.invoke(record)
+                    if (thoughtsOnly >= 3) {
+                        stop = StopReason(
+                            Termination.STALLED,
+                            "three thoughts in a row with no tool call and no answer"
+                        )
+                        break
+                    }
+                    // Say it plainly, once. A model that has lost the format usually recovers when told.
+                    memory.append(
+                        EntryKind.REFLECTION,
+                        "You sent a THOUGHT with no TOOL and no ANSWER. Next message: call a tool, or answer.",
+                        "guard"
+                    )
+                    continue
+                }
+                draft = said
                 val record = StepRecord(step - 1, parsed.thought, null, null, if (parsed.unstructured) "unstructured plan" else "")
                 trace += record
                 onStep?.invoke(record)

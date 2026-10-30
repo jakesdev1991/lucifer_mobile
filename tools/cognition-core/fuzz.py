@@ -279,6 +279,25 @@ def case_roundtrip(n: int) -> None:
             fail("roundtrip: the argument was altered", f"{arg[:60]!r} -> {step.get('argument','')[:60]!r}")
 
 
+def case_protocol(n: int) -> None:
+    """The control format must never leak into what the owner reads."""
+    global checked
+    markers = ["THOUGHT", "THINKING", "REASONING"]
+    for _ in range(n):
+        marker = rng.choice(markers)
+        body = random_text().replace("\n", " ")
+        text = f"{marker}: {body}"
+        step = spec.parse(text)
+        checked += 1
+        answer = step.get("answer")
+        if answer is not None and answer.strip().upper().startswith(marker):
+            fail("protocol: a thought line was returned as the answer", text[:80])
+        # An empty thought ("REASONING: " with nothing after it) has nothing to lose; only a reply
+        # with words in it must keep them.
+        if answer is None and text.split(":", 1)[1].strip() and not step.get("thought"):
+            fail("protocol: a thought-only reply lost its thought", text[:80])
+
+
 def case_toolrecord(n: int) -> None:
     """A warning about a tool is only honest if the tool was actually tried enough times."""
     global checked
@@ -353,6 +372,7 @@ def main() -> int:
     case_calculator(CASES)
     case_roundtrip(CASES)
     case_toolrecord(CASES)
+    case_protocol(CASES)
 
     for line in failures:
         print(f"  FAIL  {line}")
@@ -360,7 +380,7 @@ def main() -> int:
     if failures:
         print(f"FUZZ FAILED · {len(failures)} invariant breach(es) over {checked} cases")
         return 1
-    print(f"FUZZ OK · {checked} cases · 12 invariants held")
+    print(f"FUZZ OK · {checked} cases · 13 invariants held")
     return 0
 
 

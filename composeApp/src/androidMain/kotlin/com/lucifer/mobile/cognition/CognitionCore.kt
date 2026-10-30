@@ -373,6 +373,17 @@ object PlanParser {
             return ParsedStep(thought = thought, call = ToolCall(spec.id, bounded), questions = questionsIn(text))
         }
 
+        // A reply that is a thought and nothing else is not an answer. Before this, the loop shipped the
+        // literal text "THOUGHT: I should look." to the owner as Lucifer's reply — the protocol leaking
+        // into the product. `thought` is filled so the loop can nudge it; `answer` stays null.
+        val thoughtOnly = THOUGHT_LINE.find(text)
+        if (thoughtOnly != null) {
+            return ParsedStep(
+                thought = text.substring(thoughtOnly.range.last + 1).trim(),
+                questions = questionsIn(text)
+            )
+        }
+
         return ParsedStep(thought = "", answer = text, questions = questionsIn(text), unstructured = true)
     }
 
