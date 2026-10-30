@@ -249,6 +249,9 @@ found four more defects that no static check could have:
   only appeared inside the page as a `querySelector` SyntaxError, which the user reads as nothing
   happening.
 
+- **A follow-up had no context after a shallow answer.** The self-description promised "the previous two
+  turns in view", but only the deep loop recorded a turn — so after a capability answer or a council
+  reply, "and why?" reached the model with no history. Every answered path records now.
 - **The tool tally could never have worked.** `CognitionScores.record` merged stored tallies with new
   outcomes and passed the mixed list to `tally()` — a type error, in a file that had never been compiled.
   Had it compiled, the count would have restarted on every run, so no tool would ever have reached the
