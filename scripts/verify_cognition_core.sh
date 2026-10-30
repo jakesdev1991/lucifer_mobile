@@ -99,6 +99,9 @@ require "$CORE/CognitionCore.kt" "object Calculator" "the calculator lives in th
 require "$ENGINE" "CognitionRunner.run(" "the reasoning engine never uses the loop otherwise"
 require "$ENGINE" "CognitionTriage.assess(" "which questions get the loop must be decided, not guessed"
 require "$ENGINE" "DepthDirective.parse(" "the owner can ask for depth explicitly"
+require "$ENGINE" "budget: com.lucifer.mobile.cognition.LoopBudget" "a surface can shorten the loop"
+require "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/terminal/FloatingChatService.kt" \
+  "maxElapsedMs = 40_000" "the overlay does not make someone wait ninety seconds"
 require "$ENGINE" "horsemen.deliberate(" "the council must survive as the fallback"
 require "$ENGINE" "confirmedTools: Set<String> = emptySet()" "chat cannot pre-approve a state change"
 require "$ENGINE" "CognitionLedger.record(" "every deep run must leave a record the owner can audit"

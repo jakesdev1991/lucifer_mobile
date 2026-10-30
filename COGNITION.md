@@ -55,6 +55,11 @@ The loop is bounded on three axes and stops on the first one it hits, reporting 
 | steps | 8 | a useful answer usually needs 1–3 reads; eight is enough to recover from wrong tool choices, not enough to burn a quota |
 | wall clock | 90 s | a person waiting on a chat turn will tolerate about a minute and a half before assuming it hung |
 | observation chars | 24 000 | past this the observations start evicting the question itself, which is worse than stopping |
+
+The budget is not global. The chat overlay sits on top of Termux while a person is mid-command, so it
+passes `LoopBudget(maxSteps = 4, maxElapsedMs = 40_000, maxObservationChars = 12_000)` and takes the
+cheap path sooner. The control app and the launcher get the default. A surface that knows its own
+patience is better than one that guesses.
 | identical repeats | 2 | three identical calls is not exploration, it is a loop |
 
 Stopping is never silent. `CognitionOutcome.stop` carries one of `ANSWERED`, `STEPS_EXHAUSTED`,
@@ -272,7 +277,7 @@ in the export bundle.
 ## 9. Verification
 
 ```
-python3 tools/cognition-core/spec_check.py         PASS · 166 checks
+python3 tools/cognition-core/spec_check.py         PASS · 173 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
 ./scripts/verify_cognition_core.sh                 PASS (Kotlin half SKIPPED — no kotlinc)
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run

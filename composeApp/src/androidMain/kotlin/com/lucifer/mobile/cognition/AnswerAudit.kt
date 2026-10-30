@@ -19,6 +19,9 @@ object AnswerAudit {
 
     const val MIN_ANSWER_CHARS = 12
 
+    /** The tool whose results are allowed to ground a citation. Named once; the catalogue owns the id. */
+    const val CORPUS_TOOL = "corpus_search"
+
     enum class Severity { BLOCKER, WARNING, NOTE }
 
     data class Finding(val code: String, val severity: Severity, val message: String)
@@ -64,12 +67,15 @@ object AnswerAudit {
      * @param observations every tool result text, oldest first.
      * @param toolEffects the side effect of each tool that actually ran, so a device claim can be matched
      *        to a device read rather than to any observation at all.
+     * @param toolIds the tools that actually ran. A citation of a corpus volume is only credible if the
+     *        corpus was read this turn — a page read does not lend authority to "[Vol 12]".
      */
     fun audit(
         goal: String,
         answer: String,
         observations: List<String> = emptyList(),
-        toolEffects: List<SideEffect> = emptyList()
+        toolEffects: List<SideEffect> = emptyList(),
+        toolIds: List<String> = emptyList()
     ): Result {
         val findings = mutableListOf<Finding>()
         val text = answer.trim()
@@ -119,11 +125,13 @@ object AnswerAudit {
             )
         }
 
-        if (CITATION.containsMatchIn(text) && !hasObservations) {
+        val corpusRead = toolIds.any { it.equals(CORPUS_TOOL, ignoreCase = true) }
+        if (CITATION.containsMatchIn(text) && !corpusRead) {
             findings += Finding(
                 "CITES_WITHOUT_SOURCE",
                 Severity.WARNING,
-                "the answer cites a corpus volume, but no corpus read happened this turn"
+                if (hasObservations) "the answer cites a corpus volume, but the corpus was not read this turn"
+                else "the answer cites a corpus volume, but no corpus read happened this turn"
             )
         }
 

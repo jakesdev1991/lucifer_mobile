@@ -265,9 +265,10 @@ CITATION = re.compile(r"\[(Vol|Omega|ToE|corpus)[^\]]*\]", re.I)
 WORD = re.compile(r"[a-z0-9]{6,}")
 
 
-def audit(goal: str, answer: str, observations=None, effects=None) -> dict:
+def audit(goal: str, answer: str, observations=None, effects=None, tool_ids=None) -> dict:
     observations = [o for o in (observations or []) if o]
     effects = effects or []
+    tool_ids = tool_ids or []
     text = answer.strip()
     tags = []
     if not text:
@@ -287,7 +288,8 @@ def audit(goal: str, answer: str, observations=None, effects=None) -> dict:
     dev = next((d for d in DEVICE_CLAIMS if d in low), None)
     if dev and "DEVICE_READ" not in effects:
         tags.append("UNVERIFIED_DEVICE_CLAIM")
-    if CITATION.search(text) and not observations:
+    corpus_read = any(t.lower() == "corpus_search" for t in tool_ids)
+    if CITATION.search(text) and not corpus_read:
         tags.append("CITES_WITHOUT_SOURCE")
     norm = lambda s: re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", "", s.lower())).strip()
     if norm(text) == norm(goal):
@@ -337,9 +339,12 @@ def case_audit() -> None:
                                                  ["shizuku available: yes"], ["DEVICE_READ"])["findings"])
     check("audit: a citation with no source is flagged",
           "CITES_WITHOUT_SOURCE" in audit("which volume", "See [Vol 12] for the derivation.")["findings"])
-    check("audit: a citation with a source passes",
+    check("audit: a citation passes only when the corpus was actually read",
           "CITES_WITHOUT_SOURCE" not in audit("which volume", "See [Vol 12]: entropy is microstates.",
-                                              ["[Vol 12] entropy is microstates"])["findings"])
+                                              ["[Vol 12] entropy is microstates"], [], ["corpus_search"])["findings"])
+    check("audit: a citation is flagged when only a page was read",
+          "CITES_WITHOUT_SOURCE" in audit("which volume", "See [Vol 12]: entropy is microstates.",
+                                          ["[Vol 12] entropy is microstates"], ["NETWORK_READ"], ["page_read"])["findings"])
     check("audit: restating the question is flagged",
           "ECHO" in audit("what is entropy?", "what is entropy?")["findings"])
     check("audit: no observations means LOW confidence",

@@ -84,7 +84,8 @@ class ToEReasoningEngine(
     suspend fun reason(
         input: String,
         surface: Surface = Surface.UNKNOWN,
-        onStep: ((com.lucifer.mobile.cognition.StepRecord) -> Unit)? = null
+        onStep: ((com.lucifer.mobile.cognition.StepRecord) -> Unit)? = null,
+        budget: com.lucifer.mobile.cognition.LoopBudget = com.lucifer.mobile.cognition.LoopBudget()
     ): String {
         SurfaceRuntime.answerIfAboutSurface(appContext, input, surface)?.let { return it }
 
@@ -98,7 +99,7 @@ class ToEReasoningEngine(
         val triage = CognitionTriage.assess(question, AndroidCognitionTools.specs().size)
         if (triage.deep || directive.forced) {
             val outcome = try {
-                deepReason(question, surface, onStep = onStep)
+                deepReason(question, surface, onStep = onStep, budget = budget)
             } catch (error: Exception) {
                 null
             }
@@ -171,13 +172,15 @@ class ToEReasoningEngine(
         input: String,
         surface: Surface = Surface.UNKNOWN,
         confirmedTools: Set<String> = emptySet(),
-        onStep: ((com.lucifer.mobile.cognition.StepRecord) -> Unit)? = null
+        onStep: ((com.lucifer.mobile.cognition.StepRecord) -> Unit)? = null,
+        budget: com.lucifer.mobile.cognition.LoopBudget = com.lucifer.mobile.cognition.LoopBudget()
     ): CognitionOutcome {
         val outcome = CognitionRunner.run(
             goal = input,
             planner = cognitionPlanner,
             toolbox = AndroidCognitionTools.toolbox(appContext),
             confirmedTools = confirmedTools,
+            budget = budget,
             onStep = onStep
         )
         lastCognition = outcome

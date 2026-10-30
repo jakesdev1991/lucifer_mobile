@@ -285,9 +285,9 @@ object CognitionRunner {
         var effectiveObservations = observations
 
         if (answer.isNotBlank()) {
-            var check = AnswerAudit.audit(goal, answer, effectiveObservations, trace.mapNotNull { rec ->
-                tools.firstOrNull { it.id == rec.call?.tool }?.effect
-            })
+            val effects = trace.mapNotNull { rec -> tools.firstOrNull { it.id == rec.call?.tool }?.effect }
+            val usedTools = trace.mapNotNull { it.call?.tool }
+            var check = AnswerAudit.audit(goal, answer, effectiveObservations, effects, usedTools)
             if (check.blocked) {
                 val repaired = try {
                     planner.repair(goal, answer, check.findings, memory)
@@ -297,9 +297,7 @@ object CognitionRunner {
                 }
                 if (!repaired.isNullOrBlank()) {
                     answer = repaired.trim()
-                    check = AnswerAudit.audit(goal, answer, effectiveObservations, trace.mapNotNull { rec ->
-                        tools.firstOrNull { it.id == rec.call?.tool }?.effect
-                    })
+                    check = AnswerAudit.audit(goal, answer, effectiveObservations, effects, usedTools)
                 }
             }
             audit = check

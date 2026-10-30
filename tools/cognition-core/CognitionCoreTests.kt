@@ -316,9 +316,23 @@ object CognitionCoreTests {
         result = AnswerAudit.audit(
             "which volume",
             "See [Vol 12]: entropy is microstates.",
-            listOf("[Vol 12] entropy is microstates")
+            listOf("[Vol 12] entropy is microstates"),
+            emptyList(),
+            listOf("corpus_search")
         )
-        check("a citation with a source passes", result.findings.none { it.code == "CITES_WITHOUT_SOURCE" })
+        check("a citation passes when the corpus was read", result.findings.none { it.code == "CITES_WITHOUT_SOURCE" })
+
+        result = AnswerAudit.audit(
+            "which volume",
+            "See [Vol 12]: entropy is microstates.",
+            listOf("[Vol 12] entropy is microstates"),
+            listOf(SideEffect.NETWORK_READ),
+            listOf("page_read")
+        )
+        check(
+            "a citation is flagged when only a page was read",
+            result.findings.any { it.code == "CITES_WITHOUT_SOURCE" }
+        )
 
         result = AnswerAudit.audit("what is entropy?", "what is entropy?")
         check("restating the question is flagged", result.findings.any { it.code == "ECHO" })
