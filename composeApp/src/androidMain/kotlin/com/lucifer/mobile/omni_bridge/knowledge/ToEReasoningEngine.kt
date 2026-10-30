@@ -201,6 +201,9 @@ class ToEReasoningEngine(
         // The loop's decisions are unauditable unless something writes them down. Names and counts only;
         // what a tool returned is never persisted.
         CognitionLedger.record(appContext, outcome, input)
+        // Same idea for the tools: which ones came back with something, so the next run can skip the
+        // one that is not working today. Counted from this trace, never from the model's opinion.
+        com.lucifer.mobile.cognition.CognitionScores.record(appContext, outcome.trace)
         return outcome
     }
 

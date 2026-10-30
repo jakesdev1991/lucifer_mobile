@@ -563,6 +563,11 @@ class NemotronCognitionPlanner(
             appendLine("You may think for a step longer or answer now. Prefer answering.")
             appendLine()
             append(CognitionRunner.planFormat(tools))
+            // What the tools have actually done on this device, if anything is worth saying. A loop
+            // that keeps trying a fetch that failed three of four times is not being careful; it is
+            // being forgetful, and this is the cheapest cure available.
+            val advice = CognitionScores.adviceLine(context)
+            if (advice.isNotBlank()) appendLine(advice)
             appendLine()
             appendLine(SurfaceKnowledge.renderForPrompt(surface, SurfaceRuntime.facts(context.applicationContext)))
         }

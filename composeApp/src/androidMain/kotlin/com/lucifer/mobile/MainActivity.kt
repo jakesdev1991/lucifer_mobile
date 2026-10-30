@@ -172,7 +172,7 @@ class MainActivity : ComponentActivity() {
                 var cognitionHistory by remember { mutableStateOf("") }
                 LaunchedEffect(Unit) {
                     cognitionHistory = withContext(Dispatchers.IO) {
-                        com.lucifer.mobile.cognition.CognitionLedger.summary(this@MainActivity)
+                        com.lucifer.mobile.cognition.CognitionScores.panelLines(this@MainActivity)
                     }
                 }
                 var showTermuxToolkitDialog by remember { mutableStateOf(false) }
@@ -1069,8 +1069,8 @@ class MainActivity : ComponentActivity() {
                                                     scope.launch(Dispatchers.IO) {
                                                         com.lucifer.mobile.cognition.CognitionLedger
                                                             .recordInterrupted(this@MainActivity, stoppedGoal, stoppedAfter, stoppedAt)
-                                                        val line = com.lucifer.mobile.cognition.CognitionLedger
-                                                            .summary(this@MainActivity)
+                                                        val line = com.lucifer.mobile.cognition.CognitionScores
+                                                            .panelLines(this@MainActivity)
                                                         withContext(Dispatchers.Main) { cognitionHistory = line }
                                                     }
                                                 }
@@ -1172,8 +1172,8 @@ class MainActivity : ComponentActivity() {
                                                                     // Read the ledger off the main thread: it
                                                                     // is a file, and this runs per answer.
                                                                     scope.launch(Dispatchers.IO) {
-                                                                        val line = com.lucifer.mobile.cognition.CognitionLedger
-                                                                            .summary(this@MainActivity)
+                                                                        val line = com.lucifer.mobile.cognition.CognitionScores
+                                                                            .panelLines(this@MainActivity)
                                                                         withContext(Dispatchers.Main) { cognitionHistory = line }
                                                                     }
                                                                     activeGoal = null

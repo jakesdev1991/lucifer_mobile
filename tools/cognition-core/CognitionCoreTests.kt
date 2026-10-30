@@ -13,6 +13,8 @@ import com.lucifer.mobile.cognition.PlanParser
 import com.lucifer.mobile.cognition.SideEffect
 import com.lucifer.mobile.cognition.Termination
 import com.lucifer.mobile.cognition.ToolCall
+import com.lucifer.mobile.cognition.ToolCallOutcome
+import com.lucifer.mobile.cognition.ToolRecord
 import com.lucifer.mobile.cognition.ToolSpec
 import com.lucifer.mobile.cognition.WorkingMemory
 
@@ -390,5 +392,26 @@ object CognitionCoreTests {
         check("directive: case does not matter", DepthDirective.parse("/DEEP why").forced)
         check("directive: mid-sentence is not a directive", !DepthDirective.parse("go deep on this").forced)
         check("directive: a bare /deep leaves nothing", DepthDirective.parse("/deep").input.isEmpty())
+
+        val rows = ToolRecord.tally(
+            listOf(
+                ToolCallOutcome("page_read", true),
+                ToolCallOutcome("page_read", true),
+                ToolCallOutcome("web_research", false)
+            )
+        )
+        check("tool record: busiest first", rows.map { it.id } == listOf("page_read", "web_research"))
+        check("tool record: a failed call is counted", rows[1].failed == 1)
+        check("tool record: two calls in total is silence", ToolRecord.advice(rows).isEmpty())
+        val bad = ToolRecord.tally(
+            listOf(
+                ToolCallOutcome("web_research", false),
+                ToolCallOutcome("web_research", false),
+                ToolCallOutcome("web_research", false),
+                ToolCallOutcome("web_research", true)
+            )
+        )
+        check("tool record: three of four names the rate", ToolRecord.advice(bad).contains("web_research failed 3 of 4"))
+        check("tool record: the report is one line", ToolRecord.report(bad) == "tools: web_research 1/4")
     }
 }

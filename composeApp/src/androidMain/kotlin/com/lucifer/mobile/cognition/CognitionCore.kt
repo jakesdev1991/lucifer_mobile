@@ -650,6 +650,63 @@ object DepthDirective {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// What the tools have actually done here
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** One tool call as the loop saw it: which tool, and whether it came back with anything. */
+data class ToolCallOutcome(val tool: String, val ok: Boolean)
+
+/**
+ * A tool's record on this device, counted from real runs rather than assumed.
+ *
+ * `web_research` is a network call through a search engine, then up to four page fetches, through
+ * whatever route is available. On a bad afternoon it returns nothing three times out of five, and a
+ * loop that does not know that will spend its whole budget on it. This is the count that lets the loop
+ * say so to itself.
+ */
+data class ToolTally(val id: String, val calls: Int, val ok: Int) {
+    val failed: Int get() = (calls - ok).coerceAtLeast(0)
+    val rate: Double get() = if (calls <= 0) 0.0 else ok.toDouble() / calls
+    fun line(): String = if (calls <= 0) "$id never called" else "$id $ok/$calls"
+}
+
+object ToolRecord {
+
+    /** Below this many calls a rate is noise, and telling the model about noise makes it worse. */
+    const val MIN_CALLS = 3
+
+    /** A tool failing at least half the time is worth a warning rather than a table. */
+    const val FAILURE_ALERT = 0.5
+
+    /** Aggregate outcomes into one tally per tool, busiest first, ties broken by id for stable output. */
+    fun tally(outcomes: List<ToolCallOutcome>): List<ToolTally> =
+        outcomes.groupBy { it.tool }
+            .map { (id, list) -> ToolTally(id, list.size, list.count { it.ok }) }
+            .sortedWith(compareByDescending<ToolTally> { it.calls }.thenBy { it.id })
+
+    /**
+     * One line for the loop's own instructions, or empty.
+     *
+     * Empty is the common case and the honest one: until a tool has been tried [MIN_CALLS] times there
+     * is nothing to say, and a model handed a stat about one bad call will over-fit to it.
+     */
+    fun advice(tallies: List<ToolTally>): String {
+        val unreliable = tallies.filter { it.calls >= MIN_CALLS && it.rate < FAILURE_ALERT }
+        if (unreliable.isEmpty()) return ""
+        return "Your own record on this device: " +
+            unreliable.joinToString("; ") { "${it.id} failed ${it.failed} of ${it.calls}" } +
+            ". Prefer another tool unless you need this one, and do not retry a failure unchanged."
+    }
+
+    /** A human-readable table for a panel; empty string when nothing has been called yet. */
+    fun report(tallies: List<ToolTally>): String {
+        val used = tallies.filter { it.calls > 0 }
+        if (used.isEmpty()) return ""
+        return "tools: " + used.joinToString(" · ") { "${it.id} ${it.ok}/${it.calls}" }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Arithmetic a language model can trust
 // ─────────────────────────────────────────────────────────────────────────────
 

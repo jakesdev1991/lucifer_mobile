@@ -737,6 +737,74 @@ def case_fence() -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ToolRecord — what the tools have actually done here
+# ─────────────────────────────────────────────────────────────────────────────
+
+MIN_CALLS = 3
+FAILURE_ALERT = 0.5
+
+
+class Tally:
+    def __init__(self, ident: str, calls: int, ok: int):
+        self.id, self.calls, self.ok = ident, calls, ok
+
+    @property
+    def failed(self) -> int:
+        return max(0, self.calls - self.ok)
+
+    @property
+    def rate(self) -> float:
+        return 0.0 if self.calls <= 0 else self.ok / self.calls
+
+
+def tally(outcomes) -> list:
+    groups: dict = {}
+    for tool, ok in outcomes:
+        calls, goods = groups.get(tool, (0, 0))
+        groups[tool] = (calls + 1, goods + (1 if ok else 0))
+    rows = [Tally(k, v[0], v[1]) for k, v in groups.items()]
+    return sorted(rows, key=lambda t: (-t.calls, t.id))
+
+
+def advice(rows) -> str:
+    bad = [r for r in rows if r.calls >= MIN_CALLS and r.rate < FAILURE_ALERT]
+    if not bad:
+        return ""
+    return ("Your own record on this device: " +
+            "; ".join(f"{r.id} failed {r.failed} of {r.calls}" for r in bad) +
+            ". Prefer another tool unless you need this one, and do not retry a failure unchanged.")
+
+
+def report(rows) -> str:
+    used = [r for r in rows if r.calls > 0]
+    if not used:
+        return ""
+    return "tools: " + " · ".join(f"{r.id} {r.ok}/{r.calls}" for r in used)
+
+
+def case_tool_record() -> None:
+    rows = tally([("page_read", True), ("page_read", True), ("web_research", False)])
+    check("tool record: one row per tool", [r.id for r in rows] == ["page_read", "web_research"], str(rows))
+    check("tool record: counts both directions", rows[1].calls == 1 and rows[1].ok == 0)
+    check("tool record: busiest first", rows[0].calls == 2)
+    # Two failures out of two is not yet evidence: MIN_CALLS exists so the model is not fed noise.
+    check("tool record: two failed calls is silence", advice(tally([("web_research", False)] * 2)) == "")
+    # Three of four is evidence.
+    three = tally([("web_research", False)] * 3 + [("web_research", True)])
+    line = advice(three)
+    check("tool record: three failures out of four is a warning", "web_research failed 3 of 4" in line)
+    check("tool record: the warning says what to do instead", "Prefer another tool" in line)
+    check("tool record: a healthy tool is not mentioned", advice(tally([("clock", True)] * 5)) == "")
+    check("tool record: a half-failing tool is not mentioned",
+          advice(tally([("page_read", True), ("page_read", False)] * 3)) == "")
+    check("tool record: the report table is compact",
+          report(tally([("page_read", True), ("page_read", False), ("clock", True)]))
+          == "tools: page_read 1/2 · clock 1/1")
+    check("tool record: nothing called means nothing shown", report([]) == "")
+    check("tool record: an empty tool list is not a crash", tally([]) == [])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Drift: the Kotlin must agree with what was just executed
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -826,6 +894,17 @@ def case_drift() -> None:
           "eval(" not in core.split("object Calculator")[1])
     check("drift: the calculator is total", "catch (error: Exception)" in core.split("object Calculator")[1])
     check("drift: the calculator caps its input", "MAX_EXPRESSION_CHARS = 300" in core)
+    scores = open(os.path.join(
+        ROOT, "composeApp", "src", "androidMain", "kotlin", "com", "lucifer", "mobile",
+        "cognition", "CognitionScores.kt"), encoding="utf-8").read()
+    check("drift: the tool record is counted from a trace, not an opinion",
+          "record.call ?: return@mapNotNull null" in scores and "result.ok" in scores)
+    check("drift: a failed call is one that came back empty",
+          "result.ok && result.output.isNotBlank()" in scores)
+    check("drift: the planner reads the record every step",
+          "CognitionScores.adviceLine(context)" in runner)
+    check("drift: the engine records the trace after the run",
+          "CognitionScores.record(appContext, outcome.trace)" in engine)
     check("drift: no tool sends anything outward",
           "EXTERNAL_SEND" not in runner.split("fun specs()")[1].split("fun toolbox")[0])
 
@@ -839,6 +918,7 @@ def main() -> int:
     case_directive()
     case_calculator()
     case_fence()
+    case_tool_record()
     case_drift()
 
     for line in failures:

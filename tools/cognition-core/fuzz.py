@@ -279,6 +279,69 @@ def case_roundtrip(n: int) -> None:
             fail("roundtrip: the argument was altered", f"{arg[:60]!r} -> {step.get('argument','')[:60]!r}")
 
 
+def case_toolrecord(n: int) -> None:
+    """A warning about a tool is only honest if the tool was actually tried enough times."""
+    global checked
+    ids = list(TOOL_IDS)
+    for _ in range(max(20, n // 10)):
+        outcomes = [
+            (rng.choice(ids), rng.random() < rng.random())
+            for _ in range(rng.randint(0, 40))
+        ]
+        rows = tally(outcomes)
+        checked += 1
+        total = sum(r.calls for r in rows)
+        if total != len(outcomes):
+            fail("tool record: calls are lost between outcome and tally", f"{total} vs {len(outcomes)}")
+        named = advice(rows)
+        for row in rows:
+            mentioned = f"{row.id} failed" in named
+            if mentioned and (row.calls < MIN_CALLS or row.rate >= FAILURE_ALERT):
+                fail("tool record: warns about a tool that does not deserve it",
+                     f"{row.id} {row.ok}/{row.calls}")
+            if row.calls >= MIN_CALLS and row.rate < FAILURE_ALERT and not mentioned:
+                fail("tool record: silent about a tool that keeps failing",
+                     f"{row.id} {row.ok}/{row.calls}")
+        for row in rows:
+            if not 0 <= row.ok <= row.calls:
+                fail("tool record: impossible totals", f"{row.id} {row.ok}/{row.calls}")
+
+
+MIN_CALLS = 3
+FAILURE_ALERT = 0.5
+
+
+class Tally:
+    def __init__(self, ident: str, calls: int, ok: int):
+        self.id, self.calls, self.ok = ident, calls, ok
+
+    @property
+    def rate(self) -> float:
+        return 0.0 if self.calls <= 0 else self.ok / self.calls
+
+    @property
+    def failed(self) -> int:
+        return max(0, self.calls - self.ok)
+
+
+def tally(outcomes) -> list:
+    groups: dict = {}
+    for tool, ok in outcomes:
+        calls, goods = groups.get(tool, (0, 0))
+        groups[tool] = (calls + 1, goods + (1 if ok else 0))
+    rows = [Tally(k, v[0], v[1]) for k, v in groups.items()]
+    return sorted(rows, key=lambda t: (-t.calls, t.id))
+
+
+def advice(rows) -> str:
+    bad = [r for r in rows if r.calls >= MIN_CALLS and r.rate < FAILURE_ALERT]
+    if not bad:
+        return ""
+    return ("Your own record on this device: " +
+            "; ".join(f"{r.id} failed {r.failed} of {r.calls}" for r in bad) +
+            ". Prefer another tool unless you need this one, and do not retry a failure unchanged.")
+
+
 def main() -> int:
     print(f"cognition fuzz · seed {SEED} · {CASES} cases per property")
     case_parser(CASES)
@@ -289,6 +352,7 @@ def main() -> int:
     case_fence(CASES)
     case_calculator(CASES)
     case_roundtrip(CASES)
+    case_toolrecord(CASES)
 
     for line in failures:
         print(f"  FAIL  {line}")
@@ -296,7 +360,7 @@ def main() -> int:
     if failures:
         print(f"FUZZ FAILED · {len(failures)} invariant breach(es) over {checked} cases")
         return 1
-    print(f"FUZZ OK · {checked} cases · 11 invariants held")
+    print(f"FUZZ OK · {checked} cases · 12 invariants held")
     return 0
 
 

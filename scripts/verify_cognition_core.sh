@@ -66,7 +66,8 @@ echo "== 3. the shipped loop still cannot act without permission =="
 
 RUNNER="$CORE/CognitionRunner.kt"
 LEDGER="$CORE/CognitionLedger.kt"
-for file in "$CORE/CognitionCore.kt" "$CORE/AnswerAudit.kt" "$RUNNER" "$LEDGER" "$ENGINE"; do
+for file in "$CORE/CognitionCore.kt" "$CORE/AnswerAudit.kt" "$RUNNER" "$LEDGER" "$ENGINE" \
+    "$CORE/CognitionScores.kt"; do
   [[ -f "$file" ]] || { echo "  MISSING  $file" >&2; exit 1; }
 done
 
@@ -96,6 +97,24 @@ require "$RUNNER" "withTimeout(toolRemaining)" "one slow tool cannot overrun it 
 require "$RUNNER" "Calculator.evaluate(" "arithmetic is computed, not guessed"
 require "$RUNNER" "ResearchAgent(" "research goes through the existing bounded, robots-aware searcher"
 require "$CORE/CognitionCore.kt" "object Calculator" "the calculator lives in the testable core"
+
+echo
+echo "== 3b. the loop learns which tools actually work here =="
+SCORES="$CORE/CognitionScores.kt"
+require "$CORE/CognitionCore.kt" "object ToolRecord" "the tally is pure, and its thresholds are testable"
+require "$CORE/CognitionCore.kt" "const val MIN_CALLS = 3" "two bad calls is not evidence, and must not be treated as one"
+require "$SCORES" "record.call ?: return@mapNotNull null" "only calls that really happened are counted"
+require "$SCORES" "result.ok && result.output.isNotBlank()" "an empty result is a failed call, not a success"
+require "$RUNNER" "CognitionScores.adviceLine(context)" "the planner reads the record on every step"
+require "$ENGINE" "CognitionScores.record(appContext, outcome.trace)" "and the record is written from the trace after the run"
+if [[ -f "$SCORES" ]]; then
+  if grep -q "output" "$SCORES" && grep -qE "put\(\"(output|body|text)\"" "$SCORES"; then
+    echo "  MISSING  the score file must not persist tool output" >&2
+    status=1
+  else
+    echo "  ok    the score file holds counts, never tool output"
+  fi
+fi
 
 # The engine must reach the loop, and keep the single-pass council as the fallback.
 require "$ENGINE" "CognitionRunner.run(" "the reasoning engine never uses the loop otherwise"

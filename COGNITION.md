@@ -216,6 +216,28 @@ nothing to protect against there — the cheap path is already the default.
 
 ---
 
+### 7.4 What the tools have actually done here
+
+A scaffold that keeps trying a fetch which failed three times is not careful, it is forgetful. Two
+counts per tool — called, and came back with something — are folded out of every finished run's trace
+into `cognition/tools.json`, and once a tool has been called at least three times and succeeded less than
+half of them, one line joins the loop's own instructions:
+
+> Your own record on this device: web_research failed 3 of 4. Prefer another tool unless you need this
+> one, and do not retry a failure unchanged.
+
+Three properties make this trustworthy rather than decorative:
+
+- **Counted from traces, not opinions.** `CognitionScores.record(context, trace)` maps only steps that
+  have both a call and a result; a step that never ran cannot move the number.
+- **Silent until it means something.** Below three calls the advice is empty. A model handed a statistic
+  about one bad call will over-fit to it, which is worse than saying nothing.
+- **Empty is a failure.** A tool that returns `ok` with nothing in it counts as failed, because the loop
+  spent a step and learned nothing.
+
+The file holds counts and tool ids only — never tool output — and it is capped at 24 tools. The Skills
+card shows the table under the run history: `tools: page_read 4/5 · clock 2/2`.
+
 ### 7.3 Stopping, and why it is a separate code path
 
 A person can outlast a ninety-second run by pressing STOP in the terminal. That calls
@@ -310,7 +332,7 @@ in the export bundle.
 ## 9. Verification
 
 ```
-python3 tools/cognition-core/spec_check.py         PASS · 176 checks
+python3 tools/cognition-core/spec_check.py         PASS · 191 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
 ./scripts/verify_cognition_core.sh                 PASS (Kotlin half SKIPPED — no kotlinc)
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run
