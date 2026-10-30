@@ -51,7 +51,9 @@ fun AnimatedTerminal(
     onStageStaticSite: () -> Unit = {},
     onStageApiSite: () -> Unit = {},
     onStagePaymentDemo: () -> Unit = {},
-    onStopLocalSites: () -> Unit = {}
+    onStopLocalSites: () -> Unit = {},
+    /** Cancels whatever is running — a deep reasoning run, a command, a workflow step. */
+    onStop: () -> Unit = {}
 ) {
     var cmdText by remember { mutableStateOf("") }
 
@@ -164,12 +166,26 @@ fun AnimatedTerminal(
         }
 
         if (isProcessing) {
-            Text(
-                text = "…executing",
-                color = Morningstar.Gilded,
-                fontSize = 11.sp,
-                fontFamily = Morningstar.MonoTail
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "…executing",
+                    color = Morningstar.Gilded,
+                    fontSize = 11.sp,
+                    fontFamily = Morningstar.MonoTail
+                )
+                Text(
+                    text = "STOP",
+                    color = Morningstar.Crimson,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = Morningstar.MonoTail,
+                    modifier = Modifier
+                        .padding(start = 12.dp)
+                        .background(Morningstar.GlassRaised, RoundedCornerShape(4.dp))
+                        .clickable { onStop() }
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                )
+            }
         }
 
         Row(

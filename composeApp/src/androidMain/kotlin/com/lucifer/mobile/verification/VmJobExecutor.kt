@@ -36,6 +36,10 @@ class VmJobExecutor(
 
         val started = System.currentTimeMillis()
         val lines = try {
+            // execute() is a synchronous interface because the MCP server calls it from a worker thread
+            // in its own pool, and the SSH transport underneath is suspending. That is why bridging with
+            // runBlocking is correct *here* — and why a UI action must never call this directly: it would
+            // block the frame for up to the job's timeout.
             runBlocking {
                 TerminalExecutor(context.applicationContext).executeVmDirect(
                     command = command,

@@ -8,7 +8,8 @@ class NemotronClient(private val context: android.content.Context) {
         messages: List<Pair<String, String>>,
         maxTokens: Int = 2048,
         temperature: Double = 0.7,
-        requestTimeoutMs: Int = 120_000
+        requestTimeoutMs: Int = 120_000,
+        userInitiated: Boolean = true
     ): String = ""
 
     suspend fun chatWithImage(

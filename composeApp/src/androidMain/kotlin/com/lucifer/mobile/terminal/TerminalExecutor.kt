@@ -4,9 +4,11 @@ import android.content.Context
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
+import android.os.SystemClock
 import com.jcraft.jsch.ChannelExec
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
+import com.lucifer.mobile.config.AppConfig
 import com.lucifer.mobile.security.SecretStore
 import com.lucifer.mobile.shizuku.ShizukuAccess
 import com.lucifer.mobile.shizuku.ShizukuTerminal
@@ -16,9 +18,11 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
+
+/** POSIX-ish account name, matching the validation on the settings screen that writes it. */
+private val VM_USER_RE = Regex("^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")
 
 class TerminalExecutor(private val context: Context) {
 
@@ -37,8 +41,7 @@ class TerminalExecutor(private val context: Context) {
         TERMUX -> "Termux environment"
         VM -> {
             val host = vmHost().ifBlank { "host not configured" }
-            val knownHosts = File(context.filesDir, "config/known_hosts")
-            val pinStatus = if (knownHosts.isFile && knownHosts.length() > 0L) "known_hosts configured" else "NO HOST-KEY PIN"
+            val pinStatus = if (AppConfig.isSet(context, AppConfig.KNOWN_HOSTS)) "known_hosts configured" else "NO HOST-KEY PIN"
             "SSH as ${vmUser()}@$host:${vmPort()} · $pinStatus · strict checking"
         }
         SHIZUKU -> "Shizuku · ${ShizukuAccess.status().message}"
@@ -182,7 +185,7 @@ class TerminalExecutor(private val context: Context) {
         val password = loadVmPassword()
         val host = vmHost()
         val port = vmPort()
-        val knownHosts = File(context.filesDir, "config/known_hosts")
+        val knownHosts = AppConfig.file(context, AppConfig.KNOWN_HOSTS)
 
         if (host.isBlank() || !host.matches(Regex("^[A-Za-z0-9._:%-]+$")) || port !in 1..65535) {
             output.add("[SETUP] Enter a valid VM hostname/IP and port in Settings.")
@@ -222,7 +225,9 @@ class TerminalExecutor(private val context: Context) {
             val inputStream = channel.inputStream
             val buffer = ByteArray(2048)
             val stdout = StringBuilder()
-            val startWait = System.currentTimeMillis()
+            // Monotonic clock: a wall-clock read is what a timeout must not depend on, because NTP or a
+            // manual time change mid-command would otherwise cut the wait short or extend it forever.
+            val startWait = SystemClock.elapsedRealtime()
             var timedOut = false
             while (true) {
                 while (inputStream.available() > 0) {
@@ -231,7 +236,7 @@ class TerminalExecutor(private val context: Context) {
                     if (stdout.length < 32_000) stdout.append(String(buffer, 0, bytesRead))
                 }
                 if (channel.isClosed && inputStream.available() == 0) break
-                if (System.currentTimeMillis() - startWait >= timeoutMs) {
+                if (SystemClock.elapsedRealtime() - startWait >= timeoutMs) {
                     timedOut = true
                     channel.disconnect()
                     break
@@ -255,33 +260,17 @@ class TerminalExecutor(private val context: Context) {
     }
 
     private fun loadVmPassword(): String? =
-        SecretStore.read(context, "config/vm_ssh_password.txt")?.trim()?.takeIf { it.isNotEmpty() }
+        SecretStore.read(context, AppConfig.VM_SSH_PASSWORD)?.trim()?.takeIf { it.isNotEmpty() }
 
     /** VM SSH host — configurable (Settings → VM HOST); empty = not set. */
-    private fun vmHost(): String {
-        return try {
-            val file = File(context.filesDir, "config/vm_host.txt")
-            if (file.exists()) file.readText().trim() else ""
-        } catch (e: Exception) {
-            ""
-        }
-    }
+    private fun vmHost(): String = AppConfig.readText(context, AppConfig.VM_HOST).orEmpty()
 
     /** SSH account for a configured VM (defaults to the legacy droid account). */
-    private fun vmUser(): String {
-        return try {
-            val file = File(context.filesDir, "config/vm_user.txt")
-            file.takeIf { it.exists() }?.readText()?.trim()?.takeIf { it.matches(Regex("^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")) } ?: "droid"
-        } catch (_: Exception) { "droid" }
-    }
+    private fun vmUser(): String =
+        AppConfig.readText(context, AppConfig.VM_USER)
+            ?.takeIf { it.matches(VM_USER_RE) } ?: "droid"
 
     /** VM SSH port — configurable; default 8022. */
-    private fun vmPort(): Int {
-        return try {
-            val file = File(context.filesDir, "config/vm_port.txt")
-            if (file.exists()) file.readText().trim().toIntOrNull() ?: 8022 else 8022
-        } catch (e: Exception) {
-            8022
-        }
-    }
+    // Clamped, like the screen that writes it: a hand-edited 99999 must not reach ssh.
+    private fun vmPort(): Int = AppConfig.readInt(context, AppConfig.VM_PORT, 8022, 1..65535)
 }

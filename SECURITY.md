@@ -88,3 +88,20 @@ The verifier is the one component that accepts input from off-device, so its bou
 ## Remaining hardening work
 
 This app can execute shell commands by design. Treat command execution, fetched web content, and all external/model-provided content as untrusted. Before using it with valuable accounts or production infrastructure, device-test the SSH host-key pinning path and add a user-confirmation boundary for high-impact operations such as transaction signing (transaction sending is not currently exposed).
+
+### Ordered NVIDIA credentials
+
+Settings → NVIDIA API KEYS accepts a primary credential followed by comma- or
+whitespace-separated fallbacks (up to 16 distinct keys). The order is preserved
+in Android Keystore-backed storage; existing single-key settings still work.
+An empty save clears the entire list. Invalid input rejects the entire edit.
+The model client tries keys in this order within each model route. This is
+failover, not a promise of availability or a way to bypass provider limits;
+use only credentials you are authorized to use.
+
+Local provisioning material belongs under ignored `phone_secrets/`, never in
+source code, APK assets, PR text, or prompts. Local files are not automatically
+installed on the phone: paste the ordered list into Settings on the device.
+Do not share the local credential file. Its local copy is plaintext even though
+the app's saved copy is encrypted. No live provider validation is implied by
+recognizing a credential's format.

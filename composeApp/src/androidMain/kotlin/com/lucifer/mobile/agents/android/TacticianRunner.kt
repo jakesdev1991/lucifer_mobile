@@ -31,7 +31,9 @@ class LlmThinker(private val context: Context, private val client: NemotronClien
             listOf("system" to system, "user" to user),
             maxTokens = maxTokens,
             temperature = temperature,
-            requestTimeoutMs = 90_000
+            requestTimeoutMs = 90_000,
+            // A tactician pass is the app thinking about its own day, not a person asking.
+            userInitiated = false
         )
     }
 }

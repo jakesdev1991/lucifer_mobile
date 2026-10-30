@@ -1,10 +1,10 @@
 package com.lucifer.mobile.omni_bridge.knowledge
 
 import android.content.Context
+import com.lucifer.mobile.config.AppConfig
 import com.lucifer.mobile.terminal.TerminalExecutor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /** On-device Omega Theory Lean verification via Lucifer's strict SSH bridge. */
 object Lean4VerificationRunner {
@@ -124,10 +124,11 @@ object Lean4VerificationRunner {
         "On-device verification requires VM SSH host 127.0.0.1 or localhost, the configured forwarded port, a verified known_hosts key, and SSH credentials."
     )
 
-    private fun localVmHost(context: Context): String? = try {
-        File(context.filesDir, "config/vm_host.txt").takeIf { it.isFile }
-            ?.readText()?.trim()?.lowercase()?.takeIf { it == "127.0.0.1" || it == "localhost" }
-    } catch (_: Exception) { null }
+    /** Only a hostname that resolves to this device counts as "the VM runs locally". */
+    private fun localVmHost(context: Context): String? =
+        AppConfig.readText(context, AppConfig.VM_HOST)
+            ?.lowercase()
+            ?.takeIf { it == "127.0.0.1" || it == "localhost" }
 
     private fun snapshotFrom(defaultState: String?, lines: List<String>): Snapshot {
         val text = lines.joinToString("\n")

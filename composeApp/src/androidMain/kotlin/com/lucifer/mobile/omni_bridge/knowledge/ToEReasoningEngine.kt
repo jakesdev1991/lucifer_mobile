@@ -1,10 +1,18 @@
 package com.lucifer.mobile.omni_bridge.knowledge
 
 import android.content.Context
-import com.lucifer.mobile.omni_bridge.equirouter.Horseman
+import com.lucifer.mobile.cognition.AndroidCognitionTools
+import com.lucifer.mobile.cognition.CognitionLedger
+import com.lucifer.mobile.cognition.CognitionOutcome
+import com.lucifer.mobile.cognition.CognitionRunner
+import com.lucifer.mobile.cognition.CognitionTriage
+import com.lucifer.mobile.cognition.DepthDirective
+import com.lucifer.mobile.cognition.NemotronCognitionPlanner
+import com.lucifer.mobile.cognition.Termination
 import com.lucifer.mobile.omni_bridge.four_horsemen.FourHorsemenOrchestrator
 import com.lucifer.mobile.memory.LocalConversationMemory
-import kotlinx.coroutines.runBlocking
+import com.lucifer.mobile.surface.Surface
+import com.lucifer.mobile.surface.SurfaceRuntime
 
 /**
  * ToEReasoningEngine — Lucifer's super-reasoning loop.
@@ -22,9 +30,32 @@ class ToEReasoningEngine(
     private val horsemen: FourHorsemenOrchestrator = FourHorsemenOrchestrator(context)
 ) {
 
+    /** Kept for surface-awareness reads. */
+    private val appContext: Context = context.applicationContext
+
     private val embedded = EmbeddedToE(context)
     private val remote = OmegaKnowledgeClient()
     private val localMemory = LocalConversationMemory(context.applicationContext)
+
+    /** Built once: the planner holds a client, and a client per turn would re-read the key and config. */
+    private val cognitionPlanner by lazy { NemotronCognitionPlanner(appContext) }
+
+    /** The last few (question, answer) pairs, so a follow-up in the loop is not blind. */
+    private val recentTurns = java.util.ArrayDeque<String>()
+
+    private fun rememberTurn(goal: String, answer: String) {
+        synchronized(recentTurns) {
+            recentTurns.addLast("asked: ${goal.take(200)}\nanswered: ${answer.take(400)}")
+            while (recentTurns.size > 2) recentTurns.removeFirst()
+        }
+    }
+
+    private fun priorTurns(): List<String> = synchronized(recentTurns) { recentTurns.toList() }
+
+    /** The last deep run, for a status surface. Guarded because the launcher and the core both read it. */
+    @Volatile
+    var lastCognition: CognitionOutcome? = null
+        private set
 
     init {
         // Warm the embedded index at startup — instant intuition, no I/O wait later.
@@ -52,10 +83,52 @@ class ToEReasoningEngine(
     }
 
     /**
-     * The full reasoning pass for a chat message.
-     * Corpus evidence comes from the embedded ToE; optional remote enrichment.
+     * Answer [input].
+     *
+     * **Asking for depth.** A message beginning `/deep`, `deep:` or `/think` skips triage and runs the
+     * loop regardless of length or shape — the directive is stripped before the model sees it.
+     *
+     * @param surface the interface the user is actually speaking through. Capability questions about
+     *   that interface are answered deterministically here — no model, no guessing — and every other
+     *   turn carries a surface block so "here" means something. Callers must pass their real surface;
+     *   the [Surface.UNKNOWN] default reports an unnamed surface rather than inventing a launcher.
      */
-    suspend fun reason(input: String): String {
+    suspend fun reason(
+        input: String,
+        surface: Surface = Surface.UNKNOWN,
+        onStep: ((com.lucifer.mobile.cognition.StepRecord) -> Unit)? = null,
+        budget: com.lucifer.mobile.cognition.LoopBudget = com.lucifer.mobile.cognition.LoopBudget()
+    ): String {
+        // A capability question is still a turn: the next "and in the overlay?" needs to know what was
+        // already said here, or it is answered as if the conversation had just started.
+        SurfaceRuntime.answerIfAboutSurface(appContext, input, surface)?.let { answer ->
+            rememberTurn(input, answer)
+            return answer
+        }
+
+        // Before the single-pass council: is this a question that needs work, and does the work succeed?
+        // A deep run that reaches its own conclusion is better than a council verdict because it had to
+        // gather evidence. One that does not is *worse* than the council, so the council still runs.
+        // An explicit `/deep` overrides triage upward — the one direction a user's judgement can be
+        // trusted in, since nobody asks for a slower answer by accident.
+        val directive = DepthDirective.parse(input)
+        val question = directive.input.ifBlank { input }
+        val triage = CognitionTriage.assess(question, AndroidCognitionTools.specs().size)
+        if (triage.deep || directive.forced) {
+            val outcome = try {
+                deepReason(question, surface, onStep = onStep, budget = budget)
+            } catch (error: Exception) {
+                null
+            }
+            if (outcome != null && outcome.concluded && outcome.stop.termination == Termination.ANSWERED) {
+                return buildString {
+                    append(outcome.answer)
+                    append("\n\n")
+                    append(outcome.confidenceLine)
+                }
+            }
+        }
+
         warmUpIfNeeded()
 
         // 1. UNDERSTAND: consult the corpus on the key concepts.
@@ -68,11 +141,13 @@ class ToEReasoningEngine(
             }
         }
 
-        // Optional remote enrichment (ignored if the MCP server is dark)
+        // Optional remote enrichment (ignored if the MCP server is dark).
+        // These are suspend calls in a suspend function: `runBlocking` here parked the caller's thread
+        // behind two network round-trips instead of suspending it.
         try {
-            val remoteAlive = runBlocking { remote.isAlive() }
+            val remoteAlive = remote.isAlive()
             if (remoteAlive) {
-                val rhits = runBlocking { remote.search(keywords.firstOrNull() ?: "", 4) }
+                val rhits = remote.search(keywords.firstOrNull() ?: "", 4)
                 if (!rhits.isNullOrBlank()) {
                     evidence.append(rhits.take(400)).append("\n")
                 }
@@ -81,15 +156,17 @@ class ToEReasoningEngine(
         }
 
         // 2. DECIDE + ACT: synthesize with the Four Horsemen over ToE evidence.
-        val deliberation = horsemen.deliberate(input, evidence.toString())
+        val deliberation = horsemen.deliberate(input, evidence.toString(), surface)
         val offlineMemory = if (deliberation.startsWith("Council offline")) {
             try { localMemory.search(input) } catch (_: Exception) { "" }
         } else ""
-        if (offlineMemory.isNotBlank()) {
-            return "$deliberation\n\n$offlineMemory"
-        }
-
-        return if (evidence.isNotBlank()) {
+        // Every answered turn is remembered, not only the deep ones. The deep path records inside
+        // deepReason (it can run for a minute before it answers); these two paths are the single-pass
+        // council and the offline-memory answer, which used to leave "and why?" with no context at all
+        // while the self-description promised the previous two turns were in view.
+        val answer = if (offlineMemory.isNotBlank()) {
+            "$deliberation\n\n$offlineMemory"
+        } else if (evidence.isNotBlank()) {
             val citationList = evidence.lines()
                 .filter { it.startsWith("[Vol") || it.startsWith("[Omega") || it.startsWith("[ToE") }
                 .take(3)
@@ -100,12 +177,49 @@ class ToEReasoningEngine(
         } else {
             deliberation
         }
+        rememberTurn(input, answer)
+        return answer
+    }
+
+    /**
+     * One bounded think-act-observe loop, exposed so a caller can run it deliberately (and so the
+     * outcome — trace, confidence, why it stopped — survives for a panel instead of being flattened
+     * into a string).
+     *
+     * [confirmedTools] is empty by default and stays empty unless a person has approved a specific tool
+     * for this turn: the loop reads, it does not write, change the device or send anything.
+     */
+    suspend fun deepReason(
+        input: String,
+        surface: Surface = Surface.UNKNOWN,
+        confirmedTools: Set<String> = emptySet(),
+        onStep: ((com.lucifer.mobile.cognition.StepRecord) -> Unit)? = null,
+        budget: com.lucifer.mobile.cognition.LoopBudget = com.lucifer.mobile.cognition.LoopBudget()
+    ): CognitionOutcome {
+        val outcome = CognitionRunner.run(
+            goal = input,
+            planner = cognitionPlanner,
+            toolbox = AndroidCognitionTools.toolbox(appContext),
+            confirmedTools = confirmedTools,
+            budget = budget,
+            onStep = onStep,
+            priorTurns = priorTurns()
+        )
+        lastCognition = outcome
+        rememberTurn(input, outcome.answer)
+        // The loop's decisions are unauditable unless something writes them down. Names and counts only;
+        // what a tool returned is never persisted.
+        CognitionLedger.record(appContext, outcome, input)
+        // Same idea for the tools: which ones came back with something, so the next run can skip the
+        // one that is not working today. Counted from this trace, never from the model's opinion.
+        com.lucifer.mobile.cognition.CognitionScores.record(appContext, outcome.trace)
+        return outcome
     }
 
     /** Direct corpus access for the chat UI when the user asks for a file/proof. */
     suspend fun readFile(name: String): String? {
         warmUpIfNeeded()
-        return embedded.read(name) ?: runBlocking { remote.read(name) }
+        return embedded.read(name) ?: remote.read(name)
     }
 
     suspend fun axioms(): Map<String, String> {
@@ -132,8 +246,8 @@ class ToEReasoningEngine(
     /** Extract 1-3 likely search keywords from a natural-language question. */
     private fun extractKeywords(input: String): List<String> {
         val words = input.lowercase()
-            .replace(Regex("[^a-z0-9\\s]"), " ")
-            .split(Regex("\\s+"))
+            .replace(NON_WORD, " ")
+            .split(WHITESPACE)
             .filter { it.length in 4..18 }
             .filter { it !in STOPWORDS }
         val domainWords = words.filter { it in DOMAIN_HINTS }
@@ -141,6 +255,11 @@ class ToEReasoningEngine(
     }
 
     companion object {
+        // Compiled once. extractKeywords runs on every knowledge question, and a fresh Regex per call
+        // re-parses two patterns to discard them immediately.
+        private val NON_WORD = Regex("[^a-z0-9\\s]")
+        private val WHITESPACE = Regex("\\s+")
+
         private val STOPWORDS = setOf(
             "what", "when", "where", "which", "who", "whom", "whose", "why", "how",
             "the", "that", "this", "then", "than", "them", "they", "there", "here",

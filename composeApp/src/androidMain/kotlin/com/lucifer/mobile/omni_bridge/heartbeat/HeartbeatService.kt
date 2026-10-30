@@ -87,7 +87,8 @@ class HeartbeatSessionEngine(context: Context) {
             if (cameraJpeg != null) {
                 llm.chatWithImage(messages, cameraJpeg, maxTokens = 3_000, temperature = 0.45, requestTimeoutMs = 90_000)
             } else {
-                llm.chat(messages, maxTokens = 3_000, temperature = 0.45, requestTimeoutMs = 90_000)
+                // Nobody asked for this draft: the heartbeat decided on its own.
+                llm.chat(messages, maxTokens = 3_000, temperature = 0.45, requestTimeoutMs = 90_000, userInitiated = false)
             }
         } finally {
             cameraJpeg?.fill(0)
@@ -165,7 +166,7 @@ class HeartbeatSessionEngine(context: Context) {
         return buildString {
             for (url in urls) {
                 try {
-                    val result = browser.navigate(url, timeoutMs = 7_000)
+                    val result = browser.navigate(url, timeoutMs = 7_000, userInitiated = false)
                     if (result.success) {
                         appendLine("SOURCE $url (${result.title}):")
                         appendLine(result.text.take(2_000))

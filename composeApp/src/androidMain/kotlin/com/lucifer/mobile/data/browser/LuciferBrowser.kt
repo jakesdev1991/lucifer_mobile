@@ -1,10 +1,11 @@
 package com.lucifer.mobile.data.browser
 
 import android.util.Log
-import java.io.ByteArrayOutputStream
-import java.net.HttpURLConnection
+import com.lucifer.mobile.privacy.EgressClass
+import com.lucifer.mobile.privacy.EgressHttp
+import com.lucifer.mobile.privacy.TorRuntime
+import com.lucifer.mobile.net.EgressTransport
 import java.net.InetAddress
-import java.net.URL
 import java.util.regex.Pattern
 
 /**
@@ -35,36 +36,62 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
 
     fun initialize() { /* connection-per-request; nothing to warm */ }
 
-    /** GET a URL and extract readable text. Redirects followed up to 5 hops. */
-    suspend fun navigate(url: String, timeoutMs: Int = DEFAULT_TIMEOUT): BrowserResult {
+    /**
+     * GET a URL and extract readable text. Redirects followed up to 5 hops.
+     *
+     * [userInitiated] is recorded in the egress ledger. It defaults to true because most callers are a
+     * person typing or tapping a link; a heartbeat probe or a fetch the reasoning loop chose on its own
+     * passes false, so the ledger can tell "I went here" from "he went here for me". It does not change
+     * what is allowed — only what is recorded.
+     */
+    suspend fun navigate(
+        url: String,
+        timeoutMs: Int = DEFAULT_TIMEOUT,
+        userInitiated: Boolean = true
+    ): BrowserResult {
         var current = url
         var hops = 0
-        var last: HttpURLConnection? = null
         return try {
             current = validatePublicWebUrl(current)
             while (hops++ < 5) {
-                last?.disconnect()
                 current = validatePublicWebUrl(current)
                 val requestHost = java.net.URI(current).host.lowercase()
-                activeHost = requestHost
-                last = (URL(current).openConnection() as HttpURLConnection).apply {
-                    requestMethod = "GET"
-                    connectTimeout = timeoutMs
-                    readTimeout = timeoutMs
-                    setRequestProperty("User-Agent", UA)
-                    setRequestProperty("Accept", "text/html,application/xhtml+xml,*/*;q=0.8")
-                    setRequestProperty("Accept-Encoding", "gzip")
-                    val hostCookies = cookieJar[requestHost].orEmpty()
-                    if (hostCookies.isNotEmpty()) {
-                        setRequestProperty("Cookie", hostCookies.entries.joinToString("; ") { "${it.key}=${it.value}" })
-                    }
-                    instanceFollowRedirects = false
+                // Authorised per hop, not once per navigation: a redirect is a new destination. The
+                // exchange also decides the transport per hop, so a redirect cannot leave Tor.
+                val headers = mutableMapOf(
+                    "User-Agent" to UA,
+                    "Accept" to "text/html,application/xhtml+xml,*/*;q=0.8",
+                    "Accept-Encoding" to "gzip"
+                )
+                val hostCookies = cookieJar[requestHost].orEmpty()
+                if (hostCookies.isNotEmpty()) {
+                    headers["Cookie"] = hostCookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
                 }
-                when (last.responseCode) {
+                val reply = EgressHttp.exchange(
+                    EgressHttp.Request(
+                        url = current,
+                        userInitiated = userInitiated,
+                        expected = EgressClass.PAGE,
+                        headers = headers,
+                        connectTimeoutMs = timeoutMs,
+                        readTimeoutMs = timeoutMs,
+                        maxBodyBytes = MAX_BYTES
+                    )
+                )
+                if (reply.status == 0) {
+                    return BrowserResult(
+                        url = current,
+                        success = false,
+                        error = reply.error.ifBlank { "network error" },
+                        text = reply.refusal("the page fetch"),
+                        cookies = cookieJar[requestHost]?.toMap().orEmpty()
+                    )
+                }
+                when (reply.status) {
                     in 200..299 -> {
-                        captureCookies(last, requestHost)
-                        val bytes = readClamped(last, MAX_BYTES)
-                        val html = decodeBody(last, bytes)
+                        activeHost = requestHost
+                        captureCookies(reply, requestHost)
+                        val html = decodeBody(reply)
                         val text = extractText(html)
                         return BrowserResult(
                             url = current,
@@ -77,7 +104,7 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
                         )
                     }
                     in 300..399 -> {
-                        val loc = last.getHeaderField("Location")
+                        val loc = reply.header("Location")
                         if (loc.isNullOrBlank()) break
                         current = validatePublicWebUrl(java.net.URI(current).resolve(loc).toString())
                         continue
@@ -86,7 +113,7 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
                         return BrowserResult(
                             url = current,
                             success = false,
-                            error = "HTTP ${last.responseCode}"
+                            error = "HTTP ${reply.status}"
                         )
                     }
                 }
@@ -95,8 +122,6 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
         } catch (e: Exception) {
             Log.w(TAG, "navigate($url) failed: ${e.message}")
             BrowserResult(url = url, success = false, error = e.message ?: "network error")
-        } finally {
-            last?.disconnect()
         }
     }
 
@@ -139,11 +164,56 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
         require(host.isNotBlank() && !host.endsWith(".localhost") && !host.endsWith(".local") && !host.endsWith(".internal")) {
             "Local and internal hosts are not allowed"
         }
+        // Resolving the name is how this check works in DIRECT mode — and it is exactly what must not
+        // happen in TOR mode, where a local lookup would hand every destination to the resolver while
+        // the proxy was busy being anonymous. With Tor on, the proxy resolves and connects from its own
+        // network, so a private address is unreachable by construction; what still needs refusing is a
+        // literal, which needs no resolution to recognise.
+        if (TorRuntime.transport() == EgressTransport.TOR) {
+            val literal = com.lucifer.mobile.net.Socks5.isIpv4Literal(host) ||
+                com.lucifer.mobile.net.Socks5.isIpv6Literal(host)
+            if (literal) {
+                require(!isPrivateLiteral(host)) {
+                    "Private and reserved network addresses are not allowed"
+                }
+            }
+            return uri.toString()
+        }
+
         val addresses = InetAddress.getAllByName(host)
         require(addresses.isNotEmpty() && addresses.all(::isPublicAddress)) {
             "Local, private, or reserved network addresses are not allowed"
         }
         return uri.toString()
+    }
+
+    /** Textual private/reserved test for an IP literal, used when no lookup is permitted. */
+    private fun isPrivateLiteral(host: String): Boolean {
+        val h = host.trim('[', ']').lowercase()
+        if (h.contains(':')) {
+            // IPv6: unspecified, loopback, ULA (fc00::/7) and link-local (fe80::/10).
+            if (h == "::" || h == "::1") return true
+            val first = h.substringBefore(':', "")
+            if (first.length >= 2) {
+                val byte = first.take(2).toIntOrNull(16) ?: return true
+                if ((byte and 0xfe) == 0xfc) return true
+                if (first.startsWith("fe8") || first.startsWith("fe9") || first.startsWith("fea") ||
+                    first.startsWith("feb")
+                ) return true
+            }
+            return false
+        }
+        val parts = h.split('.')
+        if (parts.size != 4) return true
+        val octets = parts.map { it.toIntOrNull() ?: return true }
+        val a = octets[0]
+        val b = octets[1]
+        if (a == 10 || a == 127 || a == 0) return true
+        if (a == 192 && b == 168) return true
+        if (a == 172 && b in 16..31) return true
+        if (a == 169 && b == 254) return true
+        if (a == 100 && b in 64..127) return true
+        return a >= 240
     }
 
     private fun isPublicAddress(address: InetAddress): Boolean {
@@ -181,45 +251,21 @@ class LuciferBrowser(private val context: android.content.Context? = null) {
         return true
     }
 
-    private fun readClamped(conn: HttpURLConnection, max: Int): ByteArray {
-        val stream = if (conn.contentEncoding == "gzip") {
-            java.util.zip.GZIPInputStream(conn.inputStream)
-        } else conn.inputStream
-        val out = ByteArrayOutputStream()
-        val buf = ByteArray(16_384)
-        stream.use { s ->
-            while (true) {
-                val n = s.read(buf)
-                if (n < 0) break
-                if (out.size() + n > max) { out.write(buf, 0, max - out.size()); break }
-                out.write(buf, 0, n)
-            }
-        }
-        return out.toByteArray()
-    }
-
-    private fun decodeBody(conn: HttpURLConnection, bytes: ByteArray): String {
-        val charset = conn.contentType?.let { ct ->
-            Regex("charset=([A-Za-z0-9_\\-]+)").find(ct)?.groupValues?.get(1)
+    private fun decodeBody(reply: EgressHttp.Reply): String {
+        val charset = reply.header("Content-Type")?.let { contentType ->
+            Regex("charset=([A-Za-z0-9_\\-]+)").find(contentType)?.groupValues?.get(1)
         } ?: "UTF-8"
         return try {
-            String(bytes, java.nio.charset.Charset.forName(charset))
+            String(reply.body, java.nio.charset.Charset.forName(charset))
         } catch (_: Exception) {
-            String(bytes, Charsets.UTF_8)
+            String(reply.body, Charsets.UTF_8)
         }
     }
 
-    private fun captureCookies(conn: HttpURLConnection, host: String) {
-        // headerField loop: index-based access to also catch multiple Set-Cookie
-        var i = 1
-        while (true) {
-            val key = conn.getHeaderFieldKey(i) ?: break
-            if (key.equals("Set-Cookie", true)) {
-                val v = conn.getHeaderField(i) ?: break
-                val pair = v.substringBefore(";").split("=", limit = 2)
-                if (pair.size == 2) cookieJar.getOrPut(host) { mutableMapOf() }[pair[0].trim()] = pair[1].trim()
-            }
-            i++
+    private fun captureCookies(reply: EgressHttp.Reply, host: String) {
+        for (value in reply.headerValues("Set-Cookie")) {
+            val pair = value.substringBefore(";").split("=", limit = 2)
+            if (pair.size == 2) cookieJar.getOrPut(host) { mutableMapOf() }[pair[0].trim()] = pair[1].trim()
         }
     }
 

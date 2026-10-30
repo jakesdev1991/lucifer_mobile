@@ -149,3 +149,11 @@ promotion, attempt caps, and the full stuck-loop sequence. It then type-checks
 **Not verified:** Gradle compilation, Compose rendering, real SSH/Termux probe runs, real web
 fetches, model replies, and on-device behavior. Treat those as untested until a build and a device
 run happen.
+
+## Learning beyond the episode
+
+The ledger answers "what worked for this failure class". Each recorded attempt also feeds the skill
+synthesizer: the tactic that fixed a failure becomes a `PROCEDURE` skill ("when X fails on TERMUX, try
+Y") that is offered to the model on later turns. It changes the *suggested* order of moves and the
+wording of an answer; it never runs anything and never bypasses confirmation. See
+[SKILL_SYNTHESIS.md](SKILL_SYNTHESIS.md).

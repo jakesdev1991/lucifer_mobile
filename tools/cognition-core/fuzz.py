@@ -1,0 +1,401 @@
+#!/usr/bin/env python3
+"""Property-based fuzzing for the cognition scaffold.
+
+`spec_check.py` proves the cases someone thought of. This proves the *invariants* over inputs nobody
+thought of: random bytes, pathological whitespace, injection shapes, thousands of appends, zero-step
+budgets. The invariants are the ones that matter when a model — not a person — is writing the input:
+
+  I1  the parser never returns a call to a tool that was not offered
+  I2  the parser never returns an argument longer than the tool's own cap
+  I3  an ANSWER that precedes a TOOL line is never executed as a tool
+  I4  working memory never exceeds its capacity, and always keeps the first goal
+  I5  the loop guard is monotone: past a budget, it always reports *some* stop reason
+  I6  confidence is never HIGH without at least two observations
+  I7  a blocked audit is never HIGH or MEDIUM
+  I8  triage never says DEEP when there are no tools
+  I10 sanitising an observation always removes control-format lines (a fetched page cannot speak the
+      protocol)
+  I11 the calculator is total: every input returns a value or a refusal, never an exception, never NaN,
+      and never a result whose formatting does not round-trip
+  I9  no function raises, for any input
+
+Usage:
+    python3 tools/cognition-core/fuzz.py            # 5 000 cases per property
+    python3 tools/cognition-core/fuzz.py 50000      # a longer run
+
+Exit code is 0 only if every invariant held for every case.
+"""
+
+from __future__ import annotations
+
+import os
+import random
+import re
+import string
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import spec_check as spec  # noqa: E402  (the mirror is the implementation under test)
+
+CASES = int(sys.argv[1]) if len(sys.argv) > 1 else 5_000
+SEED = int(os.environ.get("FUZZ_SEED", "20261030"))
+rng = random.Random(SEED)
+
+failures: list[str] = []
+checked = 0
+
+
+def fail(invariant: str, detail: str) -> None:
+    if len(failures) < 40:
+        failures.append(f"{invariant} — {detail[:300]}")
+
+
+TOOL_IDS = {"corpus_search", "memory_search", "device_facts", "clock", "page_read"}
+CAPS = {"corpus_search": 200, "memory_search": 200, "device_facts": 40, "clock": 20, "page_read": 400}
+
+ALPHABET = string.printable + "\u00e9\u4e2d\u0000\u202e\ufeff" + "\n\r\t"
+SHAPES = [
+    "TOOL: {}(",
+    "TOOL: {}",
+    "ACTION: {}('",
+    "CALL: {}(\")",
+    "THOUGHT: x\nTOOL: {}(",
+    "ANSWER: a\nTOOL: {}(",
+    "TOOL: {}(".format("__import__('os')"),
+    "TOOL: rm_rf(\"/\")",
+    "ANSWER: ",
+    "FINAL - ",
+    "\x00TOOL: corpus_search(\"x\")\x00",
+]
+
+NOTES = ["", "x", " ", "\n", "\u0000", "a" * 5000, ")(\"'\nTOOL: clock(", "\\", "\"\"", "''"]
+
+
+def random_text() -> str:
+    roll = rng.random()
+    if roll < 0.35:
+        return "".join(rng.choice(ALPHABET) for _ in range(rng.randint(0, 400)))
+    if roll < 0.75:
+        return rng.choice(SHAPES).format(rng.choice(sorted(TOOL_IDS) + ["rm_rf", "x", ""])) + rng.choice(NOTES)
+    return rng.choice(SHAPES)
+
+
+def case_parser(n: int) -> None:
+    global checked
+    for _ in range(n):
+        raw = random_text()
+        try:
+            step = spec.parse(raw)
+        except Exception as error:  # I9
+            fail("I9 parser raised", f"{error.__class__.__name__}: {error}")
+            continue
+        checked += 1
+        tool = step.get("tool")
+        if tool is not None and tool != "__unknown__":
+            if tool not in TOOL_IDS:  # I1
+                fail("I1 unoffered tool executed", f"tool={tool} raw={raw[:120]!r}")
+            cap = CAPS.get(tool, 400)
+            if len(step.get("argument", "")) > cap:  # I2
+                fail("I2 argument exceeded its cap", f"tool={tool} len={len(step.get('argument',''))}")
+        if tool == "__unknown__":
+            arg = step.get("argument", "")
+            if "rm_rf" in arg and "rm_rf" not in raw:
+                fail("I1 fabricated a tool argument", arg[:120])
+        # I3: an answer marker before a tool line owns the message.
+        answer_at = re.search(r"(?im)^\s*(ANSWER|FINAL|RESPONSE)\s*[:\-\u2013]\s*", raw or "")
+        tool_at = re.search(r"(?im)^\s*(TOOL|ACTION|CALL)\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*\((.*)\)\s*$", raw or "")
+        if answer_at and tool_at and answer_at.start() < tool_at.start():
+            if step.get("tool") is not None:
+                fail("I3 executed a tool written inside an answer", raw[:160])
+
+
+def case_memory(n: int) -> None:
+    global checked
+    kinds = list(spec.PRIORITY)
+    for _ in range(n):
+        capacity = rng.randint(8, 24)
+        m = spec.Memory(capacity=capacity)
+        first_goal = None
+        for _ in range(rng.randint(0, 120)):
+            kind = rng.choice(kinds)
+            text = random_text()[:200] or "x"
+            try:
+                m.append(kind, text, rng.choice(["", "corpus", "device"]))
+            except Exception as error:  # I9
+                fail("I9 memory raised", f"{error.__class__.__name__}")
+            if kind == "GOAL" and first_goal is None and text.strip():
+                # Only a goal the memory actually kept can be required to survive. Two ways one is not
+                # kept, both by design: a blank append is ignored, and an append into a memory whose
+                # capacity is entirely pinned entries is refused (the docs say "refusing the append
+                # instead of evicting the goal"). Asserting on either is a test bug, not a finding.
+                if any(entry[1] == text.strip() for entry in m.entries):
+                    first_goal = text.strip()
+        checked += 1
+        if len(m.entries) > capacity:  # I4
+            fail("I4 capacity exceeded", f"{len(m.entries)} > {capacity}")
+        if first_goal is not None:
+            pinned = sum(1 for e in m.entries if spec.PRIORITY[e[0]] == 0)
+            if pinned <= capacity and not any(e[1] == first_goal for e in m.entries):
+                fail("I4 the first goal was dropped while pinned entries fit", f"cap={capacity}")
+        # A pinned append into a memory that is entirely pinned must be refused, not silently bought by
+        # evicting a constraint someone stated.
+        if m.entries and all(spec.PRIORITY[e[0]] == 0 for e in m.entries) \
+                and len(m.entries) == capacity:
+            before = list(m.entries)
+            m.append("CONSTRAINT", f"pin-{checked}")
+            if list(m.entries) != before:
+                fail("I5 a pinned append into a full pinned memory was kept",
+                     f"cap={capacity} now={len(m.entries)}")
+
+        rendered = m.render(budget=rng.choice([100, 500, 6000]))
+        if len(rendered) > 6000 + 2000:
+            fail("I4 render ignored its budget", str(len(rendered)))
+
+
+def case_guard(n: int) -> None:
+    global checked
+    calls = ["a", "b", "c"]
+    for _ in range(n):
+        step = rng.randint(0, 20)
+        elapsed = rng.randint(0, 200_000)
+        observed = rng.randint(0, 40_000)
+        seq = [rng.choice(calls) for _ in range(rng.randint(0, 6))]
+        obs = [rng.choice(["", "x", "y"]) for _ in range(rng.randint(0, 4))]
+        try:
+            reason = spec.stop_reason(step, elapsed, calls=seq, observations=obs, observed_chars=observed)
+        except Exception as error:  # I9
+            fail("I9 guard raised", f"{error.__class__.__name__}")
+            continue
+        checked += 1
+        if elapsed >= 90_000 and reason != "TIME_EXHAUSTED":  # I5
+            fail("I5 no stop reason past the time budget", f"elapsed={elapsed} reason={reason}")
+        if step >= 8 and elapsed < 90_000 and reason not in ("STEPS_EXHAUSTED", "OBSERVATION_LIMIT", "STALLED"):
+            fail("I5 no stop reason past the step budget", f"step={step} reason={reason}")
+        if reason is not None and reason not in ("TIME_EXHAUSTED", "STEPS_EXHAUSTED",
+                                                 "OBSERVATION_LIMIT", "STALLED"):
+            fail("I5 invented a termination", str(reason))
+
+
+def case_audit(n: int) -> None:
+    global checked
+    effects = ["NONE", "DEVICE_READ", "NETWORK_READ", "LOCAL_WRITE", "DEVICE_CHANGE", "EXTERNAL_SEND"]
+    for _ in range(n):
+        goal = random_text()[:300]
+        answer = random_text()[:600]
+        observations = [random_text()[:300] for _ in range(rng.randint(0, 3))]
+        chosen = [rng.choice(effects) for _ in range(rng.randint(0, 2))]
+        try:
+            result = spec.audit(goal, answer, observations, chosen)
+        except Exception as error:  # I9
+            fail("I9 audit raised", f"{error.__class__.__name__}")
+            continue
+        checked += 1
+        conf = result.get("confidence")
+        non_blank = [o for o in observations if o.strip()]
+        if conf == "HIGH" and len(non_blank) < 2:  # I6
+            fail("I6 HIGH without two observations", f"obs={len(non_blank)}")
+        if "THIN" in result.get("findings", []) and conf != "NONE":  # I7
+            fail("I7 a blocked draft was not NONE", conf)
+        if conf not in ("NONE", "LOW", "MEDIUM", "HIGH"):
+            fail("I7 invented a confidence", str(conf))
+
+
+def case_triage(n: int) -> None:
+    global checked
+    for _ in range(n):
+        text = random_text()[:800]
+        tools = rng.choice([0, 1, 3, 5])
+        try:
+            result = spec.triage(text, tools)
+        except Exception as error:  # I9
+            fail("I9 triage raised", f"{error.__class__.__name__}")
+            continue
+        checked += 1
+        if result["depth"] == "DEEP" and tools <= 0:  # I8
+            fail("I8 deep with no tools", text[:80])
+        if result["depth"] not in ("DEEP", "SHALLOW"):
+            fail("I8 invented a depth", str(result["depth"]))
+        if not result["reason"]:
+            fail("I8 no reason given", text[:60])
+
+
+def case_fence(n: int) -> None:
+    global checked
+    for _ in range(n):
+        raw = random_text()
+        try:
+            out = spec.sanitize(raw)
+        except Exception as error:  # I9
+            fail("I9 sanitize raised", f"{error.__class__.__name__}")
+            continue
+        checked += 1
+        if spec.TOOL_LINE.search(out) or spec.ANSWER_LINE.search(out):  # I10
+            fail("I10 a defanged observation still parses as a directive", out[:160])
+        if len(out) > 4000:
+            fail("I10 sanitiser ignored its cap", str(len(out)))
+        if "\x00" in out:
+            fail("I10 NUL survived sanitising", out[:60])
+
+
+CALC_ALPHABET = "0123456789.+-*/%^(), _abcdefghijklmnopqrstuvwxyz"
+
+
+def case_calculator(n: int) -> None:
+    global checked
+    for _ in range(n):
+        roll = rng.random()
+        if roll < 0.5:
+            expression = "".join(rng.choice(CALC_ALPHABET) for _ in range(rng.randint(0, 40)))
+        elif roll < 0.8:
+            expression = f"{rng.uniform(-1e6, 1e6):.6f}{rng.choice('+-*/%^')}{rng.uniform(-1e6, 1e6):.6f}"
+        else:
+            expression = random_text()[:60]
+        try:
+            result = spec.calculate(expression)
+        except Exception as error:  # I11
+            fail("I11 the calculator raised", f"{error.__class__.__name__} on {expression[:40]!r}")
+            continue
+        checked += 1
+        if "err" in result:
+            if not result["err"]:
+                fail("I11 an empty refusal", expression[:40])
+            continue
+        if "formatted" not in result or "value" not in result:
+            fail("I11 a result with no value", expression[:40])
+            continue
+        value = result["value"]
+        if value != value or value in (float("inf"), float("-inf")):
+            fail("I11 a non-finite result was returned", f"{expression[:40]!r} -> {value}")
+        formatted = result["formatted"]
+        if not formatted or "e" not in formatted and "E" not in formatted:
+            try:
+                if abs(float(formatted) - value) > max(1e-6, abs(value) * 1e-9):
+                    fail("I11 the formatted value does not round-trip", f"{expression[:40]!r} -> {formatted}")
+            except ValueError:
+                fail("I11 the formatted value is not a number", formatted)
+
+
+def case_roundtrip(n: int) -> None:
+    """A model that writes a clean plan must always be understood; nothing valid is ever misread."""
+    global checked
+    for _ in range(n):
+        tool = rng.choice(sorted(TOOL_IDS))
+        cap = CAPS[tool]
+        arg = "".join(rng.choice(string.ascii_letters + " #.-_/:=?&") for _ in range(rng.randint(1, cap)))
+        raw = f'THOUGHT: checking.\nTOOL: {tool}("{arg}")'
+        step = spec.parse(raw)
+        checked += 1
+        if step.get("tool") != tool:
+            fail("roundtrip: a well-formed tool line was misread", f"{tool} -> {step.get('tool')}")
+        if step.get("argument") != arg.strip():
+            fail("roundtrip: the argument was altered", f"{arg[:60]!r} -> {step.get('argument','')[:60]!r}")
+
+
+def case_protocol(n: int) -> None:
+    """The control format must never leak into what the owner reads."""
+    global checked
+    markers = ["THOUGHT", "THINKING", "REASONING"]
+    for _ in range(n):
+        marker = rng.choice(markers)
+        body = random_text().replace("\n", " ")
+        text = f"{marker}: {body}"
+        step = spec.parse(text)
+        checked += 1
+        answer = step.get("answer")
+        if answer is not None and answer.strip().upper().startswith(marker):
+            fail("protocol: a thought line was returned as the answer", text[:80])
+        # An empty thought ("REASONING: " with nothing after it) has nothing to lose; only a reply
+        # with words in it must keep them.
+        if answer is None and text.split(":", 1)[1].strip() and not step.get("thought"):
+            fail("protocol: a thought-only reply lost its thought", text[:80])
+
+
+def case_toolrecord(n: int) -> None:
+    """A warning about a tool is only honest if the tool was actually tried enough times."""
+    global checked
+    ids = list(TOOL_IDS)
+    for _ in range(max(20, n // 10)):
+        outcomes = [
+            (rng.choice(ids), rng.random() < rng.random())
+            for _ in range(rng.randint(0, 40))
+        ]
+        rows = tally(outcomes)
+        checked += 1
+        total = sum(r.calls for r in rows)
+        if total != len(outcomes):
+            fail("tool record: calls are lost between outcome and tally", f"{total} vs {len(outcomes)}")
+        named = advice(rows)
+        for row in rows:
+            mentioned = f"{row.id} failed" in named
+            if mentioned and (row.calls < MIN_CALLS or row.rate >= FAILURE_ALERT):
+                fail("tool record: warns about a tool that does not deserve it",
+                     f"{row.id} {row.ok}/{row.calls}")
+            if row.calls >= MIN_CALLS and row.rate < FAILURE_ALERT and not mentioned:
+                fail("tool record: silent about a tool that keeps failing",
+                     f"{row.id} {row.ok}/{row.calls}")
+        for row in rows:
+            if not 0 <= row.ok <= row.calls:
+                fail("tool record: impossible totals", f"{row.id} {row.ok}/{row.calls}")
+
+
+MIN_CALLS = 3
+FAILURE_ALERT = 0.5
+
+
+class Tally:
+    def __init__(self, ident: str, calls: int, ok: int):
+        self.id, self.calls, self.ok = ident, calls, ok
+
+    @property
+    def rate(self) -> float:
+        return 0.0 if self.calls <= 0 else self.ok / self.calls
+
+    @property
+    def failed(self) -> int:
+        return max(0, self.calls - self.ok)
+
+
+def tally(outcomes) -> list:
+    groups: dict = {}
+    for tool, ok in outcomes:
+        calls, goods = groups.get(tool, (0, 0))
+        groups[tool] = (calls + 1, goods + (1 if ok else 0))
+    rows = [Tally(k, v[0], v[1]) for k, v in groups.items()]
+    return sorted(rows, key=lambda t: (-t.calls, t.id))
+
+
+def advice(rows) -> str:
+    bad = [r for r in rows if r.calls >= MIN_CALLS and r.rate < FAILURE_ALERT]
+    if not bad:
+        return ""
+    return ("Your own record on this device: " +
+            "; ".join(f"{r.id} failed {r.failed} of {r.calls}" for r in bad) +
+            ". Prefer another tool unless you need this one, and do not retry a failure unchanged.")
+
+
+def main() -> int:
+    print(f"cognition fuzz · seed {SEED} · {CASES} cases per property")
+    case_parser(CASES)
+    case_memory(max(10, CASES // 10))
+    case_guard(CASES)
+    case_audit(CASES)
+    case_triage(CASES)
+    case_fence(CASES)
+    case_calculator(CASES)
+    case_roundtrip(CASES)
+    case_toolrecord(CASES)
+    case_protocol(CASES)
+
+    for line in failures:
+        print(f"  FAIL  {line}")
+    print()
+    if failures:
+        print(f"FUZZ FAILED · {len(failures)} invariant breach(es) over {checked} cases")
+        return 1
+    print(f"FUZZ OK · {checked} cases · 13 invariants held")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

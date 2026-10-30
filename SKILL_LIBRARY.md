@@ -6,6 +6,14 @@
 
 The asset contains 100 reference skills in ten topical packs. It is a bounded knowledge/retrieval catalog—not a plugin system, tool registry, permissions list, or authorization grant. Every skill and pack must declare `readiness: "REFERENCE_ONLY"`. The app rejects unknown schema versions, malformed identifiers, duplicates, broken pack references, missing guidance fields, oversized data, and any readiness value that is not exactly `REFERENCE_ONLY`. The asset is capped at 256 KiB by the runtime loader; pack and entry counts, string lengths, keywords, and source references are also bounded. The standalone Python validator checks the checked-in dataset without Java or Android SDK.
 
+## Learned skills are a different thing
+
+This catalog is static: bundled with the APK, read-only, and every entry is `REFERENCE_ONLY`. Lucifer also
+accumulates a small, separate list of behaviours learned from its own turns (corrections, repeated
+questions, and recovery tactics that worked). Those live in `filesDir/skills/synth_state.json`, are capped,
+and are injected as *habits, not permissions* — they cannot add a tool, grant authorisation, or alter
+anything in this library. See [SKILL_SYNTHESIS.md](SKILL_SYNTHESIS.md).
+
 ## Separation of concerns
 
 - `MainActivity.buildSkillRegistry()` is the operational status catalog. It describes integrations that exist in this build, including their limitations. It is not generated from this reference asset.

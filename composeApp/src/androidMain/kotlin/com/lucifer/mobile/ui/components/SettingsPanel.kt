@@ -20,9 +20,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -48,9 +50,16 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lucifer.mobile.diagnostics.AndroidPlatformDiagnostics
+import com.lucifer.mobile.privacy.NetworkGuard
+import com.lucifer.mobile.privacy.PlayClassifier
+import com.lucifer.mobile.privacy.PlayEnvironmentProbe
+import com.lucifer.mobile.privacy.TorRuntime
+import com.lucifer.mobile.net.EgressTransport
+import com.lucifer.mobile.skills.SkillSynthRuntime
 import com.lucifer.mobile.ui.effects.SigilRule
 import com.lucifer.mobile.ui.effects.glassSurface
 import com.lucifer.mobile.ui.effects.shard
@@ -72,6 +81,8 @@ fun AnimatedSettingsPanel(
     onWorldPanelOpen: () -> Unit = {},
     onShizukuTest: () -> Unit = {},
     onShizukuAudit: (String) -> Unit = {},
+    /** Wipes the cognition ledger and the tool record — his thinking, erasable like his egress log. */
+    onClearCognition: () -> Unit = {},
     shizukuAuditOutput: String = "",
     shizukuAuditBusy: Boolean = false,
     shizukuStatus: String = "Checking Shizuku…",
@@ -96,6 +107,8 @@ fun AnimatedSettingsPanel(
     localMemoryBytes: Long = 0L,
     onLocalMemoryToggle: (Boolean) -> Unit = {},
     onLocalMemoryClear: () -> Unit = {},
+    onExportBundle: () -> Unit = {},
+    biometricStatus: String = "…",
     voiceEnabled: Boolean = true,
     knowledgeStatus: String = "…",
     corpusInfo: String = "124 files · 54 volumes",
@@ -129,6 +142,23 @@ fun AnimatedSettingsPanel(
         }
         androidDiagnosticsBusy = false
     }
+    // Privacy: the switch and the egress ledger are read from NetworkGuard, not passed in, so the
+    // panel shows the real file-backed state instead of a copy that could drift.
+    var networkOnline by remember { mutableStateOf(true) }
+    var privacyLedger by remember { mutableStateOf("Reading the egress ledger…") }
+    var guardInstalled by remember { mutableStateOf(false) }
+    var playReport by remember { mutableStateOf("Reading the Play stack…") }
+    suspend fun refreshPrivacy() {
+        networkOnline = withContext(Dispatchers.IO) { NetworkGuard.isOnline(context) }
+        privacyLedger = withContext(Dispatchers.IO) { NetworkGuard.recent(context, 20) }
+        guardInstalled = NetworkGuard.installed
+        // Which Play stack is under him changes push, location and integrity — not Lucifer's own
+        // behaviour, since this APK ships zero Google dependencies.
+        playReport = withContext(Dispatchers.IO) {
+            PlayClassifier.report(PlayEnvironmentProbe(context).read())
+        }
+    }
+    LaunchedEffect(context) { refreshPrivacy() }
     var shizukuPackageText by remember { mutableStateOf("com.mirfatif.permissionmanagerx") }
     var soulMdText by remember { mutableStateOf("") }
     var soulSaved by remember { mutableStateOf(0) }
@@ -158,6 +188,137 @@ fun AnimatedSettingsPanel(
     ) {
         statusMessage?.takeIf { it.isNotBlank() }?.let {
             Text(it, color = Morningstar.Gilded, fontSize = 12.sp, fontFamily = Morningstar.Body)
+        }
+
+        // ── PRIVACY · EGRESS — the one switch that makes the app silent ──
+        SettingsCard(title = "PRIVACY · EGRESS", icon = {
+            Icon(Icons.Filled.Lock, contentDescription = "Privacy", tint = Morningstar.Crimson, modifier = Modifier.size(24.dp))
+        }) {
+            Text(
+                "Every outbound request asks this switch first and is written to a local ledger: the host and the " +
+                    "path, never the query string. Device-local traffic (Termux, the VM bridge, the memory MCP) keeps " +
+                    "working while the network is off. This hides nothing from your carrier or your network — for that " +
+                    "you need a VPN, and Lucifer should not be your anonymity layer.",
+                color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body
+            )
+            Text(
+                if (guardInstalled) "GUARD INSTALLED · ${if (networkOnline) "NETWORK ON" else "NETWORK OFF"}"
+                else "GUARD NOT INSTALLED — egress is unguarded until LuciferApplication.onCreate runs",
+                color = if (guardInstalled && !networkOnline) Morningstar.Crimson else Morningstar.Ash,
+                fontSize = 10.sp, fontFamily = Morningstar.MonoTail
+            )
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        val next = !networkOnline
+                        NetworkGuard.setOnline(context, next)
+                        networkOnline = next
+                        diagnosticsScope.launch { refreshPrivacy() }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (networkOnline) Morningstar.GlassRaised else Morningstar.Blood,
+                        contentColor = Morningstar.Bone
+                    )
+                ) {
+                    Text(
+                        if (networkOnline) "GO DARK · NETWORK OFF" else "BACK ONLINE",
+                        fontSize = 10.sp, fontFamily = Morningstar.Body
+                    )
+                }
+                Button(
+                    onClick = {
+                        NetworkGuard.clear(context)
+                        diagnosticsScope.launch { refreshPrivacy() }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
+                ) { Text("CLEAR LEDGER", fontSize = 10.sp, fontFamily = Morningstar.Body) }
+            }
+            Spacer(Modifier.height(6.dp))
+            Button(
+                onClick = { onClearCognition() },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
+            ) {
+                Text(
+                    "CLEAR THINKING HISTORY · run log and tool record",
+                    fontSize = 10.sp, fontFamily = Morningstar.Body
+                )
+            }
+            // ── TRANSPORT · Tor for Lucifer's own traffic ──
+            SigilRule()
+            var transportLabel by remember { mutableStateOf("DIRECT") }
+            var torStatus by remember { mutableStateOf("…") }
+            var circuitBusy by remember { mutableStateOf(false) }
+            var transportRevision by remember { mutableStateOf(0) }
+            LaunchedEffect(transportRevision) {
+                withContext(Dispatchers.IO) {
+                    transportLabel = TorRuntime.transport().label
+                    torStatus = TorRuntime.status(context)
+                }
+            }
+            Text(
+                "TRANSPORT · where Lucifer's own requests go. VIA TOR sends every remote request through a " +
+                    "SOCKS5 proxy (Orbot's 127.0.0.1:9050 by default) with the hostname handed to the proxy, " +
+                    "so this phone never resolves a name it meant to keep private. If the proxy stops answering, " +
+                    "requests are refused — never quietly sent directly.",
+                color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body
+            )
+            Text(torStatus, color = Morningstar.Gilded, fontSize = 10.sp, fontFamily = Morningstar.MonoTail)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        diagnosticsScope.launch {
+                            val next = if (transportLabel == "TOR") EgressTransport.DIRECT else EgressTransport.TOR
+                            withContext(Dispatchers.IO) { TorRuntime.setTransport(context, next) }
+                            withContext(Dispatchers.IO) { torStatus = TorRuntime.status(context) }
+                            transportLabel = TorRuntime.transport().label
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (transportLabel == "TOR") Morningstar.SuccessDim else Morningstar.GlassRaised,
+                        contentColor = Color.White
+                    )
+                ) { Text(if (transportLabel == "TOR") "USE DIRECT" else "VIA TOR", fontSize = 10.sp, fontFamily = Morningstar.Body) }
+                Button(
+                    onClick = {
+                        circuitBusy = true
+                        diagnosticsScope.launch {
+                            val line = TorRuntime.testCircuit(context)
+                            torStatus = line
+                            circuitBusy = false
+                            transportRevision++
+                        }
+                    },
+                    enabled = !circuitBusy && transportLabel == "TOR",
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
+                ) { Text(if (circuitBusy) "CHECKING…" else "TEST CIRCUIT", fontSize = 10.sp, fontFamily = Morningstar.Body) }
+            }
+            Text(
+                TorRuntime.SCOPE_NOTE,
+                color = Morningstar.Warning, fontSize = 10.sp, fontFamily = Morningstar.Body
+            )
+
+            SigilRule()
+            Text(
+                playReport,
+                color = Morningstar.Ash,
+                fontSize = 10.sp,
+                fontFamily = Morningstar.MonoTail,
+                maxLines = 12,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                privacyLedger,
+                color = Morningstar.Ash,
+                fontSize = 10.sp,
+                fontFamily = Morningstar.MonoTail,
+                maxLines = 16,
+                overflow = TextOverflow.Ellipsis
+            )
         }
 
         // Soul.md Editor
@@ -460,7 +621,7 @@ fun AnimatedSettingsPanel(
         }
 
         // NVIDIA API key — user-provided and encrypted with Android Keystore.
-        SettingsCard(title = "NVIDIA API KEY", icon = { Icon(Icons.Filled.Psychology, contentDescription = "LLM Key", tint = Morningstar.Success, modifier = Modifier.size(24.dp)) }) {
+        SettingsCard(title = "NVIDIA API KEYS", icon = { Icon(Icons.Filled.Psychology, contentDescription = "LLM Key", tint = Morningstar.Success, modifier = Modifier.size(24.dp)) }) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -471,7 +632,8 @@ fun AnimatedSettingsPanel(
                         value = nvidiaKeyText,
                         onValueChange = { nvidiaKeyText = it },
                         modifier = Modifier.weight(1f),
-                        singleLine = true,
+                        singleLine = false,
+                        maxLines = 4,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password),
                         colors = TextFieldDefaults.textFieldColors(
@@ -483,7 +645,7 @@ fun AnimatedSettingsPanel(
                             unfocusedIndicatorColor = Color.Transparent,
                             disabledIndicatorColor = Color.Transparent
                         ),
-                        placeholder = { Text("Paste NVIDIA API key (empty clears it)", color = Morningstar.Whisper) }
+                        placeholder = { Text("Primary key first, then comma-separated fallbacks (empty clears all)", color = Morningstar.Whisper) }
                     )
                     Button(
                         onClick = { onNvidiaKeySave(nvidiaKeyText) },
@@ -599,6 +761,70 @@ fun AnimatedSettingsPanel(
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(containerColor = Morningstar.CrimsonDim, contentColor = Color.White)
                 ) { Text("DELETE LOCAL MEMORY") }
+            }
+        }
+
+        // The way out: everything he knows, written where you point, uploaded nowhere.
+        SettingsCard(title = "EXPORT · YOUR DATA, YOUR FILE", icon = { Icon(Icons.Filled.Share, contentDescription = "Export your data", tint = Morningstar.Info, modifier = Modifier.size(24.dp)) }) {
+            Text(
+                "Writes one JSON document through the system file picker: the settings that are set, every " +
+                    "learned skill, the egress ledger, and record counts. Secrets are excluded by name — the " +
+                    "file records only whether each one exists. Nothing is uploaded; there is no code path " +
+                    "from the export to a socket, and no storage permission is held because the picker grants " +
+                    "the single file you choose.",
+                color = Morningstar.Ash, fontSize = 12.sp, fontFamily = Morningstar.Body
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            SystemStatusRow("Biometric gate", biometricStatus, Morningstar.Info)
+            Spacer(modifier = Modifier.height(6.dp))
+            Button(
+                onClick = onExportBundle,
+                colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Color.White)
+            ) { Text("EXPORT BUNDLE", fontSize = 12.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold) }
+        }
+
+        // Always-on skill synthesis: local, bounded, and reversible from here.
+        SettingsCard(title = "LEARNED SKILLS · ALWAYS ON", icon = { Icon(Icons.Filled.Psychology, contentDescription = "Learned skills", tint = Morningstar.Gilded, modifier = Modifier.size(24.dp)) }) {
+            val synthContext = LocalContext.current
+            val synthScope = rememberCoroutineScope()
+            var synthOn by remember { mutableStateOf(true) }
+            var synthLine by remember { mutableStateOf("…") }
+            var synthRevision by remember { mutableStateOf(0) }
+            LaunchedEffect(synthRevision) {
+                withContext(Dispatchers.IO) {
+                    synthOn = SkillSynthRuntime.enabled(synthContext)
+                    synthLine = SkillSynthRuntime.summary(synthContext)
+                }
+            }
+            Text(
+                "Lucifer keeps a short list of habits learned from his own turns: a correction you made, a question you had to repeat, a recovery step that fixed a failed command. It is local, capped, and never grants permission — confirmations, privacy limits and surface boundaries still apply. Nothing here is sent anywhere.",
+                color = Morningstar.Ash, fontSize = 12.sp, fontFamily = Morningstar.Body
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            SystemStatusRow("Learning", if (synthOn) "ON" else "OFF", if (synthOn) Morningstar.Success else Morningstar.Warning)
+            SystemStatusRow("Learned", synthLine, Morningstar.Info)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        val turnOn = !synthOn
+                        synthScope.launch {
+                            withContext(Dispatchers.IO) { SkillSynthRuntime.setEnabled(synthContext, turnOn) }
+                            synthRevision++
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (synthOn) Morningstar.GlassRaised else Morningstar.SuccessDim, contentColor = Color.White)
+                ) { Text(if (synthOn) "PAUSE LEARNING" else "RESUME LEARNING") }
+                Button(
+                    onClick = {
+                        synthScope.launch {
+                            withContext(Dispatchers.IO) { SkillSynthRuntime.forgetAll(synthContext) }
+                            synthRevision++
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.CrimsonDim, contentColor = Color.White)
+                ) { Text("FORGET EVERYTHING") }
             }
         }
 

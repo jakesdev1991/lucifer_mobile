@@ -17,15 +17,27 @@ HARNESS_SERVER="$ROOT/tools/verification-core/VerificationServerTests.kt"
 OUT="${TMPDIR:-/tmp}/lucifer-verification-build"
 
 KOTLINC_BIN="${KOTLINC:-kotlinc}"
+# A missing toolchain is "unproven", not "failed" — but it must never look like a pass either.
+# CI that is expected to compile sets LUCIFER_REQUIRE_KOTLIN=1 and a missing kotlinc becomes an error.
 if ! command -v "$KOTLINC_BIN" >/dev/null 2>&1; then
-  echo "kotlinc not found. Set KOTLINC=/path/to/kotlinc (and JAVA_HOME) to run this harness." >&2
-  exit 127
+  if [[ "${LUCIFER_REQUIRE_KOTLIN:-0}" == "1" ]]; then
+    echo "kotlinc not found and LUCIFER_REQUIRE_KOTLIN=1 — cannot verify this harness." >&2
+    exit 1
+  fi
+  echo "SKIPPED — kotlinc not found, so the Kotlin half of this harness did NOT run."
+  echo "          Set KOTLINC=/path/to/kotlinc (and JAVA_HOME) to run it, or"
+  echo "          LUCIFER_REQUIRE_KOTLIN=1 to make a missing toolchain an error."
+  exit 0
 fi
 
 mkdir -p "$OUT"
 
 echo "== compile + run verification control-plane checks =="
-"$KOTLINC_BIN" "$SRC/resilience/JsonLite.kt" \
+# AuditVaultContract/AuditVaultExecutor live in the same file as the HTTP transport that reaches the
+# vault, so the egress door is stubbed here too. The harness never opens it: it checks the contract
+# (canonical body, HMAC, headers), which is pure.
+"$KOTLINC_BIN" "$ROOT/tools/verification-core/android-stubs/EgressStubs.kt" \
+  "$SRC/resilience/JsonLite.kt" \
   "$SRC/verification/VerificationCore.kt" "$SRC/verification/VerificationRuntime.kt" \
   "$SRC/verification/VerificationServer.kt" "$SRC/verification/AuditVault.kt" \
   "$SRC/verification/StatementGates.kt" \

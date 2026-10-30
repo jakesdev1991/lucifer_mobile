@@ -1,6 +1,9 @@
 # Lucifer Mobile capability and control audit
 
 **Audit date:** 2026-10-26
+
+> **Superseded in part.** 2026-10-30: the manifest declarations this audit describes as "restored but unconnected" have been resolved — permissions with no call site are withdrawn, biometric and voice input are wired, the browser is interactive behind confirmation, and the ten dormant `omni_bridge` subpackages are deleted. Current state: `CAPABILITIES.md` §9 and `BROWSER_AND_VOICE.md`. The text below is kept as the record of what was true on the audit date.
+
 **Scope:** active Android source configured by `composeApp/build.gradle.kts`, manifest, launcher, terminal, wallet, browser, Kai/Omni-Bridge, settings, skills, and build/documentation. This is a code review, not a device certification; the build could not be run because this environment has no Java runtime.
 
 ## Executive summary

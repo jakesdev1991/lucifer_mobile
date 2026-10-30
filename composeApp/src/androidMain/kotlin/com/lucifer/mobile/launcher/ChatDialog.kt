@@ -79,6 +79,8 @@ fun ChatDialog(
     onSend: (String) -> Unit,
     onClose: () -> Unit,
     thinking: Boolean = false,
+    /** What the loop is doing right now: "reading the corpus", "fetching a page". Empty when idle. */
+    progress: String = "",
     voiceMuted: Boolean = false,
     onToggleVoice: () -> Unit = {}
 ) {
@@ -221,10 +223,14 @@ fun ChatDialog(
                         fontFamily = Morningstar.MonoTail
                     )
                     Text(
-                        "understanding · routing · responding…",
+                        // A forty-second run that says nothing reads as a hang. When the loop reports a
+                        // step, say what it is doing instead of the generic phrase.
+                        if (progress.isBlank()) "understanding · routing · responding…" else progress,
                         color = Morningstar.Ash.copy(alpha = 0.5f + shimmer * 0.5f),
                         fontSize = 11.sp,
-                        fontFamily = Morningstar.MonoTail
+                        fontFamily = Morningstar.MonoTail,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 }
             }

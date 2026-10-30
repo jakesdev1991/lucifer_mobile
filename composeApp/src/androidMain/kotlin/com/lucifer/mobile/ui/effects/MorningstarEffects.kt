@@ -311,6 +311,9 @@ fun SigilBackdrop(
     ringAlpha: Float = 0.05f
 ) {
     val drift = rememberBreathingAmount(periodMillis = 24_000)
+    // Generated once, not per frame: the draw lambda runs on every animation frame, and building a
+    // fresh seeded field each time allocated 26 objects and re-ran the LCG for nothing.
+    val dustField = remember(dust) { if (dust) EmberField.generate(26, seed = 0xD057) else emptyList() }
     Canvas(modifier = modifier.fillMaxSize()) {
         drawRect(color = Morningstar.Void)
         drawRect(
@@ -336,9 +339,8 @@ fun SigilBackdrop(
             center = center,
             style = Stroke(width = 1f)
         )
-        if (dust) {
-            val embers = EmberField.generate(26, seed = 0xD057)
-            for (ember in embers) {
+        if (dust && dustField.isNotEmpty()) {
+            for (ember in dustField) {
                 val x = (ember.startX + ember.drift * drift) * size.width
                 val y = (1f - ember.startY - ember.rise * 0.12f * drift) * size.height
                 drawCircle(

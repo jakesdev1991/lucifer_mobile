@@ -7,8 +7,7 @@ import com.lucifer.mobile.resilience.int
 import com.lucifer.mobile.resilience.long
 import com.lucifer.mobile.resilience.obj
 import com.lucifer.mobile.resilience.str
-import java.net.HttpURLConnection
-import java.net.URL
+import com.lucifer.mobile.privacy.EgressHttp
 import java.security.MessageDigest
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -236,22 +235,28 @@ class HttpVaultTransport(
         headers: Map<String, String>,
         body: String?
     ): VaultTransport.Reply {
-        val connection = URL(AuditVaultContract.normalizeUrl(baseUrl) + path)
-            .openConnection() as HttpURLConnection
-        connection.instanceFollowRedirects = false
-        connection.requestMethod = method
-        connection.connectTimeout = timeoutMs
-        connection.readTimeout = timeoutMs
-        connection.setRequestProperty("Accept", "application/json")
-        headers.forEach { (name, value) -> connection.setRequestProperty(name, value) }
-        if (body != null) {
-            connection.doOutput = true
-            connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+        val target = AuditVaultContract.normalizeUrl(baseUrl) + path
+        // A blocked call is an ordinary transport failure here: status 0, honest body, no throw, so
+        // the executor's existing fallback decides what to do instead of an exception escaping.
+        val reply = EgressHttp.exchange(
+            EgressHttp.Request(
+                url = target,
+                userInitiated = true,
+                method = method,
+                headers = headers + mapOf("Accept" to "application/json"),
+                body = body?.toByteArray(Charsets.UTF_8),
+                connectTimeoutMs = timeoutMs,
+                readTimeoutMs = timeoutMs,
+                maxBodyBytes = AuditVaultContract.MAX_BODY_BYTES
+            )
+        )
+        if (reply.status == 0) {
+            return VaultTransport.Reply(0, reply.refusal("the audit vault call"))
         }
-        val status = connection.responseCode
-        val stream = if (status >= 400) connection.errorStream else connection.inputStream
-        val text = stream?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
-        return VaultTransport.Reply(status, text.take(AuditVaultContract.MAX_BODY_BYTES))
+        return VaultTransport.Reply(
+            reply.status,
+            reply.text().take(AuditVaultContract.MAX_BODY_BYTES)
+        )
     }
 }
 

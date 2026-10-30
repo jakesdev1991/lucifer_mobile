@@ -79,6 +79,9 @@ import androidx.compose.ui.unit.sp
 import com.lucifer.mobile.omni_bridge.four_horsemen.FourHorsemenOrchestrator
 import com.lucifer.mobile.memory.LocalConversationMemory
 import com.lucifer.mobile.omni_bridge.knowledge.ToEReasoningEngine
+import com.lucifer.mobile.config.AppConfig
+import com.lucifer.mobile.surface.Surface
+import com.lucifer.mobile.skills.SkillSynthRuntime
 import com.lucifer.mobile.terminal.TerminalExecutor
 import com.lucifer.mobile.ui.components.SigilClock
 import com.lucifer.mobile.ui.effects.SigilBackdrop
@@ -107,6 +110,9 @@ import java.util.Locale
  */
 class LauncherActivity : ComponentActivity() {
 
+    /** Held so a microphone session can be ended from a lifecycle callback, not only from the UI. */
+    private var voiceHandle: LuciferVoice? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
@@ -119,6 +125,7 @@ class LauncherActivity : ComponentActivity() {
         // His voice obeys the persisted Settings toggle on every cold start.
         val voice = LuciferVoice(this)
         voice.setEnabled(loadVoiceEnabledPref())
+        voiceHandle = voice
         val brain = FourHorsemenOrchestrator(this)
         val reasoner = ToEReasoningEngine(this, brain)
         setContent { LuciferLauncherScreen(voice, reasoner) }
@@ -126,6 +133,25 @@ class LauncherActivity : ComponentActivity() {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() { /* true launcher: BACK on home does nothing */ }
+
+    /**
+     * A microphone session must never outlive the screen that started it.
+     *
+     * The launcher is a home screen: it stays alive while the user goes elsewhere, so a recogniser
+     * opened here and forgotten would keep the microphone open in a background app — the exact
+     * behaviour the press-to-talk design exists to avoid. Stopping here is not belt-and-braces; it is
+     * the only thing that closes that window.
+     */
+    override fun onStop() {
+        voiceHandle?.stopListening()
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        voiceHandle?.shutdown()
+        voiceHandle = null
+        super.onDestroy()
+    }
 
     private fun journalLaunch(tag: String) {
         try {
@@ -137,15 +163,9 @@ class LauncherActivity : ComponentActivity() {
         } catch (_: Exception) {}
     }
 
-    /** Read the persisted voice preference (written by Settings → VOICE). */
-    private fun loadVoiceEnabledPref(): Boolean {
-        return try {
-            val file = File(filesDir, "config/voice_enabled.txt")
-            !file.exists() || file.readText().trim() != "false"
-        } catch (_: Exception) {
-            true
-        }
-    }
+    /** Read the persisted voice preference (written by Settings → VOICE). Default is on. */
+    private fun loadVoiceEnabledPref(): Boolean =
+        AppConfig.readFlag(this, AppConfig.VOICE_ENABLED, default = true)
 
     private fun launchApp(pkg: String): Boolean = try {
         if (pkg == packageName) {
@@ -272,7 +292,13 @@ class LauncherActivity : ComponentActivity() {
         voice: LuciferVoice,
         reasoner: ToEReasoningEngine
     ) {
-        val apps by remember { mutableStateOf(loadApps()) }
+        // loadApps() queries every launcher activity and draws an icon bitmap for each one. Doing that
+        // inside remember{} means the home screen cannot paint until it finishes — on a phone with a
+        // hundred apps that is the whole cold start. The grid fills in a frame later instead.
+        var apps by remember { mutableStateOf<List<AppEntry>>(emptyList()) }
+        LaunchedEffect(Unit) {
+            apps = withContext(Dispatchers.IO) { loadApps() }
+        }
         var query by remember { mutableStateOf("") }
         var terminalLines by remember { mutableStateOf(LuciferState.recent()) }
         var target by remember { mutableStateOf(0) } // 0 LOCAL, 1 TERMUX, 2 VM, 3 SHIZUKU
@@ -280,7 +306,44 @@ class LauncherActivity : ComponentActivity() {
         var chatMessages by remember { mutableStateOf(listOf<ChatMessage>()) }
         var voiceMuted by remember { mutableStateOf(false) }
         var chatThinking by remember { mutableStateOf(false) }
+        // The current step of a deep run, so the dialog can say "reading the corpus" rather than shimmer.
+        var chatProgress by remember { mutableStateOf("") }
+        var listening by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
+
+        // Voice input: one press, one session, nothing ambient. The recogniser is created on the press
+        // and destroyed when it answers, so no microphone session outlives the request.
+        val micPermission = androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            showChat = true
+            chatMessages = chatMessages + ChatMessage(
+                if (granted) "[VOICE] Microphone granted. Press MIC again."
+                else "[VOICE] Microphone permission was not granted. Type instead, or grant it in Settings → Apps → Lucifer → Permissions.",
+                true
+            )
+        }
+
+        fun startListening(onHeard: (String) -> Unit) {
+            if (listening) return
+            listening = true
+            voice.listen(
+                this@LauncherActivity,
+                onPartial = { query = it },
+                onFinal = { heard ->
+                    listening = false
+                    query = ""
+                    showChat = true
+                    onHeard(heard)
+                },
+                onError = { message ->
+                    listening = false
+                    showChat = true
+                    chatMessages = chatMessages + ChatMessage("[VOICE] $message", true)
+                },
+                onDone = { listening = false }
+            )
+        }
         val executor = remember { TerminalExecutor(this@LauncherActivity) }
         val router = remember { NaturalLanguageRouter(this@LauncherActivity) }
         val localMemory = remember { LocalConversationMemory(this@LauncherActivity) }
@@ -324,9 +387,14 @@ class LauncherActivity : ComponentActivity() {
             val history = chatMessages.takeLast(6)
             chatMessages = chatMessages + ChatMessage(text, false)
             chatThinking = true
+            chatProgress = ""
             val selectedTarget = CommandTarget.fromLauncherIndex(target)
             val shouldSpeak = !voiceMuted
             scope.launch(Dispatchers.IO) {
+                // Judge this message against the last answer before anything new is produced: this is
+                // the only moment where "no, that's wrong" can still be tied to the turn it is about.
+                // Runs on IO because it may load and rewrite the learned-skill file.
+                SkillSynthRuntime.observeIncoming(this@LauncherActivity, text, Surface.LAUNCHER_CHAT.name)
                 val route = try {
                     router.understand(text, selectedTarget, history, apps.map { it.label })
                 } catch (e: Exception) {
@@ -334,11 +402,31 @@ class LauncherActivity : ComponentActivity() {
                 }
                 when (route) {
                     ChatRoute.Conversation -> {
-                        val answer = try { reasoner.reason(text) } catch (e: Exception) { "I couldn't complete that reply: ${e.message}" }
+                        val answer = try {
+                            // The launcher is a home-screen overlay: it gets the overlay budget, the same
+                            // one its own "how do you think?" answer quotes.
+                            reasoner.reason(
+                                text,
+                                Surface.LAUNCHER_CHAT,
+                                budget = com.lucifer.mobile.cognition.LoopBudget.OVERLAY,
+                                onStep = { record ->
+                                    if (record.call != null) {
+                                        val line = record.brief()
+                                        scope.launch(Dispatchers.Main) { chatProgress = line }
+                                    }
+                                }
+                            )
+                        } catch (e: Exception) {
+                            "I couldn't complete that reply: ${e.message}"
+                        }
                         localMemory.rememberExchange(text, answer)
+                        // Attributed to the learned skills that were in this turn's prompt: a
+                        // correction of this answer becomes their loss, praise becomes their win.
+                        SkillSynthRuntime.recordAnswer(this, text, answer, Surface.LAUNCHER_CHAT.name)
                         withContext(Dispatchers.Main) {
                             chatMessages = chatMessages + ChatMessage(answer, true)
                             chatThinking = false
+                            chatProgress = ""
                             if (shouldSpeak) voice.speak(answer)
                         }
                     }
@@ -442,11 +530,6 @@ class LauncherActivity : ComponentActivity() {
             }
         }
 
-        var beatTick by remember { mutableStateOf(0) }
-        LaunchedEffect(Unit) {
-            // Efficiency: slow tick — the strip needs no 1Hz full-screen recompositions
-            while (true) { beatTick++; delay(10_000) }
-        }
 
         // First-run welcome: seed his voice into the terminal panel so a brand-new
         // user immediately sees what this thing does (persisted flag — once only).
@@ -526,12 +609,7 @@ class LauncherActivity : ComponentActivity() {
 
                 // ── command bar: a glass shard with a crimson caret ──
                 val barShape = remember { shard(12.dp) }
-                val hint = listOf(
-                    "search apps or ask in plain English",
-                    "try: show disk space on my VM",
-                    "try: list files in Termux",
-                    "commands run through chat understanding"
-                )[beatTick % 4]
+                val hint = rememberRotatingHint()
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -568,6 +646,38 @@ class LauncherActivity : ComponentActivity() {
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
+                    Text(
+                        text = if (listening) "◉" else "MIC",
+                        style = Morningstar.caption(10).copy(
+                            color = if (listening) Morningstar.Crimson else Morningstar.Ash
+                        ),
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .clickable(interactionSource = MutableInteractionSource(), indication = null) {
+                                if (listening) {
+                                    voice.stopListening()
+                                    listening = false
+                                    return@clickable
+                                }
+                                if (!voice.canListen(this@LauncherActivity)) {
+                                    showChat = true
+                                    chatMessages = chatMessages + ChatMessage(
+                                        "[VOICE] No speech recognition service on this device. Install one, or type instead.",
+                                        true
+                                    )
+                                    return@clickable
+                                }
+                                val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                                    this@LauncherActivity,
+                                    android.Manifest.permission.RECORD_AUDIO
+                                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                if (granted) {
+                                    startListening { heard -> sendChatMessage(heard) }
+                                } else {
+                                    micPermission.launch(android.Manifest.permission.RECORD_AUDIO)
+                                }
+                            }
+                    )
                     Row(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -738,6 +848,7 @@ class LauncherActivity : ComponentActivity() {
                         },
                         onSend = { text -> sendChatMessage(text) },
                         thinking = chatThinking,
+                        progress = chatProgress,
                         voiceMuted = voiceMuted,
                         onToggleVoice = { voiceMuted = !voiceMuted },
                         onClose = { showChat = false }
@@ -748,6 +859,33 @@ class LauncherActivity : ComponentActivity() {
     }
 
     // ───────────────────────────── composables ─────────────────────────────
+
+    /**
+     * The command bar's hint line.
+     *
+     * This used to be driven by a screen-level `beatTick`, which recomposed the masthead, drawer and
+     * dock every ten seconds to change one string. The ticker now lives in the composable that reads
+     * it, so only this text recomposes.
+     */
+    @Composable
+    private fun rememberRotatingHint(): String {
+        val hints = remember {
+            listOf(
+                "search apps or ask in plain English",
+                "try: show disk space on my VM",
+                "try: list files in Termux",
+                "commands run through chat understanding"
+            )
+        }
+        var index by remember { mutableStateOf(0) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                delay(10_000)
+                index = (index + 1) % hints.size
+            }
+        }
+        return hints[index]
+    }
 
     /** Name, pulse, and cycle: the launcher's only status readout. */
     @Composable

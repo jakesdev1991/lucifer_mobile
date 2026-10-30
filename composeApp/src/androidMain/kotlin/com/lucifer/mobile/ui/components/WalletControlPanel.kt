@@ -139,6 +139,9 @@ fun WalletControlPanel(
             }
         }
     }
+    // Closes the Column. It was missing, which left the whole file one brace short — the panel could
+    // not compile, and nothing that runs here would have said so.
+    }
 
     if (confirmGeneration) {
         AlertDialog(

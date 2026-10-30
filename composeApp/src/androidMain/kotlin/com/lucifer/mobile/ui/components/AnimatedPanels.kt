@@ -191,7 +191,18 @@ data class SkillItem(
 fun AnimatedSkillsPanel(
     modifier: Modifier = Modifier,
     skills: List<SkillItem> = listOf(),
-    library: SkillLibrary? = null
+    library: SkillLibrary? = null,
+    /** One line of counts for the always-on synthesizer; blank hides the row. */
+    synthSummary: String = "",
+    synthEnabled: Boolean = true,
+    onToggleSynth: (() -> Unit)? = null,
+    onForgetLearned: (() -> Unit)? = null,
+    /** One line about Lucifer's last deep reasoning run; blank hides the card. */
+    cognitionSummary: String = "",
+    /** The step-by-step trace of that run. Shown only when expanded. */
+    cognitionTrace: String = "",
+    /** How many runs are logged, how many concluded, how many needed a caveat. */
+    cognitionHistory: String = ""
 ) {
     var query by remember { mutableStateOf("") }
     val operationalMatches = skills.filter { skill ->
@@ -244,10 +255,74 @@ fun AnimatedSkillsPanel(
             fontSize = 10.sp, fontFamily = Morningstar.Body,
             color = if (library?.isAvailable == true) Morningstar.Ash else Morningstar.Warning
         )
+        if (synthSummary.isNotBlank()) {
+            // Learned behaviour is shown next to the built-in registry because the user has to be able
+            // to see — and delete — anything this app taught itself.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "LEARNED · $synthSummary",
+                    fontSize = 10.sp, fontFamily = Morningstar.Body,
+                    color = if (synthEnabled) Morningstar.Ash else Morningstar.Warning,
+                    modifier = Modifier.weight(1f)
+                )
+                if (onToggleSynth != null) {
+                    Text(
+                        text = if (synthEnabled) "TURN OFF" else "TURN ON",
+                        fontSize = 10.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold,
+                        color = Morningstar.Gilded,
+                        modifier = Modifier.clickable { onToggleSynth() }.padding(start = 10.dp)
+                    )
+                }
+                if (onForgetLearned != null) {
+                    Text(
+                        text = "FORGET",
+                        fontSize = 10.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold,
+                        color = Morningstar.Crimson,
+                        modifier = Modifier.clickable { onForgetLearned() }.padding(start = 10.dp)
+                    )
+                }
+            }
+        }
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // How he reached the last non-trivial answer. Collapsed by default: an answer is what was
+            // asked for, the trace is what makes it checkable.
+            if (cognitionSummary.isNotBlank()) {
+                item {
+                    var expanded by remember { mutableStateOf(false) }
+                    Card(
+                        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+                        colors = CardDefaults.cardColors(containerColor = Morningstar.Glass)
+                    ) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                "HOW HE THINKS · LAST DEEP RUN",
+                                color = Morningstar.Gilded, fontSize = 11.sp,
+                                fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold
+                            )
+                            Text(cognitionSummary, color = Morningstar.Bone, fontSize = 11.sp, fontFamily = Morningstar.Body)
+                            if (cognitionHistory.isNotBlank()) {
+                                Text(cognitionHistory, color = Morningstar.Ash, fontSize = 10.sp, fontFamily = Morningstar.Body)
+                            }
+                            if (cognitionTrace.isNotBlank()) {
+                                Text(
+                                    if (expanded) "TAP TO COLLAPSE" else "TAP FOR THE STEP-BY-STEP TRACE",
+                                    color = Morningstar.Ash, fontSize = 9.sp, fontFamily = Morningstar.Body
+                                )
+                                if (expanded) {
+                                    Text(cognitionTrace, color = Morningstar.Ash, fontSize = 10.sp, fontFamily = Morningstar.Body)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if (operationalMatches.isNotEmpty()) {
                 item {
                     Text("IMPLEMENTED / OPERATIONAL REGISTRY", color = Morningstar.Gilded, fontSize = 11.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold)

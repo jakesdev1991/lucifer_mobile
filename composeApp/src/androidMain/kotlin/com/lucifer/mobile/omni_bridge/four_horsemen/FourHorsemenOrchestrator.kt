@@ -5,6 +5,10 @@ import android.util.Log
 import com.lucifer.mobile.omni_bridge.equirouter.Horseman
 import com.lucifer.mobile.omni_bridge.llm.NemotronClient
 import com.lucifer.mobile.skills.SkillLibrary
+import com.lucifer.mobile.surface.Surface
+import com.lucifer.mobile.skills.SkillSynthRuntime
+import com.lucifer.mobile.surface.SurfaceKnowledge
+import com.lucifer.mobile.surface.SurfaceRuntime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -21,7 +25,7 @@ import kotlinx.coroutines.withContext
  *   FAMINE   — low-budget, fast, pragmatic first answer
  *   DEATH    — invalid-assumption detection, branch pruning
  */
-class FourHorsemenOrchestrator(context: Context? = null) {
+class FourHorsemenOrchestrator(private val appContext: Context? = null) {
 
     companion object {
         private const val TAG = "FourHorsemen"
@@ -69,13 +73,13 @@ class FourHorsemenOrchestrator(context: Context? = null) {
         )
     }
 
-    private val llm: NemotronClient? = if (context != null) NemotronClient(context) else null
-    private val skillLibrary: SkillLibrary? = context?.let { SkillLibrary.load(it.assets) }
+    private val llm: NemotronClient? = appContext?.let { NemotronClient(it) }
+    private val skillLibrary: SkillLibrary? = appContext?.let { SkillLibrary.load(it.assets) }
 
     /** Synchronous single-horseman pass (call from Dispatchers.IO). */
-    suspend fun execute(input: String, horseman: Horseman): String =
+    suspend fun execute(input: String, horseman: Horseman, surface: Surface = Surface.UNKNOWN): String =
         withContext(Dispatchers.IO) {
-            val persona = systemPromptFor(horseman, input)
+            val persona = systemPromptFor(horseman, input, surface)
             if (llm == null) {
                 offline(horseman, input)
             } else {
@@ -96,7 +100,11 @@ class FourHorsemenOrchestrator(context: Context? = null) {
      * Full council: CONQUEST plans, WAR attacks it, FAMINE compresses, DEATH prunes.
      * Returns the verdict as one message. Used by chat for substantial questions.
      */
-    suspend fun deliberate(input: String, referenceContext: String = ""): String = withContext(Dispatchers.IO) {
+    suspend fun deliberate(
+        input: String,
+        referenceContext: String = "",
+        surface: Surface = Surface.UNKNOWN
+    ): String = withContext(Dispatchers.IO) {
         val boundedReferences = referenceContext.take(12_000).trim()
         if (llm == null) return@withContext offlineDeliberation(input, boundedReferences)
         val userRequest = buildString {
@@ -107,14 +115,14 @@ class FourHorsemenOrchestrator(context: Context? = null) {
             }
         }
 
-        val conquest = try { llm.ask(systemPromptFor(Horseman.CONQUEST, input), userRequest, 512) } catch (e: Exception) { "" }
+        val conquest = try { llm.ask(systemPromptFor(Horseman.CONQUEST, input, surface), userRequest, 512) } catch (e: Exception) { "" }
         if (conquest.startsWith("[LLM]") || conquest.isBlank()) {
             return@withContext offlineDeliberation(input, boundedReferences)
         }
-        val war = try { llm.ask(systemPromptFor(Horseman.WAR, input), "Plan to attack:\n$conquest\n\n$userRequest", 384) } catch (e: Exception) { "" }
+        val war = try { llm.ask(systemPromptFor(Horseman.WAR, input, surface), "Plan to attack:\n$conquest\n\n$userRequest", 384) } catch (e: Exception) { "" }
         val verdict = try {
             llm.ask(
-                systemPromptFor(Horseman.FAMINE, input),
+                systemPromptFor(Horseman.FAMINE, input, surface),
                 "Synthesize the final answer. Plan:\n$conquest\n\nAdversarial pass:\n$war\n\n$userRequest",
                 640
             )
@@ -124,11 +132,25 @@ class FourHorsemenOrchestrator(context: Context? = null) {
         } else verdict
     }
 
-    private fun systemPromptFor(horseman: Horseman, input: String): String {
+    private fun systemPromptFor(horseman: Horseman, input: String, surface: Surface): String {
         val persona = PERSONAS[horseman] ?: "You are a precise assistant."
         val platformContext = if (SYSTEM_ACCESS_TERMS.containsMatchIn(input)) "\n\n$ANDROID_SYSTEMS_CONTEXT" else ""
+        // Always attached, not keyword-gated: "here", "this terminal" and "your launcher" are ordinary
+        // words, and a wrong claim about his own interface is the one error the user cannot check.
+        val surfaceContext = appContext?.let {
+            "\n\n" + SurfaceKnowledge.renderForPrompt(surface, SurfaceRuntime.facts(it))
+        }.orEmpty()
         val referenceContext = skillLibrary?.promptContext(input).orEmpty()
-        return listOf(persona + platformContext, referenceContext).filter(String::isNotBlank).joinToString("\n\n")
+        // What he learned from earlier turns. Always attached, like the surface block: a learned habit
+        // that only applies when the question happens to contain a keyword is not a habit.
+        val learnedContext = appContext
+            ?.let { SkillSynthRuntime.promptBlock(it, input) }
+            ?.takeIf { it.isNotBlank() }
+            ?.let { "\n\n$it" }
+            .orEmpty()
+        return listOf(persona + platformContext + surfaceContext + learnedContext, referenceContext)
+            .filter(String::isNotBlank)
+            .joinToString("\n\n")
     }
 
     // ── offline fallbacks (never silently fake) ──

@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lucifer — Morningstar home screen (design mockup)</title>
+<style>
+  @font-face { font-family: CinzelM; src: url("../composeApp/src/androidMain/res/font/cinzel_regular.ttf"); font-weight: 400; }
+  @font-face { font-family: CinzelM; src: url("../composeApp/src/androidMain/res/font/cinzel_semibold.ttf"); font-weight: 600; }
+  @font-face { font-family: InterM; src: url("../composeApp/src/androidMain/res/font/inter_light.ttf"); font-weight: 300; }
+  @font-face { font-family: InterM; src: url("../composeApp/src/androidMain/res/font/inter_regular.ttf"); font-weight: 400; }
+  @font-face { font-family: JBMonoM; src: url("../composeApp/src/androidMain/res/font/jetbrains_mono_light.ttf"); font-weight: 300; }
+  @font-face { font-family: JBMonoM; src: url("../composeApp/src/androidMain/res/font/jetbrains_mono_regular.ttf"); font-weight: 400; }
+
+  /* Tokens copied 1:1 from ui/theme/Morningstar.kt */
+  :root{
+    --void:#000000; --obsidian:#070607; --glass:rgba(15,14,16,.60); --glass-raised:rgba(18,17,20,.70);
+    --crimson:#D32F2F; --crimson-dim:rgba(211,47,47,.40); --crimson-line:rgba(211,47,47,.20);
+    --ember:#FF4A24; --blood:#7A0F14; --gilded:#C9A227; --gilded-dim:rgba(201,162,39,.25);
+    --bone:#EDEAE6; --ash:#8A8480; --smoke:#55504D; --whisper:#35312F;
+    --edge:rgba(211,47,47,.20); --edge-quiet:rgba(255,255,255,.12);
+    --success:#3FB27F; --info:#7FA6C9;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{background:#050505;color:var(--bone);font-family:InterM,sans-serif}
+  body{display:flex;justify-content:center;padding:48px 24px 64px;gap:56px;flex-wrap:wrap;align-items:flex-start}
+
+  /* ── the shard: octagon with 45° corners, 1px gradient hairline ── */
+  .shard{position:relative;padding:1px;--c:12px;
+    --edgeTop:rgba(211,47,47,.28); --edgeMid:rgba(211,47,47,.12);
+    background:linear-gradient(180deg, var(--edgeTop), var(--edgeMid) 55%, rgba(255,255,255,.04));
+    clip-path:polygon(var(--c) 0,calc(100% - var(--c)) 0,100% var(--c),100% calc(100% - var(--c)),calc(100% - var(--c)) 100%,var(--c) 100%,0 calc(100% - var(--c)),0 var(--c));}
+  .shard>.inner{clip-path:polygon(calc(var(--c) - 1px) 0,calc(100% - var(--c) + 1px) 0,100% calc(var(--c) - 1px),100% calc(100% - var(--c) + 1px),calc(100% - var(--c) + 1px) 100%,calc(var(--c) - 1px) 100%,0 calc(100% - var(--c) + 1px),0 calc(var(--c) - 1px));
+    background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.012) 42%, transparent), var(--glass);}
+
+  /* ── the device ── */
+  .frame{width:486px;height:1080px;flex:0 0 auto}
+  .stage{width:360px;height:800px;transform:scale(1.35);transform-origin:top left}
+  .device{position:relative;width:360px;height:800px;background:var(--void);overflow:hidden;
+    border-radius:26px;box-shadow:0 0 0 6px #0b0b0c, 0 0 0 7px #1a1a1c, 0 40px 90px -20px #000;}
+  .backdrop{position:absolute;inset:0}
+  .dust{position:absolute;inset:0}
+
+  .statusbar{position:absolute;top:0;left:0;right:0;height:26px;display:flex;align-items:center;
+    justify-content:space-between;padding:0 18px;font-family:JBMonoM;font-size:9px;letter-spacing:.08em;color:rgba(237,234,230,.45)}
+  .navpill{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:108px;height:3px;border-radius:2px;background:rgba(237,234,230,.22)}
+
+  .canvas{position:absolute;top:26px;left:0;right:0;bottom:24px;display:flex;flex-direction:column;padding:0 18px}
+
+  /* masthead */
+  .masthead{display:flex;align-items:center;margin-top:12px}
+  .sigil{width:146px;display:flex;flex-direction:column;align-items:center;gap:6px;flex:0 0 146px}
+  .sigil .dial{position:relative;width:146px;height:146px}
+  .dial svg{display:block}
+  .sigil .face{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}
+  .clock{font-family:CinzelM;font-weight:400;font-size:30px;letter-spacing:.9px;color:var(--bone);line-height:1.05}
+  .date{font-family:CinzelM;font-size:8px;letter-spacing:2.08px;color:var(--ash);text-transform:uppercase;max-width:110px;text-align:center}
+  .telemetry{font-family:InterM;font-weight:300;font-size:8px;letter-spacing:.9px;color:var(--smoke);white-space:nowrap}
+
+  .idcol{flex:1;display:flex;flex-direction:column;align-items:flex-end;gap:5px;padding-left:18px;min-width:0}
+  .wordmark{font-family:CinzelM;font-weight:600;font-size:23px;letter-spacing:3.22px;color:var(--bone);line-height:1.1}
+  .overline{font-family:CinzelM;font-size:8px;letter-spacing:2.08px;color:var(--ash);text-transform:uppercase}
+  .rule{height:1px;width:100%;margin:3px 0;background:linear-gradient(90deg,transparent 0,rgba(211,47,47,.20) 8%,rgba(211,47,47,.07) 72%,transparent 100%)}
+  .status{display:flex;align-items:center;gap:7px;min-width:0}
+  .dot{position:relative;width:8px;height:8px;flex:0 0 8px}
+  .dot i{position:absolute;left:0;top:0;border-radius:50%}
+  .dot .halo{width:8px;height:8px;background:var(--crimson);animation:breath 3.2s ease-in-out infinite}
+  .dot .core{width:3px;height:3px;margin:2.5px;background:var(--ember)}
+  @keyframes breath{0%,100%{opacity:.25}50%{opacity:.75}}
+  .statusText{font-family:CinzelM;font-size:8px;letter-spacing:2.08px;color:var(--ash);text-transform:uppercase;white-space:nowrap}
+  .sigma{font-family:CinzelM;font-weight:600;font-size:10px;color:var(--info)}
+  .motto{font-family:InterM;font-weight:300;font-size:8px;letter-spacing:1.1px;color:var(--smoke);text-transform:uppercase;white-space:nowrap}
+
+  /* command bar */
+  .bar{--c:12px;margin-top:16px;height:40px}
+  .bar .inner{height:38px;display:flex;align-items:center;padding:0 12px;gap:0}
+  .caret{font-family:CinzelM;font-weight:600;font-size:17px;color:var(--crimson);padding-right:8px;line-height:1}
+  .field{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:clip;
+    font-family:InterM;font-weight:300;font-size:12px;letter-spacing:.24px;color:var(--smoke)}
+  .chips{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+  .chip{display:flex;flex-direction:column;align-items:center;gap:2px;padding:2px 4px}
+  .chip span{font-family:CinzelM;font-size:7px;letter-spacing:1.82px;color:var(--smoke);text-transform:uppercase;line-height:1.2}
+  .chip.on span{color:var(--bone)}
+  .chip u{display:block;height:1px;width:0;background:var(--crimson)}
+  .chip.on u{width:18px}
+
+  /* output panel */
+  .output{--c:10px;margin-top:10px;height:96px}
+  .output .inner{height:94px;padding:8px 10px;overflow:hidden;position:relative}
+  .line{font-family:JBMonoM;font-weight:400;font-size:10px;line-height:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+    color:rgba(237,234,230,.82);margin-bottom:1px}
+  .line.info{color:var(--info)} .line.cmd{color:var(--gilded)} .line.ok{color:var(--success)} .line.err{color:var(--crimson)}
+  .expand{position:absolute;right:12px;bottom:10px;font-family:CinzelM;font-size:7px;letter-spacing:1.82px;color:var(--smoke);
+    background:linear-gradient(90deg,transparent,rgba(5,5,5,.9) 30%);padding-left:14px}
+
+  /* drawer */
+  .drawer{flex:1;display:flex;margin-top:10px;min-height:0;overflow:hidden}
+  .gutter{width:30px;flex:0 0 30px;display:flex;flex-direction:column;align-items:center}
+  .gutter .hair{width:1px;height:34px;background:linear-gradient(180deg,transparent,rgba(211,47,47,.5))}
+  .gutter .count{font-family:CinzelM;font-size:8px;letter-spacing:2.08px;color:var(--smoke);margin:8px 0}
+  .gutter .tail{width:1px;flex:1;background:linear-gradient(180deg,rgba(255,255,255,.12),transparent)}
+  .apps{flex:1;overflow:hidden}
+  .row{display:flex;align-items:center;padding:9px 10px;gap:0}
+  .row .idx{font-family:CinzelM;font-size:8px;letter-spacing:2.08px;color:var(--whisper);width:22px;flex:0 0 22px}
+  .row .label{flex:1;font-family:InterM;font-weight:400;font-size:14px;letter-spacing:.17px;line-height:1.5;
+    color:rgba(237,234,230,.78);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .row.fav .label{color:var(--bone);text-shadow:0 0 12px rgba(255,74,36,.55)}
+  .needle{width:1px;height:10px;margin-left:8px;flex:0 0 1px;
+    background:linear-gradient(180deg,transparent,var(--crimson) 35%,transparent)}
+  .row .tick{width:5px;height:1px;background:transparent;flex:0 0 5px}
+
+  /* dock */
+  .dock{--c:16px;--edgeTop:rgba(255,255,255,.168);--edgeMid:rgba(255,255,255,.072);margin-top:10px}
+  .dock .inner{height:58px;display:flex;align-items:center;justify-content:space-evenly;padding:0 10px}
+  .ditem{display:flex;flex-direction:column;align-items:center;gap:3px;padding:2px 5px}
+  .ring{position:relative;width:28px;height:28px;display:grid;place-items:center}
+  .ring .o{position:absolute;inset:2px;border-radius:50%;border:1px solid var(--crimson)}
+  .ring .f{position:absolute;inset:2px;border-radius:50%;background:rgba(211,47,47,.12)}
+  .ring .p{width:3.2px;height:3.2px;border-radius:50%;background:var(--crimson);opacity:.8}
+  .ditem.core .ring .o{border-color:var(--gilded)}
+  .ditem.core .ring .f{background:rgba(201,162,39,.12)}
+  .ditem.core .ring .p{background:var(--gilded)}
+  .dlabel{font-family:CinzelM;font-size:7px;letter-spacing:1.82px;color:var(--smoke);text-transform:uppercase}
+  .speak .lam{font-family:CinzelM;font-weight:600;font-size:17px;color:var(--crimson);line-height:1}
+  .speak .sl{font-family:CinzelM;font-size:7px;letter-spacing:1.82px;color:var(--ash);text-transform:uppercase}
+
+  /* ── notes column ── */
+  .notes{max-width:430px;padding-top:6px}
+  .notes h1{font-family:CinzelM;font-weight:600;font-size:26px;letter-spacing:3.6px;color:var(--bone);margin-bottom:6px}
+  .notes .sub{font-family:InterM;font-weight:300;font-size:13px;line-height:1.6;color:var(--smoke);letter-spacing:.3px;margin-bottom:26px}
+  .notes h2{font-family:CinzelM;font-size:9px;letter-spacing:2.9px;color:var(--ash);text-transform:uppercase;margin:26px 0 10px}
+  .notes p{font-family:InterM;font-weight:300;font-size:13px;line-height:1.65;color:#a29c97;margin-bottom:10px;letter-spacing:.2px}
+  .notes p strong{color:var(--bone);font-weight:400}
+  .notes code{font-family:JBMonoM;font-weight:400;font-size:11.5px;color:var(--gilded);letter-spacing:.02em}
+  .notes ul{list-style:none}
+  .notes li{position:relative;padding-left:16px;font-family:InterM;font-weight:300;font-size:13px;line-height:1.6;color:#a29c97;margin-bottom:8px}
+  .notes li:before{content:"";position:absolute;left:0;top:9px;width:5px;height:1px;background:var(--crimson)}
+  .notes li strong{color:var(--bone);font-weight:400}
+  .swatches{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+  .sw{display:flex;align-items:center;gap:7px;padding:5px 9px;background:rgba(255,255,255,.03);
+    clip-path:polygon(6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%,0 6px)}
+  .sw i{width:12px;height:12px;display:block;border-radius:50%}
+  .sw b{font-family:JBMonoM;font-weight:400;font-size:9.5px;letter-spacing:.06em;color:var(--ash)}
+  .flag{border-left:1px solid var(--crimson-dim);padding-left:14px;margin:18px 0}
+  .flag .t{font-family:CinzelM;font-size:8px;letter-spacing:2.08px;color:var(--crimson);text-transform:uppercase;margin-bottom:6px}
+</style>
+</head>
+<body>
+
+<div class="frame"><div class="stage">
+  <div class="device" id="device">
+    <canvas class="backdrop" id="backdrop" width="360" height="800"></canvas>
+    <canvas class="dust" id="dust" width="360" height="800"></canvas>
+
+    <div class="statusbar"><span>14:32</span><span>5G · 74%</span></div>
+
+    <div class="canvas">
+      <div class="masthead">
+        <div class="sigil">
+          <div class="dial">
+            <svg width="146" height="146" viewBox="0 0 146 146" id="sigil"></svg>
+            <div class="face">
+              <div class="clock">14:32</div>
+              <div class="date">THU 29 OCT</div>
+            </div>
+          </div>
+          <div class="telemetry">BAT 64 · MEM 71 · LOAD 23</div>
+        </div>
+        <div class="idcol">
+          <div class="wordmark">LUCIFER</div>
+          <div class="overline">MORNINGSTAR SHELL</div>
+          <div class="rule"></div>
+          <div class="status">
+            <div class="dot"><i class="halo"></i><i class="core"></i></div>
+            <div class="statusText">AWAKE · LISTENING · CYCLE 12</div>
+            <div class="sigma">Σ</div>
+          </div>
+          <div class="motto">HOLD THE SIGIL TO SPEAK</div>
+        </div>
+      </div>
+
+      <div class="shard bar">
+        <div class="inner">
+          <div class="caret">λ</div>
+          <div class="field">search apps or ask in plain English</div>
+          <div class="chips">
+            <div class="chip on"><span>LOCAL</span><u></u></div>
+            <div class="chip"><span>TERMUX</span><u></u></div>
+            <div class="chip"><span>VM</span><u></u></div>
+            <div class="chip"><span>CHAT</span><u></u></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="shard output">
+        <div class="inner">
+          <div class="line">🫀 I am Lucifer — this home screen is my body.</div>
+          <div class="line info">[INFO] local shell ready · termux attached · vm idle</div>
+          <div class="line cmd">$ git status --short</div>
+          <div class="line info">[INFO] 3 files changed · droid@lucifer-vm</div>
+          <div class="line ok">[exit 0] 128ms</div>
+          <div class="expand">▲ EXPAND</div>
+        </div>
+      </div>
+
+      <div class="drawer">
+        <div class="gutter">
+          <div class="hair"></div>
+          <div class="count">12</div>
+          <div class="tail"></div>
+        </div>
+        <div class="apps">
+          <div class="row"><div class="idx">01</div><div class="label">Camera</div><div class="tick"></div></div>
+          <div class="row"><div class="idx">02</div><div class="label">Chrome</div><div class="tick"></div></div>
+          <div class="row"><div class="idx">03</div><div class="label">Files</div><div class="tick"></div></div>
+          <div class="row fav"><div class="idx">04</div><div class="label">Lucifer</div><div class="needle"></div><div class="tick"></div></div>
+          <div class="row"><div class="idx">05</div><div class="label">Maps</div><div class="tick"></div></div>
+          <div class="row"><div class="idx">06</div><div class="label">Messages</div><div class="tick"></div></div>
+          <div class="row fav"><div class="idx">07</div><div class="label">Phone</div><div class="needle"></div><div class="tick"></div></div>
+          <div class="row"><div class="idx">08</div><div class="label">Settings</div><div class="tick"></div></div>
+          <div class="row fav"><div class="idx">09</div><div class="label">Terminal</div><div class="needle"></div><div class="tick"></div></div>
+          <div class="row fav"><div class="idx">10</div><div class="label">Termux</div><div class="needle"></div><div class="tick"></div></div>
+          <div class="row fav"><div class="idx">11</div><div class="label">Wallet</div><div class="needle"></div><div class="tick"></div></div>
+        </div>
+      </div>
+
+      <div class="shard dock">
+        <div class="inner">
+          <div class="ditem"><div class="ring"><div class="f"></div><div class="o"></div><div class="p"></div></div><div class="dlabel">Termux</div></div>
+          <div class="ditem"><div class="ring"><div class="f"></div><div class="o"></div><div class="p"></div></div><div class="dlabel">VM</div></div>
+          <div class="ditem"><div class="ring"><div class="f"></div><div class="o"></div><div class="p"></div></div><div class="dlabel">Vault</div></div>
+          <div class="ditem core"><div class="ring"><div class="f"></div><div class="o"></div><div class="p"></div></div><div class="dlabel">Core</div></div>
+          <div class="ditem"><div class="ring"><div class="f"></div><div class="o"></div><div class="p"></div></div><div class="dlabel">Dial</div></div>
+          <div class="ditem speak"><div class="lam">λ</div><div class="sl">Speak</div></div>
+        </div>
+      </div>
+
+      <div class="navpill"></div>
+    </div>
+  </div>
+</div></div>
+
+<div class="notes">
+  <h1>MORNINGSTAR</h1>
+  <p class="sub">Static mockup of <code>LauncherActivity</code> at 360×800 dp — the same dimensions, tokens, bundled fonts and arc math as the Kotlin. Nothing here is a screenshot; there is no Android SDK in this workspace.</p>
+
+  <div class="flag">
+    <div class="t">Honest status</div>
+    <p>Implemented in the working tree, <strong>never compiled by AGP, never run on a device</strong>. <code>MORNINGSTAR.md</code> says the same. The geometry is host-verified; the pixels are a proposal.</p>
+  </div>
+
+  <h2>What the code actually draws</h2>
+  <ul>
+    <li><strong>True-black OLED canvas</strong> with three crimson compass rings, one gilded, a vignette and drifting dust (seeded embers, so the drift is identical every launch).</li>
+    <li><strong>Sigil clock</strong> — a 24-tick compass whose three arcs are battery / memory / load off one 270° ring starting at 135°, with a gilded triangle turning once every three minutes. Permission-free, polls only while visible.</li>
+    <li><strong>Shard command bar</strong> — 45° chamfers everywhere, crimson caret, four target chips, rotating hint.</li>
+    <li><strong>Output pane</strong> — 96 dp collapsed ↔ 250 dp open, colour-coded by line prefix.</li>
+    <li><strong>Drawer as typography</strong> — index numeral, name, a 30 dp empty gutter, no icons. Favourites get an ember bloom and a crimson needle.</li>
+    <li><strong>Sovereign dock</strong> — five glass circles, CORE in gilded, then λ SPEAK.</li>
+  </ul>
+
+  <h2>What to look at</h2>
+  <ul>
+    <li><strong>The command bar is crowded.</strong> Four target chips plus the caret leave ~120 dp for the input; a long hint clips mid-word. The code sets <code>maxLines = 1</code>, so it degrades the way you see — but a shorter hint or icon-only chips would read better.</li>
+    <li><strong>Density of the drawer.</strong> At 39 dp per row only ~8 of ~12 apps fit above the dock without scrolling.</li>
+    <li><strong>Contrast.</strong> Ash/Smoke on true black is beautiful at night and thin in sunlight — the 8 sp overlines are the first thing to disappear.</li>
+    <li><strong>Eight font textures.</strong> Cinzel, Inter and JetBrains Mono are all bundled; the emoji in the welcome line falls back to the system font, which is the one place the type discipline breaks.</li>
+  </ul>
+
+  <h2>Palette</h2>
+  <div class="swatches">
+    <div class="sw"><i style="background:#000;box-shadow:inset 0 0 0 1px #262426"></i><b>void</b></div>
+    <div class="sw"><i style="background:#D32F2F"></i><b>crimson</b></div>
+    <div class="sw"><i style="background:#FF4A24"></i><b>ember</b></div>
+    <div class="sw"><i style="background:#C9A227"></i><b>gilded</b></div>
+    <div class="sw"><i style="background:#EDEAE6"></i><b>bone</b></div>
+    <div class="sw"><i style="background:#8A8480"></i><b>ash</b></div>
+    <div class="sw"><i style="background:#3FB27F"></i><b>success</b></div>
+    <div class="sw"><i style="background:#7FA6C9"></i><b>info</b></div>
+  </div>
+
+  <h2>Verify / run it yourself</h2>
+  <p><code>./scripts/verify_design_core.sh</code> exercises 16 assertions of chamfer + sigil + ember math on the JVM. The visual pass needs a machine with the Android SDK and Gradle.</p>
+</div>
+
+<script>
+/* ── Morningstar tokens, mirrored from Morningstar.kt ── */
+const C = {
+  void:'#000000', crimson:'#D32F2F', ember:'#FF4A24', gilded:'#C9A227',
+  bone:'#EDEAE6', ash:'#8A8480', smoke:'#55504D', whisper:'#35312F', success:'#3FB27F',
+  edgeQuiet:'rgba(255,255,255,0.12)'
+};
+
+/* SigilMath: START 135°, TOTAL 270°, min visible sliver 1.5° */
+const START = 135, TOTAL = 270;
+const sweep = f => f <= 0 ? 0 : Math.min(TOTAL, Math.max(1.5, f * TOTAL));
+const pt = (cx, cy, r, deg) => {
+  const rad = deg * Math.PI / 180;
+  return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
+};
+
+(function sigil(){
+  const S = 146, cx = 73, cy = 73, r = S/2 - 2.6;   // radius = minDimension/2 - 1dp
+  const svg = document.getElementById('sigil');
+  const ns = 'http://www.w3.org/2000/svg';
+  const el = (n, a) => { const e = document.createElementNS(ns, n); for (const k in a) e.setAttribute(k, a[k]); svg.appendChild(e); return e; };
+
+  // outer hairline + aura
+  el('circle', {cx, cy, r, fill:'none', stroke:C.edgeQuiet, 'stroke-width':1});
+  el('circle', {cx, cy, r:r*0.99, fill:'none', stroke:C.crimson, 'stroke-opacity':0.10, 'stroke-width':2.4});
+
+  // 24 compass ticks, cardinals longer
+  for (let i = 0; i < 24; i++) {
+    const deg = i * 15 - 90;
+    const cardinal = (i * 15) % 90 === 0;
+    const inner = r - (cardinal ? 7 : 3.5);
+    const [x1, y1] = pt(cx, cy, inner, deg);
+    const [x2, y2] = pt(cx, cy, r, deg);
+    el('line', {x1, y1, x2, y2, stroke: cardinal ? C.ash : C.whisper,
+      'stroke-opacity': cardinal ? 0.55 : 1, 'stroke-width': cardinal ? 1.1 : 0.8});
+  }
+
+  // three arcs: battery (crimson, 0.87r), memory (gilded, 0.78r), load (ember, 0.69r)
+  const readings = [[0.64, 0.87, C.crimson], [0.71, 0.78, C.gilded], [0.23, 0.69, C.ember]];
+  for (const [fraction, scale, color] of readings) {
+    const ar = r * scale;
+    el('circle', {cx, cy, r:ar, fill:'none', stroke:C.whisper, 'stroke-opacity':0.5, 'stroke-width':2});
+    const sw = sweep(fraction);
+    if (sw > 0) {
+      const [sx, sy] = pt(cx, cy, ar, START);
+      const [ex, ey] = pt(cx, cy, ar, START + sw);
+      el('path', {
+        d:`M ${sx.toFixed(2)} ${sy.toFixed(2)} A ${ar.toFixed(2)} ${ar.toFixed(2)} 0 ${sw > 180 ? 1 : 0} 1 ${ex.toFixed(2)} ${ey.toFixed(2)}`,
+        fill:'none', stroke:color, 'stroke-opacity':0.9, 'stroke-width':2, 'stroke-linecap':'round'
+      });
+    }
+  }
+
+  // inner triangle — the Morningstar mark, one revolution per 180 s
+  const markR = r * 0.40;
+  const tri = document.createElementNS(ns, 'path');
+  let p = '';
+  for (let i = 0; i < 3; i++) {
+    const [x, y] = pt(cx, cy, markR, -90 + i * 120);
+    p += (i === 0 ? 'M ' : 'L ') + x.toFixed(2) + ' ' + y.toFixed(2) + ' ';
+  }
+  tri.setAttribute('d', p + 'Z');
+  tri.setAttribute('fill', 'none');
+  tri.setAttribute('stroke', C.gilded);
+  tri.setAttribute('stroke-opacity', '0.30');
+  tri.setAttribute('stroke-width', '1');
+  svg.appendChild(tri);
+  el('circle', {cx, cy, r:1.6, fill:C.gilded, 'fill-opacity':0.35});
+  // rotate around the centre, exactly like the composable
+  tri.style.transformOrigin = `${cx}px ${cy}px`;
+  tri.style.animation = 'tri-turn 180s linear infinite';
+  const style = document.createElement('style');
+  style.textContent = '@keyframes tri-turn{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}';
+  document.head.appendChild(style);
+})();
+
+/* EmberField.generate(26, 0xD057) — same LCG, same sequence, so the dust drifts identically */
+(function dust(){
+  const cv = document.getElementById('dust'), ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  let state = 0xD057n;
+  const M = (1n << 64n) - 1n;
+  const next = () => {
+    state = (state * 6364136223846793005n + 1442695040888963407n) & M;
+    const bits = Number((state >> 33n) & 0x7FFFFFFFn);
+    return bits / 2147483647;
+  };
+  const clamp01 = v => Math.min(1, Math.max(0, v));
+  const embers = [];
+  for (let i = 0; i < 26; i++) {
+    const column = (i + 0.5) / 26;
+    const startX = clamp01(column + (next() - 0.5) * 0.04);
+    const startY = clamp01(0.25 + next() * 0.7);
+    const drift  = (next() - 0.5) * 0.18;
+    const rise   = 0.35 + next() * 0.75;
+    const size   = 0.6 + next() * 2.2;
+    next(); next();                       // delay, life — unused by the backdrop
+    embers.push({startX, startY, drift, rise, size});
+  }
+  function frame(t){
+    const breath = 0.5 + 0.5 * Math.sin(t / 24000 * Math.PI * 2);   // rememberBreathingAmount(24 s)
+    ctx.clearRect(0, 0, W, H);
+    for (const e of embers) {
+      const x = (e.startX + e.drift * breath) * W;
+      const y = (1 - e.startY - e.rise * 0.12 * breath) * H;
+      ctx.beginPath();
+      ctx.fillStyle = `rgba(255,255,255,${(0.05 + 0.05 * breath).toFixed(3)})`;
+      ctx.arc(x, y, e.size * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+
+/* SigilBackdrop: void, vignette, three crimson rings + one gilded */
+(function backdrop(){
+  const cv = document.getElementById('backdrop'), ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  ctx.fillStyle = C.void;
+  ctx.fillRect(0, 0, W, H);
+  const cx = W * 0.5, cy = H * 0.42, base = Math.min(W, H) * 0.36;
+  const ringAlpha = 0.05;
+  for (let i = 0; i < 3; i++) {
+    ctx.beginPath();
+    ctx.strokeStyle = `rgba(211,47,47,${(ringAlpha * (0.5 + 0.5 * i / 2)).toFixed(4)})`;
+    ctx.lineWidth = 1;
+    ctx.arc(cx, cy, base * (1 + i * 0.34), 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.beginPath();
+  ctx.strokeStyle = `rgba(201,162,39,${(ringAlpha * 0.6).toFixed(4)})`;
+  ctx.lineWidth = 1;
+  ctx.arc(cx, cy, base * 1.72, 0, Math.PI * 2);
+  ctx.stroke();
+  // vignette last, so the rings fall away at the edges
+  const g = ctx.createRadialGradient(cx, H * 0.38, 0, cx, H * 0.38, Math.max(W, H) * 0.78);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(0,0,0,0.92)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+})();
+</script>
+</body>
+</html>

@@ -64,9 +64,12 @@ import com.lucifer.mobile.resilience.RecoveryMove
 import com.lucifer.mobile.resilience.ResilienceEngine
 import com.lucifer.mobile.ui.components.RecoveryControlPanel
 import com.lucifer.mobile.security.SecretStore
+import com.lucifer.mobile.security.BiometricGate
+import com.lucifer.mobile.data.export.ExportBundle
 import com.lucifer.mobile.memory.DriveMemoryMcpClient
 import com.lucifer.mobile.memory.LocalConversationMemory
 import com.lucifer.mobile.skills.SkillLibrary
+import com.lucifer.mobile.skills.SkillSynthRuntime
 import com.lucifer.mobile.shizuku.ShizukuAccess
 import com.lucifer.mobile.shizuku.ShizukuTerminal
 import rikka.shizuku.Shizuku
@@ -78,6 +81,7 @@ import com.lucifer.mobile.ui.components.AnimatedTerminal
 import com.lucifer.mobile.ui.components.BrowserControlPanel
 import com.lucifer.mobile.agents.android.ObservationBus
 import com.lucifer.mobile.agents.android.PromptStore
+import com.lucifer.mobile.surface.Surface
 import com.lucifer.mobile.agents.android.TacticianService
 import com.lucifer.mobile.tactician.ObservationKind
 import com.lucifer.mobile.privilege.DhizukuBridge
@@ -90,6 +94,7 @@ import com.lucifer.mobile.privilege.Provider
 import com.lucifer.mobile.privilege.ProviderPlan
 import com.lucifer.mobile.world.WorldAction
 import com.lucifer.mobile.world.WorldManager
+import com.lucifer.mobile.world.WorldCharter
 import com.lucifer.mobile.ui.components.AgentsPanel
 import com.lucifer.mobile.ui.components.WorldPanel
 import com.lucifer.mobile.ui.components.WorldUiState
@@ -116,9 +121,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.util.AtomicFile
+import com.lucifer.mobile.config.AppConfig
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
 
 @OptIn(ExperimentalMaterial3Api::class)
 class MainActivity : ComponentActivity() {
@@ -132,6 +137,14 @@ class MainActivity : ComponentActivity() {
 
                 var terminalLines by remember { mutableStateOf(loadTerminalHistory()) }
                 var isProcessing by remember { mutableStateOf(false) }
+                // The in-flight turn, so the STOP control has something to cancel. A deep run can last
+                // ninety seconds; a UI that offers no way out of that is a UI that traps you.
+                var activeJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+                // What the in-flight turn is, so a stop can be recorded truthfully rather than vanishing
+                // from the history. The counter is atomic because it is written on a worker thread.
+                var activeGoal by remember { mutableStateOf<String?>(null) }
+                val activeSteps = remember { java.util.concurrent.atomic.AtomicInteger(0) }
+                val activeStarted = remember { java.util.concurrent.atomic.AtomicLong(0L) }
                 var terminalTarget by remember { mutableStateOf(0) } // 0=LOCAL, 1=TERMUX, 2=VM, 3=SHIZUKU
                 val terminalExecutor = remember { TerminalExecutor(this@MainActivity) }
                 val router = remember { NaturalLanguageRouter(this@MainActivity) }
@@ -152,6 +165,16 @@ class MainActivity : ComponentActivity() {
                 var pendingRecoveryMove by remember { mutableStateOf<RecoveryMove?>(null) }
                 var voiceEnabled by remember { mutableStateOf(loadVoiceEnabled()) }
                 var settingsToast by remember { mutableStateOf<String?>(null) }
+                // The last deep reasoning run, kept so the Skills tab can show how an answer was reached
+                // rather than only what it said.
+                var cognitionSummary by remember { mutableStateOf("") }
+                var cognitionTrace by remember { mutableStateOf("") }
+                var cognitionHistory by remember { mutableStateOf("") }
+                LaunchedEffect(Unit) {
+                    cognitionHistory = withContext(Dispatchers.IO) {
+                        com.lucifer.mobile.cognition.CognitionScores.panelLines(this@MainActivity)
+                    }
+                }
                 var showTermuxToolkitDialog by remember { mutableStateOf(false) }
                 var showLeanVerificationConfirmation by remember { mutableStateOf(false) }
                 var leanVerificationBusy by remember { mutableStateOf(false) }
@@ -303,6 +326,26 @@ class MainActivity : ComponentActivity() {
                 // Shared launcher: the tactician asks only for POST_NOTIFICATIONS, and this flag
                 // decides which foreground service to start once the grant returns.
                 var tacticianPermissionRequested by remember { mutableStateOf(false) }
+                // ── getting the data out, through the system picker ──
+                var biometricStatus by remember { mutableStateOf(BiometricGate.capability(this@MainActivity).detail) }
+                LaunchedEffect(Unit) {
+                    biometricStatus = BiometricGate.capability(this@MainActivity).detail
+                }
+                val exportLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.CreateDocument("application/json")
+                ) { uri ->
+                    if (uri == null) {
+                        settingsToast = "Export cancelled — nothing was written."
+                    } else {
+                        scope.launch(Dispatchers.IO) {
+                            val result = ExportBundle.write(this@MainActivity, uri)
+                            withContext(Dispatchers.Main) {
+                                settingsToast = result.getOrElse { "Export failed: ${it.message ?: "unknown error"}" }
+                            }
+                        }
+                    }
+                }
+
                 val heartbeatPermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestMultiplePermissions()
                 ) { _ ->
@@ -341,35 +384,77 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
-                val savedKnowledgeUrl by remember { mutableStateOf(loadKnowledgeUrl()) }
-                var savedMemoryMcpUrl by remember { mutableStateOf(loadMemoryMcpUrl()) }
-                var memoryMcpTokenConfigured by remember {
-                    mutableStateOf(!SecretStore.read(this@MainActivity, "config/drive_memory_mcp_token.txt").isNullOrBlank())
-                }
-                var memoryMcpStatus by remember {
-                    mutableStateOf(when {
-                        savedMemoryMcpUrl.isBlank() -> "DISABLED"
-                        memoryMcpTokenConfigured -> "CONFIGURED · NOT TESTED"
+                // Settings used to be read inside remember {}, which runs on the main thread during the
+                // first composition of this screen: six files plus a Keystore decrypt before the first
+                // frame. The screen now paints its defaults immediately and the values arrive from IO.
+                var savedKnowledgeUrl by remember { mutableStateOf("") }
+                var savedMemoryMcpUrl by remember { mutableStateOf("") }
+                var memoryMcpTokenConfigured by remember { mutableStateOf(false) }
+                var memoryMcpStatus by remember { mutableStateOf("DISABLED") }
+                var savedVmHost by remember { mutableStateOf("") }
+                var savedVmUser by remember { mutableStateOf(DEFAULT_VM_USER) }
+                var savedVmPort by remember { mutableStateOf(DEFAULT_VM_PORT) }
+                var savedVmKnownHosts by remember { mutableStateOf("") }
+
+                LaunchedEffect(Unit) {
+                    val settings = withContext(Dispatchers.IO) {
+                        SettingsSnapshot(
+                            knowledgeUrl = loadKnowledgeUrl(),
+                            memoryMcpUrl = loadMemoryMcpUrl(),
+                            memoryMcpTokenSet = !SecretStore.read(this@MainActivity, AppConfig.MEMORY_MCP_TOKEN).isNullOrBlank(),
+                            vmHost = loadVmHost(),
+                            vmUser = loadVmUser(),
+                            vmPort = loadVmPort(),
+                            vmKnownHosts = loadVmKnownHosts()
+                        )
+                    }
+                    savedKnowledgeUrl = settings.knowledgeUrl
+                    savedMemoryMcpUrl = settings.memoryMcpUrl
+                    memoryMcpTokenConfigured = settings.memoryMcpTokenSet
+                    savedVmHost = settings.vmHost
+                    savedVmUser = settings.vmUser
+                    savedVmPort = settings.vmPort
+                    savedVmKnownHosts = settings.vmKnownHosts
+                    memoryMcpStatus = when {
+                        settings.memoryMcpUrl.isBlank() -> "DISABLED"
+                        settings.memoryMcpTokenSet -> "CONFIGURED · NOT TESTED"
                         else -> "TOKEN REQUIRED"
-                    })
+                    }
                 }
 
                 var llmStatus by remember { mutableStateOf("…") }
-                var savedVmHost by remember { mutableStateOf(loadVmHost()) }
-                var savedVmUser by remember { mutableStateOf(loadVmUser()) }
-                var savedVmPort by remember { mutableStateOf(loadVmPort()) }
-                var savedVmKnownHosts by remember { mutableStateOf(loadVmKnownHosts()) }
                 val llmClient = remember { com.lucifer.mobile.omni_bridge.llm.NemotronClient(this@MainActivity) }
                 val localMemoryStore = remember { LocalConversationMemory(this@MainActivity) }
+                // A SQLiteOpenHelper that is never closed keeps its connection for the life of the
+                // process; without this, every recreation of this screen leaves another one open.
+                DisposableEffect(localMemoryStore) {
+                    onDispose { localMemoryStore.close() }
+                }
                 var localMemoryEnabled by remember {
                     mutableStateOf(getSharedPreferences(LocalConversationMemory.PREFS, MODE_PRIVATE)
                         .getBoolean(LocalConversationMemory.KEY_ENABLED, true))
                 }
                 var localMemoryCount by remember { mutableStateOf(0) }
                 var localMemoryBytes by remember { mutableStateOf(0L) }
-                var memoryItems by remember { mutableStateOf(loadMemoryItems()) }
+                // Reading three log files and opening the conversation store is not a composition job.
+                var memoryItems by remember { mutableStateOf<List<com.lucifer.mobile.ui.components.MemoryItem>>(emptyList()) }
+                var memorySearching by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    memoryItems = withContext(Dispatchers.IO) { loadMemoryItems() }
+                }
                 val skills = remember { buildSkillRegistry() }
                 val referenceSkillLibrary = remember { SkillLibrary.load(this@MainActivity.assets) }
+                // The learned list is read on demand: it changes from turns taken anywhere in the app.
+                var synthRevision by remember { mutableStateOf(0) }
+                var synthSummary by remember { mutableStateOf("") }
+                var synthEnabled by remember { mutableStateOf(true) }
+                LaunchedEffect(synthRevision) {
+                    val (line, on) = withContext(Dispatchers.IO) {
+                        SkillSynthRuntime.summary(this@MainActivity) to SkillSynthRuntime.enabled(this@MainActivity)
+                    }
+                    synthSummary = line
+                    synthEnabled = on
+                }
 
                 LaunchedEffect(savedKnowledgeUrl) {
                     if (savedKnowledgeUrl.isNotBlank()) reasoner.updateBaseUrl(savedKnowledgeUrl)
@@ -479,7 +564,7 @@ class MainActivity : ComponentActivity() {
                         }
                         when (route) {
                             ChatRoute.Conversation -> {
-                                val answer = try { reasoner.reason(instruction) } catch (e: Exception) {
+                                val answer = try { reasoner.reason(instruction, Surface.WORKFLOW) } catch (e: Exception) {
                                     "[WORKFLOW ERROR] ${e.message ?: "Could not reason about this step."}"
                                 }
                                 withContext(Dispatchers.Main) {
@@ -721,7 +806,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                fun runWorldAction(action: WorldAction) {
+                fun performWorldAction(action: WorldAction) {
                     worldState = worldState.copy(busy = true)
                     scope.launch(Dispatchers.IO) {
                         val world = worldManager.snapshot().world
@@ -755,6 +840,20 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                fun runWorldAction(action: WorldAction) {
+                    if (WorldCharter.requiresConfirmation(action) || action == WorldAction.CREATE_WORLD) {
+                        val shown = BiometricGate.require(
+                            this@MainActivity,
+                            title = "Confirm ${action.label.lowercase()}",
+                            subtitle = "This changes Lucifer's world on this device.",
+                            onDenied = { reason -> settingsToast = "${action.label} cancelled — $reason" },
+                            onConfirmed = { performWorldAction(action) }
+                        )
+                        if (shown) return
+                    }
+                    performWorldAction(action)
+                }
+
                 fun launchInWorld(pkg: String) {
                     if (!PrivilegeCommands.validPackage(pkg)) {
                         settingsToast = "Enter a valid Android package name to launch inside the world."
@@ -772,12 +871,31 @@ class MainActivity : ComponentActivity() {
                 }
 
                 fun runOwnerOp(op: PrivilegeOp) {
-                    scope.launch(Dispatchers.IO) {
-                        val outcome = privilegeRouter.run(op, confirmed = true)
-                        withContext(Dispatchers.Main) {
-                            publishWorld(outcome.headline)
-                            settingsToast = outcome.headline
+                    // An owner call changes another app on this device. The dialog asked "do it?"; this
+                    // asks "are you the owner?". Both, or neither.
+                    val proceed = {
+                        scope.launch(Dispatchers.IO) {
+                            val outcome = privilegeRouter.run(op, confirmed = true)
+                            withContext(Dispatchers.Main) {
+                                publishWorld(outcome.headline)
+                                settingsToast = outcome.headline
+                            }
                         }
+                    }
+                    val shown = BiometricGate.require(
+                        this@MainActivity,
+                        title = "Confirm owner action",
+                        subtitle = op.label,
+                        onDenied = { reason ->
+                            settingsToast = "Owner action cancelled — $reason"
+                            publishWorld("Owner action cancelled: $reason")
+                        },
+                        onConfirmed = { proceed() }
+                    )
+                    if (!shown) {
+                        // No sensor and no device lock: say so once, then let the confirmation stand.
+                        settingsToast = "No biometric gate on this device · the confirmation dialog was the only check."
+                        proceed()
                     }
                 }
 
@@ -937,6 +1055,32 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier.fillMaxSize(),
                                             outputLines = terminalLines,
                                             isProcessing = isProcessing,
+                                            onStop = {
+                                                val stoppedGoal = activeGoal
+                                                val stoppedAt = System.currentTimeMillis() - activeStarted.get()
+                                                val stoppedAfter = activeSteps.get()
+                                                activeJob?.cancel()
+                                                activeJob = null
+                                                activeGoal = null
+                                                isProcessing = false
+                                                if (stoppedGoal != null) {
+                                                    // A cancelled coroutine cannot return an outcome, so the
+                                                    // record is written here or not at all.
+                                                    scope.launch(Dispatchers.IO) {
+                                                        com.lucifer.mobile.cognition.CognitionLedger
+                                                            .recordInterrupted(this@MainActivity, stoppedGoal, stoppedAfter, stoppedAt)
+                                                        val line = com.lucifer.mobile.cognition.CognitionScores
+                                                            .panelLines(this@MainActivity)
+                                                        withContext(Dispatchers.Main) { cognitionHistory = line }
+                                                    }
+                                                }
+                                                appendTerminalLines(
+                                                    listOf(
+                                                        "[STOPPED] Cancelled after ${stoppedAt / 1000}s and $stoppedAfter step(s). " +
+                                                            "Whatever it had already done stands; nothing further will run."
+                                                    )
+                                                )
+                                            },
                                             target = terminalTarget,
                                             onTargetSelected = { terminalTarget = it },
                                             onOpenInteractiveTermux = {
@@ -975,21 +1119,64 @@ class MainActivity : ComponentActivity() {
                                                     isProcessing = true
                                                     appendTerminalLines(listOf("λ $cmd"))
                                                     val selectedTarget = CommandTarget.fromLauncherIndex(terminalTarget)
-                                                    scope.launch(Dispatchers.IO) {
+                                                    activeJob = scope.launch(Dispatchers.IO) {
+                                                        // Judge this message against the last answer before
+                                                        // anything new is produced, off the main thread.
+                                                        SkillSynthRuntime.observeIncoming(this@MainActivity, cmd, Surface.CORE_CHAT.name)
                                                         val route = try {
                                                             router.understand(cmd, selectedTarget, installedAppNames = installedAppNames())
+                                                        } catch (stop: kotlinx.coroutines.CancellationException) {
+                                                            throw stop
                                                         } catch (_: Exception) {
                                                             ChatRoute.Clarify("I couldn't route that request. Rephrase it or choose LOCAL, TERMUX, VM, or SHIZUKU.")
                                                         }
                                                         when (route) {
                                                             ChatRoute.Conversation -> {
+                                                                // Only a reasoning run is worth recording as
+                                                                // interrupted; a stopped panel open is not a
+                                                                // lost answer.
+                                                                activeGoal = cmd
+                                                                activeSteps.set(0)
+                                                                activeStarted.set(System.currentTimeMillis())
                                                                 val answer = try {
-                                                                    reasoner.reason(cmd)
+                                                                    reasoner.reason(
+                                                                        cmd,
+                                                                        Surface.CORE_CHAT,
+                                                                        // One line per tool call, as it happens: a ninety-second
+                                                                        // silence reads as a hang, and the trace is the honest
+                                                                        // answer to "what is it doing".
+                                                                        onStep = { record ->
+                                                                            activeSteps.incrementAndGet()
+                                                                            if (record.call != null) {
+                                                                                scope.launch(Dispatchers.Main) {
+                                                                                    appendTerminalLines(listOf("[THINK] " + record.brief()))
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    )
+                                                                } catch (stop: kotlinx.coroutines.CancellationException) {
+                                                                    // STOP was pressed: let it unwind instead of
+                                                                    // reporting the cancellation as a chat error.
+                                                                    throw stop
                                                                 } catch (e: Exception) {
                                                                     "[CHAT ERROR] ${e.message ?: "Could not answer"}"
                                                                 }
+                                                                SkillSynthRuntime.recordAnswer(this@MainActivity, cmd, answer, Surface.CORE_CHAT.name)
+                                                                val run = reasoner.lastCognition
                                                                 withContext(Dispatchers.Main) {
                                                                     appendTerminalLines(listOf("[CHAT] $answer"))
+                                                                    if (run != null) {
+                                                                        cognitionSummary = run.summaryLine()
+                                                                        cognitionTrace = run.traceText()
+                                                                    }
+                                                                    // Read the ledger off the main thread: it
+                                                                    // is a file, and this runs per answer.
+                                                                    scope.launch(Dispatchers.IO) {
+                                                                        val line = com.lucifer.mobile.cognition.CognitionScores
+                                                                            .panelLines(this@MainActivity)
+                                                                        withContext(Dispatchers.Main) { cognitionHistory = line }
+                                                                    }
+                                                                    activeGoal = null
                                                                     isProcessing = false
                                                                 }
                                                             }
@@ -1059,25 +1246,71 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier.fillMaxSize(),
                                             memories = memoryItems,
                                             onSearch = { q ->
-                                                scope.launch(Dispatchers.IO) {
-                                                    val hits = searchMemories(q)
-                                                    withContext(Dispatchers.Main) { memoryItems = hits }
+                                                if (!memorySearching) {
+                                                    memorySearching = true
+                                                    scope.launch(Dispatchers.IO) {
+                                                        val hits = searchMemories(q)
+                                                        withContext(Dispatchers.Main) {
+                                                            memoryItems = hits
+                                                            memorySearching = false
+                                                        }
+                                                    }
                                                 }
                                             },
-                                            isSearching = false
+                                            isSearching = memorySearching
                                         )
                                         2 -> AnimatedSkillsPanel(
                                             modifier = Modifier.fillMaxSize(),
                                             skills = skills,
-                                            library = referenceSkillLibrary
+                                            library = referenceSkillLibrary,
+                                            cognitionSummary = cognitionSummary,
+                                            cognitionTrace = cognitionTrace,
+                                            cognitionHistory = cognitionHistory,
+                                            synthSummary = synthSummary,
+                                            synthEnabled = synthEnabled,
+                                            onToggleSynth = {
+                                                val turnOn = !synthEnabled
+                                                scope.launch(Dispatchers.IO) {
+                                                    SkillSynthRuntime.setEnabled(this@MainActivity, turnOn)
+                                                    withContext(Dispatchers.Main) { synthRevision++ }
+                                                }
+                                            },
+                                            onForgetLearned = {
+                                                scope.launch(Dispatchers.IO) {
+                                                    SkillSynthRuntime.forgetAll(this@MainActivity)
+                                                    withContext(Dispatchers.Main) { synthRevision++ }
+                                                }
+                                            }
                                         )
                                         3 -> AnimatedSettingsPanel(
                                             modifier = Modifier.fillMaxSize(),
+                                            onClearCognition = {
+                                                // Same property the egress ledger has: what he did is
+                                                // recorded, and the owner can erase the record.
+                                                scope.launch(Dispatchers.IO) {
+                                                    com.lucifer.mobile.cognition.CognitionLedger.clear(this@MainActivity)
+                                                    com.lucifer.mobile.cognition.CognitionScores.clear(this@MainActivity)
+                                                    val line = com.lucifer.mobile.cognition.CognitionScores
+                                                        .panelLines(this@MainActivity)
+                                                    withContext(Dispatchers.Main) {
+                                                        cognitionHistory = line
+                                                        cognitionSummary = ""
+                                                        cognitionTrace = ""
+                                                        settingsToast = "Thinking history cleared: run log and tool record."
+                                                    }
+                                                }
+                                            },
                                             onSoulMdEdit = { saveSoulPrompt(it) },
                                             onAgentPanelOpen = { selectedTab = 9 },
                                             onWorldPanelOpen = { selectedTab = 10 },
                                             onManageWallets = { selectedTab = 4 },
                                             onHeartbeatOpen = { selectedTab = 6 },
+                                            biometricStatus = biometricStatus,
+                                            onExportBundle = {
+                                                val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
+                                                    .format(java.util.Date())
+                                                exportLauncher.launch("lucifer-export-$stamp.json")
+                                            },
                                             shizukuStatus = shizukuStatus.message,
                                             onShizukuRequest = {
                                                 settingsToast = if (ShizukuAccess.requestPermission()) {
@@ -1201,7 +1434,7 @@ class MainActivity : ComponentActivity() {
                                                     url.isBlank() -> settingsToast = "Enter the local Termux MCP URL, or use Remove to disable memory retrieval."
                                                     normalized == null -> settingsToast = "MCP URL must be http://127.0.0.1:8031/mcp or http://localhost:8031/mcp."
                                                     token.isNotBlank() && token.length < 24 -> settingsToast = "MCP token must contain at least 24 characters."
-                                                    token.isNotBlank() && !SecretStore.write(this@MainActivity, "config/drive_memory_mcp_token.txt", token.trim()) -> settingsToast = "Could not encrypt the MCP token in Android Keystore storage."
+                                                    token.isNotBlank() && !SecretStore.write(this@MainActivity, AppConfig.MEMORY_MCP_TOKEN, token.trim()) -> settingsToast = "Could not encrypt the MCP token in Android Keystore storage."
                                                     !token.isNotBlank() && !memoryMcpTokenConfigured -> settingsToast = "Paste the bearer token printed once when the Termux server was configured."
                                                     else -> {
                                                         if (!saveMemoryMcpUrl(normalized)) {
@@ -1217,7 +1450,7 @@ class MainActivity : ComponentActivity() {
                                             },
                                             onMemoryMcpRemove = {
                                                 saveMemoryMcpUrl("")
-                                                SecretStore.delete(this@MainActivity, "config/drive_memory_mcp_token.txt")
+                                                SecretStore.delete(this@MainActivity, AppConfig.MEMORY_MCP_TOKEN)
                                                 savedMemoryMcpUrl = ""
                                                 memoryMcpTokenConfigured = false
                                                 memoryMcpStatus = "DISABLED"
@@ -1430,7 +1663,7 @@ class MainActivity : ComponentActivity() {
                                                                 }
                                                                 ChatRoute.Conversation -> {
                                                                     val advice = try {
-                                                                        reasoner.reason(move.instruction)
+                                                                        reasoner.reason(move.instruction, Surface.RECOVER)
                                                                     } catch (e: Exception) {
                                                                         "[CHAT ERROR] ${e.message ?: "could not produce advice"}"
                                                                     }
@@ -1687,23 +1920,34 @@ class MainActivity : ComponentActivity() {
         false
     }
 
-    private fun loadTerminalHistory(): List<String> {
-        return try {
-            val file = File(filesDir, "terminal_history.log")
-            if (file.exists()) {
-                FileInputStream(file).use { input ->
-                    input.readBytes().decodeToString().split("\n").filter { it.isNotBlank() }
-                }
-            } else {
-                listOf(
-                    "Lucifer controls ready. Heartbeat is opt-in from its control panel.",
-                    "Type a plain-language request; Lucifer routes before action.",
-                    "Wallet and read-only Browser controls are available in their tabs."
-                )
+    private fun loadTerminalHistory(): List<String> =
+        tailLines(File(filesDir, TERMINAL_HISTORY), MEMORY_TAIL_BYTES).ifEmpty { PLACEHOLDER_TERMINAL_LINES }
+
+    /**
+     * Last [maxBytes] of a text file, as lines.
+     *
+     * The panels only ever show the last few lines, but the old code read every byte of every file into
+     * memory before taking them — and the memory search did it again on every query. A log is the largest
+     * thing this app writes, so it is also the one worth reading backwards from the end.
+     */
+    private fun tailLines(file: File, maxBytes: Int): List<String> = try {
+        if (!file.isFile) {
+            emptyList()
+        } else {
+            java.io.RandomAccessFile(file, "r").use { handle ->
+                val length = handle.length()
+                val start = (length - maxBytes).coerceAtLeast(0L)
+                val buffer = ByteArray((length - start).toInt())
+                handle.seek(start)
+                handle.readFully(buffer)
+                val text = buffer.toString(Charsets.UTF_8)
+                // A clipped read can start mid-character; the partial first line is dropped, not shown.
+                val whole = if (start > 0) text.substringAfter('\n', "") else text
+                whole.lines().filter { it.isNotBlank() }
             }
-        } catch (e: Exception) {
-            listOf("Lucifer controls ready. Heartbeat is opt-in from its control panel.")
         }
+    } catch (_: Exception) {
+        emptyList()
     }
 
     // ───────────── Memory panel (real data from his files + logs) ─────────────
@@ -1725,7 +1969,7 @@ class MainActivity : ComponentActivity() {
         for (src in sources) {
             try {
                 if (!src.exists()) continue
-                val lines = src.readLines().filter { it.isNotBlank() }.takeLast(40)
+                val lines = tailLines(src, MEMORY_TAIL_BYTES).takeLast(40)
                 for ((i, line) in lines.withIndex()) {
                     if (query.isBlank() || line.contains(query, ignoreCase = true)) {
                         items.add(
@@ -1860,98 +2104,67 @@ class MainActivity : ComponentActivity() {
     }
 
     // ───────────── VM host and pinned SSH host keys ─────────────
+    //
+    // Storage lives in config/AppConfig (atomic writes, one spelling per file). Validation stays here,
+    // because a hostname rule is a settings decision, not a storage one.
 
-    private fun loadVmHost(): String {
-        return try {
-            val file = File(filesDir, "config/vm_host.txt")
-            if (file.exists()) file.readText().trim() else ""
-        } catch (_: Exception) {
-            ""
-        }
-    }
+    private fun loadVmHost(): String = AppConfig.readText(this, AppConfig.VM_HOST).orEmpty()
 
     private fun saveVmHost(host: String): Boolean {
         val normalized = host.trim()
-        if (normalized.isNotEmpty() && (normalized.length > 253 || !normalized.matches(Regex("^[A-Za-z0-9][A-Za-z0-9._:%-]*$")))) return false
-        return try {
-            val configDir = File(filesDir, "config").apply { mkdirs() }
-            val file = File(configDir, "vm_host.txt")
-            if (normalized.isBlank()) file.delete() else FileOutputStream(file).use { it.write(normalized.toByteArray()) }
-            true
-        } catch (e: Exception) {
-            Log.e("MainActivity", "saveVmHost failed", e)
-            false
-        }
+        // Blank clears the setting; anything else must be a plausible hostname.
+        if (normalized.isNotEmpty() && !normalized.matches(VM_HOST_RE)) return false
+        return AppConfig.write(this, AppConfig.VM_HOST, normalized)
     }
 
-    private fun loadVmUser(): String = try {
-        File(filesDir, "config/vm_user.txt").takeIf { it.exists() }?.readText()?.trim()?.takeIf {
-            it.matches(Regex("^[A-Za-z_][A-Za-z0-9_.-]{0,31}$"))
-        } ?: "droid"
-    } catch (_: Exception) { "droid" }
+    private fun loadVmUser(): String =
+        AppConfig.readText(this, AppConfig.VM_USER)?.takeIf { it.matches(VM_USER_RE) } ?: DEFAULT_VM_USER
 
     private fun saveVmUser(user: String): Boolean {
         val normalized = user.trim()
-        if (!normalized.matches(Regex("^[A-Za-z_][A-Za-z0-9_.-]{0,31}$"))) return false
-        return try {
-            val dir = File(filesDir, "config").apply { mkdirs() }
-            FileOutputStream(File(dir, "vm_user.txt")).use { it.write(normalized.toByteArray()) }
-            true
-        } catch (_: Exception) { false }
+        if (!normalized.matches(VM_USER_RE)) return false
+        return AppConfig.write(this, AppConfig.VM_USER, normalized)
     }
 
-    private fun loadVmPort(): Int = try {
-        File(filesDir, "config/vm_port.txt").takeIf { it.exists() }?.readText()?.trim()?.toIntOrNull()?.takeIf { it in 1..65535 } ?: 8022
-    } catch (_: Exception) { 8022 }
+    private fun loadVmPort(): Int = AppConfig.readInt(this, AppConfig.VM_PORT, DEFAULT_VM_PORT, 1..65535)
 
     private fun saveVmPort(port: String): Boolean {
         val value = port.trim().toIntOrNull()?.takeIf { it in 1..65535 } ?: return false
-        return try {
-            val dir = File(filesDir, "config").apply { mkdirs() }
-            FileOutputStream(File(dir, "vm_port.txt")).use { it.write(value.toString().toByteArray()) }
-            true
-        } catch (_: Exception) { false }
+        return AppConfig.write(this, AppConfig.VM_PORT, value.toString())
     }
 
-    private fun loadVmKnownHosts(): String = try {
-        val file = File(filesDir, "config/known_hosts")
-        if (file.isFile) file.readText().take(32_000) else ""
-    } catch (_: Exception) {
-        ""
-    }
+    /** Pinned SSH host keys. Absent means "nothing pinned yet", which the SSH path treats as unverified. */
+    private fun loadVmKnownHosts(): String =
+        AppConfig.read(this, AppConfig.KNOWN_HOSTS, MAX_KNOWN_HOSTS_CHARS).orEmpty()
 
     private fun saveVmKnownHosts(value: String): Boolean {
         val normalized = value.trim()
         if (normalized.isNotEmpty()) {
-            if (normalized.length > 32_000) return false
-            val keyLines = normalized.lines().filter { it.isNotBlank() && !it.trimStart().startsWith("#") }
-            if (keyLines.isEmpty() || keyLines.any { line ->
-                    val fields = line.trim().split(Regex("\\s+"))
-                    fields.size < 3 ||
-                        !(fields[1].startsWith("ssh-") || fields[1].startsWith("ecdsa-") || fields[1].startsWith("sk-")) ||
-                        try { java.util.Base64.getDecoder().decode(fields[2]); false } catch (_: Exception) { true }
-                }
-            ) return false
+            if (normalized.length > MAX_KNOWN_HOSTS_CHARS) return false
+            val keyLines = normalized.lines().map { it.trim() }
+                .filter { it.isNotEmpty() && !it.startsWith("#") }
+            val wellFormed = keyLines.isNotEmpty() && keyLines.all { line ->
+                val fields = line.split(WHITESPACE_RE)
+                fields.size >= 3 &&
+                    KNOWN_HOST_KEY_TYPES.any { fields[1].startsWith(it) } &&
+                    try { java.util.Base64.getDecoder().decode(fields[2]); true } catch (_: Exception) { false }
+            }
+            if (!wellFormed) return false
         }
-        return try {
-            val configDir = File(filesDir, "config").apply { mkdirs() }
-            val file = File(configDir, "known_hosts")
-            if (normalized.isBlank()) file.delete() else FileOutputStream(file).use { it.write((normalized + "\n").toByteArray()) }
-            true
-        } catch (e: Exception) {
-            Log.e("MainActivity", "saveVmKnownHosts failed", e)
-            false
-        }
+        // A blank value clears the pin list instead of leaving a stale key behind.
+        return AppConfig.write(this, AppConfig.KNOWN_HOSTS, normalized)
     }
 
     private fun saveTerminalHistory(lines: List<String>) {
-        try {
-            val file = File(filesDir, "terminal_history.log")
-            FileOutputStream(file).use { output ->
-                output.write(lines.joinToString("\n").toByteArray())
+        // Best effort: a terminal transcript that cannot be saved must not interrupt the session.
+        AtomicFile(File(filesDir, TERMINAL_HISTORY)).let { atomic ->
+            val stream = try { atomic.startWrite() } catch (_: Exception) { return }
+            try {
+                stream.write(lines.joinToString("\n").toByteArray())
+                atomic.finishWrite(stream)
+            } catch (e: Exception) {
+                atomic.failWrite(stream)
             }
-        } catch (e: Exception) {
-            // Ignore
         }
     }
 
@@ -1965,66 +2178,59 @@ class MainActivity : ComponentActivity() {
 
     fun saveVmPassword(password: String) {
         if (password.isEmpty()) {
-            SecretStore.delete(this, "config/vm_ssh_password.txt")
-        } else if (!SecretStore.write(this, "config/vm_ssh_password.txt", password)) {
+            SecretStore.delete(this, AppConfig.VM_SSH_PASSWORD)
+        } else if (!SecretStore.write(this, AppConfig.VM_SSH_PASSWORD, password)) {
             Log.e("MainActivity", "saveVmPassword failed: secure storage unavailable")
         }
     }
 
-    private fun loadVoiceEnabled(): Boolean {
-        return try {
-            val file = File(filesDir, "config/voice_enabled.txt")
-            !file.exists() || file.readText().trim() != "false"
-        } catch (e: Exception) {
-            true
-        }
-    }
+    private fun loadVoiceEnabled(): Boolean =
+        AppConfig.readFlag(this, AppConfig.VOICE_ENABLED, default = true)
 
     fun saveVoiceEnabled(enabled: Boolean) {
-        try {
-            val configDir = File(filesDir, "config")
-            configDir.mkdirs()
-            val file = File(configDir, "voice_enabled.txt")
-            FileOutputStream(file).use { output ->
-                val state = if (enabled) "true" else "false"
-                output.write(state.toByteArray())
-            }
-        } catch (e: Exception) {
-            Log.e("MainActivity", "saveVoiceEnabled failed", e)
-        }
+        AppConfig.writeFlag(this, AppConfig.VOICE_ENABLED, enabled)
     }
 
-    private fun loadKnowledgeUrl(): String {
-        return try {
-            val file = File(filesDir, "config/knowledge_url.txt")
-            if (file.exists()) file.readText().trim() else ""
-        } catch (e: Exception) {
-            ""
-        }
-    }
+    private fun loadKnowledgeUrl(): String = AppConfig.readText(this, AppConfig.KNOWLEDGE_URL).orEmpty()
 
     fun saveKnowledgeUrl(url: String) {
-        try {
-            val configDir = File(filesDir, "config")
-            configDir.mkdirs()
-            val file = File(configDir, "knowledge_url.txt")
-            FileOutputStream(file).use { output -> output.write(url.toByteArray()) }
-        } catch (e: Exception) {
-            Log.e("MainActivity", "saveKnowledgeUrl failed", e)
-        }
+        AppConfig.write(this, AppConfig.KNOWLEDGE_URL, url)
     }
 
-    private fun loadMemoryMcpUrl(): String = try {
-        File(filesDir, "config/drive_memory_mcp_url.txt").takeIf { it.isFile }?.readText()?.trim().orEmpty()
-    } catch (_: Exception) { "" }
+    private fun loadMemoryMcpUrl(): String = AppConfig.readText(this, AppConfig.MEMORY_MCP_URL).orEmpty()
 
-    private fun saveMemoryMcpUrl(url: String): Boolean = try {
-        val configDir = File(filesDir, "config")
-        configDir.mkdirs()
-        File(configDir, "drive_memory_mcp_url.txt").writeText(url.trim(), Charsets.UTF_8)
-        true
-    } catch (error: Exception) {
-        Log.e("MainActivity", "Could not save memory MCP URL", error)
-        false
+    private fun saveMemoryMcpUrl(url: String): Boolean = AppConfig.write(this, AppConfig.MEMORY_MCP_URL, url)
+
+    /** One IO pass for the settings screen, so it builds state once instead of seven times. */
+    private data class SettingsSnapshot(
+        val knowledgeUrl: String,
+        val memoryMcpUrl: String,
+        val memoryMcpTokenSet: Boolean,
+        val vmHost: String,
+        val vmUser: String,
+        val vmPort: Int,
+        val vmKnownHosts: String
+    )
+
+    private companion object {
+        const val DEFAULT_VM_USER = "droid"
+        const val DEFAULT_VM_PORT = 8022
+        const val MAX_KNOWN_HOSTS_CHARS = 32_000
+        const val TERMINAL_HISTORY = "terminal_history.log"
+
+        /** Whole-token hostname rule: a leading alphanumeric, then letters/digits/./_/:/%/-. */
+        val VM_HOST_RE = Regex("^[A-Za-z0-9][A-Za-z0-9._:%-]*$")
+        val VM_USER_RE = Regex("^[A-Za-z_][A-Za-z0-9_.-]{0,31}$")
+        val WHITESPACE_RE = Regex("\\s+")
+        val KNOWN_HOST_KEY_TYPES = listOf("ssh-", "ecdsa-", "sk-")
+
+        /** The panels show the last few lines; reading a whole log to find them is waste. */
+        const val MEMORY_TAIL_BYTES = 64 * 1024
+
+        val PLACEHOLDER_TERMINAL_LINES = listOf(
+            "Lucifer controls ready. Heartbeat is opt-in from its control panel.",
+            "Type a plain-language request; Lucifer routes before action.",
+            "Wallet and read-only Browser controls are available in their tabs."
+        )
     }
 }

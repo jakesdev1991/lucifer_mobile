@@ -7,6 +7,7 @@ import com.lucifer.mobile.data.browser.LuciferBrowser
 import com.lucifer.mobile.launcher.CommandTarget
 import com.lucifer.mobile.memory.LocalConversationMemory
 import com.lucifer.mobile.omni_bridge.llm.NemotronClient
+import com.lucifer.mobile.skills.SkillSynthRuntime
 import com.lucifer.mobile.terminal.TerminalExecutor
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -66,7 +67,9 @@ class ResilienceEngine(context: Context) {
                 listOf("system" to system, "user" to user),
                 maxTokens = maxTokens,
                 temperature = temperature,
-                requestTimeoutMs = 45_000
+                requestTimeoutMs = 45_000,
+                // Recovery diagnosis runs because something failed, not because someone asked.
+                userInitiated = false
             )
             // NemotronClient reports failures as a "[LLM] ..." line; treat it as "no model".
             return if (reply.startsWith("[LLM]")) "" else reply
@@ -266,7 +269,8 @@ class ResilienceEngine(context: Context) {
         val agent = ResearchAgent(
             fetcher = object : PageFetcher {
                 override suspend fun fetch(url: String): FetchedPage {
-                    val result = browser.navigate(url, timeoutMs = 15_000)
+                    // Nobody asked for this URL: recovery research runs because the app decided to.
+                    val result = browser.navigate(url, timeoutMs = 15_000, userInitiated = false)
                     return if (result.success) {
                         FetchedPage(url = result.url, status = 200, body = result.html.ifBlank { result.text })
                     } else {
@@ -354,6 +358,19 @@ class ResilienceEngine(context: Context) {
     fun recordAttempt(move: RecoveryMove, succeeded: Boolean, note: String) {
         val current = episode ?: return
         episode = planner.recordAttempt(current, move, succeeded, note)
+        // The tactic that fixed this class of failure on this target is worth generalising beyond the
+        // recovery loop: it becomes a procedure skill the model is told about on later turns.
+        try {
+            SkillSynthRuntime.learnProcedure(
+                appContext,
+                current.signal.failureClass.label,
+                current.signal.target.displayName,
+                move.kind.label,
+                succeeded
+            )
+        } catch (_: Exception) {
+            // Learning must never break the thing it is learning from.
+        }
         persist()
         if (succeeded) {
             appendMemory(

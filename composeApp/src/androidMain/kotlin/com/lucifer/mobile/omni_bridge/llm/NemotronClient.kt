@@ -2,6 +2,11 @@ package com.lucifer.mobile.omni_bridge.llm
 
 import android.content.Context
 import android.util.Log
+import com.lucifer.mobile.config.AppConfig
+import com.lucifer.mobile.privacy.EgressClass
+import com.lucifer.mobile.privacy.EgressDecision
+import com.lucifer.mobile.privacy.EgressHttp
+import com.lucifer.mobile.privacy.NetworkGuard
 import com.lucifer.mobile.security.SecretStore
 import com.lucifer.mobile.memory.DriveMemoryMcpClient
 import com.lucifer.mobile.memory.LocalConversationMemory
@@ -10,8 +15,6 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * NemotronClient — Lucifer's native mind.
@@ -38,8 +41,8 @@ class NemotronClient(private val context: Context) {
             "nvidia/llama-3.1-nemotron-70b-instruct"
         )
 
-        private const val KEY_FILE = "config/nvidia_key.txt"
-        private const val MODEL_FILE = "config/llm_model.txt"
+        private val KEY_FILE get() = AppConfig.NVIDIA_KEY
+        private val MODEL_FILE get() = AppConfig.LLM_MODEL
 
         // Secrets must be supplied by the user and are never shipped in the APK.
     }
@@ -66,12 +69,23 @@ class NemotronClient(private val context: Context) {
         messages: List<Pair<String, String>>,
         maxTokens: Int = 2048,
         temperature: Double = 0.7,
-        requestTimeoutMs: Int = 120_000
+        requestTimeoutMs: Int = 120_000,
+        /**
+         * Whether a person asked for this. It is recorded in the egress ledger and changes nothing else:
+         * a heartbeat draft or a recovery research pass is something the app decided to do, and the log
+         * should say so rather than attributing it to the owner.
+         */
+        userInitiated: Boolean = true
     ): String {
         val keys = keyPool()
         if (keys.isEmpty()) {
             return "[LLM] No NVIDIA API keys configured."
         }
+
+        // Ask the egress guard before anything is prepared or sent. This is the only route that
+        // carries conversation content off the device, so it is the one that must check first.
+        val clearance = NetworkGuard.authorize(BASE_URL, userInitiated, expected = EgressClass.MODEL)
+        if (clearance.blocked) return NetworkGuard.refusalMessage(clearance, "the model call")
 
         // Retrieve local episodic memories first; optional Drive retrieval may add more context online.
         val preparedMessages = prepareMessages(messages)
@@ -80,7 +94,7 @@ class NemotronClient(private val context: Context) {
         for (m in models) {
             for (key in keys) {
                 try {
-                    val content = call(key, m, preparedMessages, maxTokens, temperature, requestTimeoutMs)
+                    val content = call(key, m, preparedMessages, maxTokens, temperature, requestTimeoutMs, clearance)
                     persistPreferred(m)
                     return content
                 } catch (e: LlmAuthException) {
@@ -113,11 +127,14 @@ class NemotronClient(private val context: Context) {
         }
         val keys = keyPool()
         if (keys.isEmpty()) return "[LLM] No NVIDIA API keys configured."
+        // A camera still is the most sensitive thing this app can send. Record it as VISION.
+        val clearance = NetworkGuard.authorize(BASE_URL, userInitiated = true, expected = EgressClass.VISION)
+        if (clearance.blocked) return NetworkGuard.refusalMessage(clearance, "the camera still")
         val preparedMessages = prepareMessages(messages)
         var lastErr = "unknown"
         for (key in keys) {
             try {
-                return call(key, VISION_MODEL, preparedMessages, maxTokens, temperature, requestTimeoutMs, imageJpeg)
+                return call(key, VISION_MODEL, preparedMessages, maxTokens, temperature, requestTimeoutMs, clearance, imageJpeg)
             } catch (e: LlmAuthException) {
                 lastErr = e.message ?: "auth"
             } catch (e: Exception) {
@@ -159,8 +176,8 @@ class NemotronClient(private val context: Context) {
     }
 
     /**
-     * Raw HTTPS call. HttpURLConnection — zero deps beyond org.json (Android core).
-     * Blocking I/O; callers run on Dispatchers.IO.
+     * Raw HTTPS call through EgressHttp, which owns the socket, the transport decision and the
+     * timeouts. Blocking I/O; callers run on Dispatchers.IO.
      */
     private fun call(
         key: String,
@@ -169,64 +186,65 @@ class NemotronClient(private val context: Context) {
         maxTokens: Int,
         temperature: Double,
         requestTimeoutMs: Int,
+        decision: EgressDecision,
         imageJpeg: ByteArray? = null
     ): String {
-        var conn: HttpURLConnection? = null
-        try {
-            conn = (URL(BASE_URL).openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                connectTimeout = requestTimeoutMs.coerceIn(1_000, 120_000).coerceAtMost(15_000)
-                readTimeout = requestTimeoutMs.coerceIn(1_000, 120_000)
-                doOutput = true
-                setRequestProperty("Authorization", "Bearer $key")
-                setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Accept", "application/json")
+        // The turn was authorised once, so each retry rides the same decision — but every retry is a
+        // real socket, and the transport (direct or Tor) is re-decided for each one. A prompt carries
+        // the user's own words, which is the single biggest thing this app must not leak in the clear
+        // while Tor is selected.
+        val body = JSONObject().apply {
+            put("model", model)
+            put("max_tokens", maxTokens)
+            put("temperature", temperature)
+            val imageMessageIndex = if (imageJpeg != null) messages.indexOfLast { it.first == "user" } else -1
+            val imageDataUrl = imageJpeg?.let {
+                "data:image/jpeg;base64,${android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP)}"
             }
-
-            val body = JSONObject().apply {
-                put("model", model)
-                put("max_tokens", maxTokens)
-                put("temperature", temperature)
-                val imageMessageIndex = if (imageJpeg != null) messages.indexOfLast { it.first == "user" } else -1
-                val imageDataUrl = imageJpeg?.let {
-                    "data:image/jpeg;base64,${android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP)}"
+            put("messages", JSONArray().apply {
+                messages.forEachIndexed { index, (role, content) ->
+                    put(JSONObject().apply {
+                        put("role", role)
+                        if (index == imageMessageIndex && imageDataUrl != null) {
+                            put("content", JSONArray().apply {
+                                put(JSONObject().put("type", "text").put("text", content))
+                                put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", imageDataUrl)))
+                            })
+                        } else {
+                            put("content", content)
+                        }
+                    })
                 }
-                put("messages", JSONArray().apply {
-                    messages.forEachIndexed { index, (role, content) ->
-                        put(JSONObject().apply {
-                            put("role", role)
-                            if (index == imageMessageIndex && imageDataUrl != null) {
-                                put("content", JSONArray().apply {
-                                    put(JSONObject().put("type", "text").put("text", content))
-                                    put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", imageDataUrl)))
-                                })
-                            } else {
-                                put("content", content)
-                            }
-                        })
-                    }
-                })
-            }
+            })
+        }
 
-            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+        val reply = EgressHttp.exchange(
+            EgressHttp.Request(
+                url = BASE_URL,
+                userInitiated = true,
+                expected = EgressClass.MODEL,
+                method = "POST",
+                headers = mapOf(
+                    "Authorization" to "Bearer $key",
+                    "Content-Type" to "application/json",
+                    "Accept" to "application/json"
+                ),
+                body = body.toString().toByteArray(Charsets.UTF_8),
+                connectTimeoutMs = requestTimeoutMs.coerceAtMost(15_000),
+                readTimeoutMs = requestTimeoutMs,
+                decision = decision
+            )
+        )
 
-            when (conn.responseCode) {
-                200 -> {
-                    val text = conn.inputStream.bufferedReader().use { it.readText() }
-                    return parseContent(text)
-                }
-                401, 403 -> throw LlmAuthException("HTTP ${conn.responseCode}")
-                404 -> throw LlmGoneException("HTTP 404 model removed")
-                429 -> throw LlmAuthException("HTTP 429 rate-limited, rotating key")
-                else -> {
-                    val err = try {
-                        conn.errorStream?.bufferedReader()?.use { it.readText() }?.take(200) ?: ""
-                    } catch (_: Exception) { "" }
-                    throw RuntimeException("HTTP ${conn.responseCode} $err")
-                }
-            }
-        } finally {
-            conn?.disconnect()
+        // A transport that could not even open a socket is not an auth failure: say what happened.
+        if (reply.status == 0) throw RuntimeException(reply.refusal("the model call"))
+        return when (reply.status) {
+            200 -> parseContent(reply.text())
+            401, 403 -> throw LlmAuthException("HTTP ${reply.status}")
+            404 -> throw LlmGoneException("HTTP 404 model removed")
+            429 -> throw LlmAuthException("HTTP 429 rate-limited, rotating key")
+            // Provider bodies may echo request data or credentials. Never put them in logs or answers.
+            else -> throw RuntimeException("HTTP ${reply.status} model request failed")
         }
     }
 
@@ -242,39 +260,27 @@ class NemotronClient(private val context: Context) {
 
     /** The only credential source is the user's encrypted Settings value. */
     private fun keyPool(): List<String> =
-        SecretStore.read(context, KEY_FILE)?.trim()?.takeIf { it.isNotEmpty() }?.let { listOf(it) } ?: emptyList()
+        SecretStore.read(context, KEY_FILE)?.let { RuntimeKeys.parse(it) } ?: emptyList()
 
     private fun modelChain(): List<String> {
-        return try {
-            val f = File(context.filesDir, MODEL_FILE)
-            if (f.exists()) {
-                val override = f.readText().trim()
-                if (override.isNotBlank() && override != "auto") return listOf(override)
-            }
-            MODEL_CHAIN
-        } catch (_: Exception) {
-            MODEL_CHAIN
-        }
+        // "auto" is the explicit opt-out: an override is a single model, anything else is the chain.
+        val override = AppConfig.readText(context, MODEL_FILE)
+        return if (override != null && override != "auto") listOf(override) else MODEL_CHAIN
     }
 
     private fun persistPreferred(model: String) {
-        // Persist only non-secret model preference; credential is already stored encrypted.
-        try {
-            val dir = File(context.filesDir, "config")
-            dir.mkdirs()
-            File(dir, "llm_model.txt").writeText(model)
-        } catch (_: Exception) {}
+        // Persist only the non-secret model preference; the credential is already stored encrypted.
+        AppConfig.write(context, MODEL_FILE, model)
     }
 
     /** Settings → NVIDIA API KEY save: encrypt the user's runtime credential. */
     fun saveRuntimeKey(key: String): Boolean {
-        val normalized = key.trim()
-        if (normalized.isEmpty()) {
+        val keys = RuntimeKeys.parse(key) ?: return false
+        if (keys.isEmpty()) {
             SecretStore.delete(context, KEY_FILE)
             return true
         }
-        if (normalized.length !in 16..512 || normalized.any { it.isWhitespace() }) return false
-        return SecretStore.write(context, KEY_FILE, normalized)
+        return SecretStore.write(context, KEY_FILE, keys.joinToString("\n"))
     }
 
     private class LlmAuthException(msg: String) : Exception(msg)
