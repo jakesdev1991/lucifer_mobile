@@ -373,15 +373,18 @@ Run in this workspace, just now:
 
 | Check | Result |
 |---|---|
-| `python3 tools/privacy-core/spec_check.py` | **PASS · 90 checks** |
-| `python3 tools/surface-core/spec_check.py` | **PASS · 52 checks** |
+| `python3 tools/privacy-core/spec_check.py` | **PASS · 92 checks** |
+| `python3 tools/surface-core/spec_check.py` | **PASS · 70 checks** |
 | `python3 tools/synth-core/spec_check.py` | **PASS · 128 checks** |
 | `python3 tools/privacy-core/audit_egress.py` | 10 gated sites · 2 socket owners · 0 outside the gate · 0 Google references |
 | `python3 tools/surface-core/audit_surfaces.py` | 6 reasoning sites · 0 undeclared · 10 surfaces · 0 undescribed |
 | `python3 tools/config-core/audit_config.py` | every config path named once, every write atomic, no bypass writers |
 | `python3 scripts/validate_skill_library.py` | 100 skills, 10 packs, 53,392 bytes, all `REFERENCE_ONLY` |
 | `python3 tools/net-core/spec_check.py` | **PASS · 110 checks** |
-| `./scripts/verify_all.sh --quiet` | **PASS 3 · SKIP 9 · FAIL 0** |
+| `python3 tools/cognition-core/spec_check.py` | **PASS · 199 checks** |
+| `python3 tools/cognition-core/fuzz.py` | **FUZZ OK · 13 invariants** |
+| `python3 tools/cognition-core/loop_sim.py` | **LOOP SIM OK · 7 invariants, scripted runs** |
+| `./scripts/verify_all.sh --quiet` | **PASS 6 · SKIP 11 · FAIL 0** |
 | `./scripts/verify_synth_core.sh` | PASS (Kotlin stage SKIPPED) |
 
 **Not verified anywhere:** there is no JDK, `kotlinc`, Gradle or Android SDK in this workspace, so

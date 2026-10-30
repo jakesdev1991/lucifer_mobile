@@ -116,7 +116,7 @@ FLOSS Play stack to get there.
 ## Verification
 
 ```bash
-python3 tools/privacy-core/spec_check.py            # 90 checks, incl. 5 privilege cases
+python3 tools/privacy-core/spec_check.py            # 92 checks, incl. 5 privilege cases
 python3 tools/privacy-core/audit_egress.py --check  # unguarded sockets, Google dependencies
 ./scripts/verify_privacy_core.sh
 ```

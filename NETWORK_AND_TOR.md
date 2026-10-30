@@ -156,7 +156,7 @@ Run in this workspace:
 | `python3 tools/net-core/spec_check.py` | **PASS · 110 checks** |
 | `./scripts/verify_net_core.sh` | **PASS** (Kotlin stage SKIPPED — no toolchain) |
 | `python3 tools/privacy-core/audit_egress.py --check` | 10 gated sites · 2 socket owners · 0 outside the gate · 0 Google references |
-| `python3 tools/privacy-core/spec_check.py` | **PASS · 90 checks** |
+| `python3 tools/privacy-core/spec_check.py` | **PASS · 92 checks** |
 | `./scripts/verify_all.sh --quiet` | see README for the current line |
 
 **Not verified — and this matters more here than anywhere else:**
