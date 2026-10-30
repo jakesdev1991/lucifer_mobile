@@ -243,7 +243,8 @@ class NemotronClient(private val context: Context) {
             401, 403 -> throw LlmAuthException("HTTP ${reply.status}")
             404 -> throw LlmGoneException("HTTP 404 model removed")
             429 -> throw LlmAuthException("HTTP 429 rate-limited, rotating key")
-            else -> throw RuntimeException("HTTP ${reply.status} ${reply.text().take(200)}")
+            // Provider bodies may echo request data or credentials. Never put them in logs or answers.
+            else -> throw RuntimeException("HTTP ${reply.status} model request failed")
         }
     }
 
@@ -259,7 +260,7 @@ class NemotronClient(private val context: Context) {
 
     /** The only credential source is the user's encrypted Settings value. */
     private fun keyPool(): List<String> =
-        SecretStore.read(context, KEY_FILE)?.trim()?.takeIf { it.isNotEmpty() }?.let { listOf(it) } ?: emptyList()
+        SecretStore.read(context, KEY_FILE)?.let { RuntimeKeys.parse(it) } ?: emptyList()
 
     private fun modelChain(): List<String> {
         // "auto" is the explicit opt-out: an override is a single model, anything else is the chain.
@@ -274,13 +275,12 @@ class NemotronClient(private val context: Context) {
 
     /** Settings → NVIDIA API KEY save: encrypt the user's runtime credential. */
     fun saveRuntimeKey(key: String): Boolean {
-        val normalized = key.trim()
-        if (normalized.isEmpty()) {
+        val keys = RuntimeKeys.parse(key) ?: return false
+        if (keys.isEmpty()) {
             SecretStore.delete(context, KEY_FILE)
             return true
         }
-        if (normalized.length !in 16..512 || normalized.any { it.isWhitespace() }) return false
-        return SecretStore.write(context, KEY_FILE, normalized)
+        return SecretStore.write(context, KEY_FILE, keys.joinToString("\n"))
     }
 
     private class LlmAuthException(msg: String) : Exception(msg)

@@ -621,7 +621,7 @@ fun AnimatedSettingsPanel(
         }
 
         // NVIDIA API key — user-provided and encrypted with Android Keystore.
-        SettingsCard(title = "NVIDIA API KEY", icon = { Icon(Icons.Filled.Psychology, contentDescription = "LLM Key", tint = Morningstar.Success, modifier = Modifier.size(24.dp)) }) {
+        SettingsCard(title = "NVIDIA API KEYS", icon = { Icon(Icons.Filled.Psychology, contentDescription = "LLM Key", tint = Morningstar.Success, modifier = Modifier.size(24.dp)) }) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -632,7 +632,8 @@ fun AnimatedSettingsPanel(
                         value = nvidiaKeyText,
                         onValueChange = { nvidiaKeyText = it },
                         modifier = Modifier.weight(1f),
-                        singleLine = true,
+                        singleLine = false,
+                        maxLines = 4,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password),
                         colors = TextFieldDefaults.textFieldColors(
@@ -644,7 +645,7 @@ fun AnimatedSettingsPanel(
                             unfocusedIndicatorColor = Color.Transparent,
                             disabledIndicatorColor = Color.Transparent
                         ),
-                        placeholder = { Text("Paste NVIDIA API key (empty clears it)", color = Morningstar.Whisper) }
+                        placeholder = { Text("Primary key first, then comma-separated fallbacks (empty clears all)", color = Morningstar.Whisper) }
                     )
                     Button(
                         onClick = { onNvidiaKeySave(nvidiaKeyText) },
