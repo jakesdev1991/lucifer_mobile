@@ -220,6 +220,20 @@ nothing to protect against there — the cheap path is already the default.
 
 ---
 
+### 7.8 What the harnesses cannot see
+
+No Kotlin compiler exists in this workspace, so every Kotlin step in every harness reports SKIPPED. That
+blind spot produced two real defects this pass, both invisible to a green run:
+
+- `verify_surface_core.sh` compiled `Surfaces.kt` and `SurfaceAnswers.kt` but not the cognition core they
+  now name. It would have failed to compile on a machine with `kotlinc` and never here.
+- `WalletControlPanel.kt` — a panel the wallet tab opens — was one `}` short and could not compile at all.
+
+The responses are static, not hopeful: the compile file list is asserted by the surface spec, and
+`tools/kotlin-core/audit_braces.py` balances every compiled Kotlin file after stripping string literals,
+character literals, line comments, nested block comments and multi-line `${…}` templates. It runs as part
+of `verify_all.sh` and it is what found the brace.
+
 ### 7.7 Erasable, like everything else he keeps
 
 The egress ledger has a CLEAR LEDGER button. His thinking now has one too: **CLEAR THINKING HISTORY** in

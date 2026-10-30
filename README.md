@@ -106,10 +106,12 @@ Pure recovery/self-learning logic has a host-side harness that does not need the
 ./scripts/cognition_sweep.sh --loop 0 # the same, on repeat, with a new fuzz seed each pass
 ```
 
-`verify_all.sh` runs all twelve harnesses and all five static audits (`audit_egress.py`,
-`audit_surfaces.py`, `audit_config.py`, `audit_manifest.py`, `audit_locals.py`) and reports
-**PASS / SKIP / FAIL** separately. `audit_locals.py` is a compile-lite check for a local used before its
-own declaration — the error that reads perfectly and does not compile. A harness whose
+`verify_all.sh` runs all twelve harnesses and all six static audits (`audit_egress.py`,
+`audit_surfaces.py`, `audit_config.py`, `audit_manifest.py`, `audit_locals.py`, `audit_braces.py`) and
+reports **PASS / SKIP / FAIL** separately. `audit_locals.py` is a compile-lite check for a local used
+before its own declaration — the error that reads perfectly and does not compile — and `audit_braces.py`
+balances `()`, `{}` and `[]` across the compiled source set after stripping strings, character literals
+and (nesting) comments; it found a real missing brace in the wallet panel that no harness could see. A harness whose
 Kotlin step cannot compile because `kotlinc` is missing reports **SKIPPED**, not PASS — it did not run,
 and saying otherwise is the one thing a verification script must never do. Set
 `LUCIFER_REQUIRE_KOTLIN=1` (as CI does) to turn a missing toolchain into a failure.
