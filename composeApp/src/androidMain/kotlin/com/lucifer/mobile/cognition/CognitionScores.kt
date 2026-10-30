@@ -95,11 +95,21 @@ object CognitionScores {
         ""
     }
 
-    /** The two lines the Skills card shows: what the loop did, and how the tools have behaved. */
-    fun panelLines(context: Context): String =
-        listOf(CognitionLedger.summary(context), report(context))
-            .filter { it.isNotBlank() }
-            .joinToString("\n")
+    /**
+     * What the Skills card shows: the totals, the last few runs, and how the tools have behaved.
+     * Empty sections are omitted rather than printed as blanks.
+     */
+    fun panelLines(context: Context): String {
+        val runs = CognitionLedger.recentLines(context, max = 5)
+        return buildList {
+            add(CognitionLedger.summary(context))
+            if (runs.isNotEmpty()) {
+                add("recent")
+                addAll(runs)
+            }
+            add(report(context))
+        }.filter { it.isNotBlank() }.joinToString("\n")
+    }
 
     fun clear(context: Context) {
         try {

@@ -110,6 +110,30 @@ object CognitionLedger {
         emptyList()
     }
 
+    /**
+     * The last [max] runs as one compact line each, newest last: `18:42 · 3 steps · answered · medium`.
+     *
+     * The panel showed the trace of the newest run only, which made the log write-only — you could count
+     * the runs but not read one. Times are local and short because this is a glance, not forensics.
+     */
+    fun recentLines(context: Context, max: Int = 5): List<String> = try {
+        val format = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US)
+        recent(context, max = max).mapNotNull { line ->
+            try {
+                val run = JSONObject(line)
+                val steps = run.optInt("steps")
+                val termination = run.optString("termination").lowercase().replace('_', ' ')
+                val confidence = run.optString("confidence").lowercase()
+                val when_ = format.format(java.util.Date(run.optLong("at")))
+                "$when_ · $steps step${if (steps == 1) "" else "s"} · $termination · $confidence"
+            } catch (_: Exception) {
+                null
+            }
+        }
+    } catch (_: Exception) {
+        emptyList()
+    }
+
     /** One line for a card: how many runs, how many concluded, how many needed a caveat. */
     fun summary(context: Context): String {
         val runs = recent(context, max = 500).mapNotNull {
