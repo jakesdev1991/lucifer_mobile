@@ -573,7 +573,15 @@ object ToolCatalogue {
  */
 object CognitionKnowledge {
 
-    fun describe(tools: List<ToolSpec> = ToolCatalogue.specs(), budget: LoopBudget = LoopBudget()): String = buildString {
+    /**
+     * @param record the tools' real success counts on this device, if any. Passed in rather than read
+     *   here so the core stays free of Android and the answer can be tested without a filesystem.
+     */
+    fun describe(
+        tools: List<ToolSpec> = ToolCatalogue.specs(),
+        budget: LoopBudget = LoopBudget(),
+        record: String = ""
+    ): String = buildString {
         appendLine("Here is how I actually work, not how a chatbot describes itself.")
         appendLine()
         appendLine("A message is triaged first. Most get one pass. A question that is multi-part, or shaped")
@@ -591,6 +599,10 @@ object CognitionKnowledge {
                 if (spec.needsConfirmation) ", needs your confirmation)" else ")")
         }
         appendLine()
+        if (record.isNotBlank()) {
+            appendLine("What they have actually done on this device: $record.")
+            appendLine()
+        }
         appendLine("Reads are free. Anything that writes, changes the device or sends something outward needs")
         appendLine("your confirmation, and none of those ship today — so the loop reads and concludes, and")
         appendLine("changes nothing.")

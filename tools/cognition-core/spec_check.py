@@ -890,6 +890,8 @@ def case_drift() -> None:
           "CognitionKnowledge.promptLine(" in open(
               os.path.join(ROOT, "composeApp", "src", "androidMain", "kotlin", "com", "lucifer", "mobile",
                            "surface", "Surfaces.kt"), encoding="utf-8").read())
+    check("drift: the reasoning answer can carry the real record",
+          "record: String = \"\"" in knowledge and "if (record.isNotBlank())" in knowledge)
     check("drift: the calculator is not an eval",
           "eval(" not in core.split("object Calculator")[1])
     check("drift: the calculator is total", "catch (error: Exception)" in core.split("object Calculator")[1])

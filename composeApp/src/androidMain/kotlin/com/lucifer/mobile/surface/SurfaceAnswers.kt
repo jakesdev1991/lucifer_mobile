@@ -134,7 +134,13 @@ object SurfaceAnswers {
      * A complete answer, or null when the message is not about the interface. The null case is the
      * important one: it lets ordinary conversation proceed with only the prompt block for grounding.
      */
-    fun answer(raw: String, surface: Surface, facts: SurfaceFacts): String? {
+    fun answer(
+        raw: String,
+        surface: Surface,
+        facts: SurfaceFacts,
+        /** The tools' real record on this device, so "how do you think" is answered with evidence. */
+        toolRecord: String = ""
+    ): String? {
         val kind = SurfaceQuestions.classify(raw)
         if (kind == SurfaceQuestion.NONE) return null
         val spec = SurfaceKnowledge.spec(surface)
@@ -149,7 +155,7 @@ object SurfaceAnswers {
                 append("I know this because the app tells me which surface I am on. I cannot see your screen.")
             }
 
-            SurfaceQuestion.REASONING -> CognitionKnowledge.describe()
+            SurfaceQuestion.REASONING -> CognitionKnowledge.describe(record = toolRecord)
 
             SurfaceQuestion.CAPABILITIES -> buildString {
                 appendLine("Here is what I can actually do from ${surface.displayName}.")

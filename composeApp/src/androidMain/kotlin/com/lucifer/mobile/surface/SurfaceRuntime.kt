@@ -76,7 +76,14 @@ object SurfaceRuntime {
     ): String? {
         if (SurfaceQuestions.classify(text) == SurfaceQuestion.NONE) return null
         return try {
-            SurfaceAnswers.answer(text, surface, facts(context, selectedTarget))
+            SurfaceAnswers.answer(
+                text,
+                surface,
+                facts(context, selectedTarget),
+                // Counts only, read off the main thread's critical path? It is one small file, and this
+                // branch only runs when the question is about the interface itself.
+                toolRecord = com.lucifer.mobile.cognition.CognitionScores.report(context)
+            )
         } catch (error: Exception) {
             Log.w(TAG, "surface answer failed, falling through to the model", error)
             null

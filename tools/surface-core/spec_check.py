@@ -24,7 +24,10 @@ import sys
 
 MAX_QUESTION_CHARS = 220
 
+import os
 import re
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 LIMITS = [
     r"\bwhat can'?t (you|i) do (here|in this|on this|from here)\b",
@@ -202,6 +205,15 @@ def case_classifier():
     check("reasoning: 'what tools do you have'", classify("what tools do you have?") == "REASONING")
     check("reasoning: 'step by step'", classify("explain step by step?") == "REASONING")
     check("reasoning: 'how do you check that?'", classify("how do you check that?") == "REASONING")
+
+    # The reasoning answer must be able to show evidence, not just describe the machinery.
+    runtime = open(os.path.join(ROOT, "composeApp", "src", "androidMain", "kotlin", "com", "lucifer",
+                                "mobile", "surface", "SurfaceRuntime.kt"), encoding="utf-8").read()
+    answers = open(os.path.join(ROOT, "composeApp", "src", "androidMain", "kotlin", "com", "lucifer",
+                                "mobile", "surface", "SurfaceAnswers.kt"), encoding="utf-8").read()
+    check("reasoning: the answer accepts the real tool record", "toolRecord: String = \"\"" in answers)
+    check("reasoning: and passes it to describe()", "CognitionKnowledge.describe(record = toolRecord)" in answers)
+    check("reasoning: the runtime supplies it from the device", "CognitionScores.report(context)" in runtime)
     check("reasoning: a statement about thinking is NONE",
           classify("thinking about the terminal is hard") == "NONE")
     check("reasoning: confirmation still wins",

@@ -119,7 +119,10 @@ here?" — and it gets the same treatment. `SurfaceQuestion.REASONING` catches i
 "are you just guessing?", "what tools do you have", "how do you check that?", "step by step") and
 `CognitionKnowledge.describe()` answers **from the live machinery**: the tool list comes from
 `ToolCatalogue.specs()`, the budgets from `LoopBudget`. It cannot name a tool that does not exist or
-omit one that does, because it does not contain a written list — it renders the real one.
+omit one that does, because it does not contain a written list — it renders the real one. It also carries
+the tools' real record on this device (`tools: page_read 4/5 · clock 2/2`) when there is one, so "how do
+you think?" is answered with evidence about what has actually worked here, not only with a description of
+the machinery.
 
 Every model call also carries a two-line `HOW YOU WORK` block with the same tool ids and the rule that a
 device claim requires a device read. A model that does not know it can look will answer from recollection
