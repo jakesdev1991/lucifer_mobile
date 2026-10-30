@@ -98,7 +98,7 @@ Pure recovery/self-learning logic has a host-side harness that does not need the
 ./scripts/verify_design_core.sh       # Morningstar geometry: 16 assertions
 ./scripts/verify_privilege_core.sh    # privilege routing + the world: 22 assertions
 ./scripts/verify_verification_core.sh # Lean verifier: 32 control-plane + 23 runtime/transport assertions
-./scripts/verify_surface_core.sh      # surface awareness: 70 checks + call-site audit
+./scripts/verify_surface_core.sh      # surface awareness: 72 checks + call-site audit
 ./scripts/verify_privacy_core.sh      # egress policy: 92 checks + socket-owner audit
 ./scripts/verify_browser_core.sh      # interactive browser policy + WebView hardening: 77 + 17
 ./scripts/verify_voice_core.sh        # press-to-talk: 12 static properties

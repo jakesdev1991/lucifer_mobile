@@ -146,7 +146,7 @@ and sound certain; this is the cheapest possible defence against that.
 ## Verification
 
 ```bash
-./scripts/verify_surface_core.sh                    # spec (70 checks) + Kotlin harness + audit
+./scripts/verify_surface_core.sh                    # spec (72 checks) + Kotlin harness + audit
 python3 tools/surface-core/spec_check.py            # recall, precision, answer shapes
 python3 tools/surface-core/audit_surfaces.py        # which call sites declare a surface
 python3 tools/surface-core/audit_surfaces.py --check # non-zero if one forgets

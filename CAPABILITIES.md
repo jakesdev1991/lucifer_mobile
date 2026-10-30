@@ -374,7 +374,7 @@ Run in this workspace, just now:
 | Check | Result |
 |---|---|
 | `python3 tools/privacy-core/spec_check.py` | **PASS · 92 checks** |
-| `python3 tools/surface-core/spec_check.py` | **PASS · 70 checks** |
+| `python3 tools/surface-core/spec_check.py` | **PASS · 72 checks** |
 | `python3 tools/synth-core/spec_check.py` | **PASS · 128 checks** |
 | `python3 tools/privacy-core/audit_egress.py` | 10 gated sites · 2 socket owners · 0 outside the gate · 0 Google references |
 | `python3 tools/surface-core/audit_surfaces.py` | 6 reasoning sites · 0 undeclared · 10 surfaces · 0 undescribed |
