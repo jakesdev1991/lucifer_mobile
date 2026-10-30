@@ -161,6 +161,12 @@ class MainActivity : ComponentActivity() {
                 // rather than only what it said.
                 var cognitionSummary by remember { mutableStateOf("") }
                 var cognitionTrace by remember { mutableStateOf("") }
+                var cognitionHistory by remember { mutableStateOf("") }
+                LaunchedEffect(Unit) {
+                    cognitionHistory = withContext(Dispatchers.IO) {
+                        com.lucifer.mobile.cognition.CognitionLedger.summary(this@MainActivity)
+                    }
+                }
                 var showTermuxToolkitDialog by remember { mutableStateOf(false) }
                 var showLeanVerificationConfirmation by remember { mutableStateOf(false) }
                 var leanVerificationBusy by remember { mutableStateOf(false) }
@@ -1116,6 +1122,13 @@ class MainActivity : ComponentActivity() {
                                                                         cognitionSummary = run.summaryLine()
                                                                         cognitionTrace = run.traceText()
                                                                     }
+                                                                    // Read the ledger off the main thread: it
+                                                                    // is a file, and this runs per answer.
+                                                                    scope.launch(Dispatchers.IO) {
+                                                                        val line = com.lucifer.mobile.cognition.CognitionLedger
+                                                                            .summary(this@MainActivity)
+                                                                        withContext(Dispatchers.Main) { cognitionHistory = line }
+                                                                    }
                                                                     isProcessing = false
                                                                 }
                                                             }
@@ -1204,6 +1217,7 @@ class MainActivity : ComponentActivity() {
                                             library = referenceSkillLibrary,
                                             cognitionSummary = cognitionSummary,
                                             cognitionTrace = cognitionTrace,
+                                            cognitionHistory = cognitionHistory,
                                             synthSummary = synthSummary,
                                             synthEnabled = synthEnabled,
                                             onToggleSynth = {

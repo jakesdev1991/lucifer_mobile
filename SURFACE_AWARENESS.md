@@ -112,9 +112,24 @@ hijacked ordinary questions.
 does not pass a `Surface`**, or if a declared surface has no description. So "he is aware everywhere"
 is a build-time property, not a code-review habit.
 
+## Knowing how he thinks, not only where he is
+
+Since the reasoning loop landed, "how do you think?" is the same class of question as "what can you do
+here?" — and it gets the same treatment. `SurfaceQuestion.REASONING` catches it ("do you use tools?",
+"are you just guessing?", "what tools do you have", "how do you check that?", "step by step") and
+`CognitionKnowledge.describe()` answers **from the live machinery**: the tool list comes from
+`ToolCatalogue.specs()`, the budgets from `LoopBudget`. It cannot name a tool that does not exist or
+omit one that does, because it does not contain a written list — it renders the real one.
+
+Every model call also carries a two-line `HOW YOU WORK` block with the same tool ids and the rule that a
+device claim requires a device read. A model that does not know it can look will answer from recollection
+and sound certain; this is the cheapest possible defence against that.
+
 ## What this does not do
 
 - He does not see the UI. He is told the surface identifier and its documented behaviour.
+- The reasoning answer describes the *scaffold* (tools, budgets, audit), not his internal state — he
+  cannot observe his own activations any more than he can see the screen.
 - The `TERMINAL_TAB`, `AGENTS` and `HEARTBEAT` descriptions exist for when those surfaces are wired to
   chat, and for answering "what happens if I use that one?" — not because he is currently invoked from
   them.
@@ -125,7 +140,7 @@ is a build-time property, not a code-review habit.
 ## Verification
 
 ```bash
-./scripts/verify_surface_core.sh                    # spec (52 checks) + Kotlin harness + audit
+./scripts/verify_surface_core.sh                    # spec (60 checks) + Kotlin harness + audit
 python3 tools/surface-core/spec_check.py            # recall, precision, answer shapes
 python3 tools/surface-core/audit_surfaces.py        # which call sites declare a surface
 python3 tools/surface-core/audit_surfaces.py --check # non-zero if one forgets

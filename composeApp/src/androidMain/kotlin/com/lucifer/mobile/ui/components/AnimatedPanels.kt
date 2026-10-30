@@ -200,7 +200,9 @@ fun AnimatedSkillsPanel(
     /** One line about Lucifer's last deep reasoning run; blank hides the card. */
     cognitionSummary: String = "",
     /** The step-by-step trace of that run. Shown only when expanded. */
-    cognitionTrace: String = ""
+    cognitionTrace: String = "",
+    /** How many runs are logged, how many concluded, how many needed a caveat. */
+    cognitionHistory: String = ""
 ) {
     var query by remember { mutableStateOf("") }
     val operationalMatches = skills.filter { skill ->
@@ -305,6 +307,9 @@ fun AnimatedSkillsPanel(
                                 fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold
                             )
                             Text(cognitionSummary, color = Morningstar.Bone, fontSize = 11.sp, fontFamily = Morningstar.Body)
+                            if (cognitionHistory.isNotBlank()) {
+                                Text(cognitionHistory, color = Morningstar.Ash, fontSize = 10.sp, fontFamily = Morningstar.Body)
+                            }
                             if (cognitionTrace.isNotBlank()) {
                                 Text(
                                     if (expanded) "TAP TO COLLAPSE" else "TAP FOR THE STEP-BY-STEP TRACE",
