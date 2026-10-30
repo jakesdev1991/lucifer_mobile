@@ -13,6 +13,8 @@ budgets. The invariants are the ones that matter when a model — not a person �
   I6  confidence is never HIGH without at least two observations
   I7  a blocked audit is never HIGH or MEDIUM
   I8  triage never says DEEP when there are no tools
+  I10 sanitising an observation always removes control-format lines (a fetched page cannot speak the
+      protocol)
   I9  no function raises, for any input
 
 Usage:
@@ -203,6 +205,24 @@ def case_triage(n: int) -> None:
             fail("I8 no reason given", text[:60])
 
 
+def case_fence(n: int) -> None:
+    global checked
+    for _ in range(n):
+        raw = random_text()
+        try:
+            out = spec.sanitize(raw)
+        except Exception as error:  # I9
+            fail("I9 sanitize raised", f"{error.__class__.__name__}")
+            continue
+        checked += 1
+        if spec.TOOL_LINE.search(out) or spec.ANSWER_LINE.search(out):  # I10
+            fail("I10 a defanged observation still parses as a directive", out[:160])
+        if len(out) > 4000:
+            fail("I10 sanitiser ignored its cap", str(len(out)))
+        if "\x00" in out:
+            fail("I10 NUL survived sanitising", out[:60])
+
+
 def case_roundtrip(n: int) -> None:
     """A model that writes a clean plan must always be understood; nothing valid is ever misread."""
     global checked
@@ -226,6 +246,7 @@ def main() -> int:
     case_guard(CASES)
     case_audit(CASES)
     case_triage(CASES)
+    case_fence(CASES)
     case_roundtrip(CASES)
 
     for line in failures:
@@ -234,7 +255,7 @@ def main() -> int:
     if failures:
         print(f"FUZZ FAILED · {len(failures)} invariant breach(es) over {checked} cases")
         return 1
-    print(f"FUZZ OK · {checked} cases · 9 invariants held")
+    print(f"FUZZ OK · {checked} cases · 10 invariants held")
     return 0
 
 

@@ -89,12 +89,15 @@ require "$RUNNER" "planner.repair(" "a blocked draft gets exactly one repair att
 require "$RUNNER" "LoopGuard.stopReason(" "the loop is bounded on every iteration"
 require "$RUNNER" 'raw.startsWith("[LLM]")' "an unavailable model is not turned into an answer"
 require "$RUNNER" "confirmedTools: Set<String> = emptySet()" "the default is: change nothing"
+require "$RUNNER" "ObservationFence.sanitize(" "tool output is defanged before it can speak the protocol"
+require "$RUNNER" "withTimeout(remaining)" "one slow model call cannot overrun the wall-clock budget"
 
 # The engine must reach the loop, and keep the single-pass council as the fallback.
 require "$ENGINE" "CognitionRunner.run(" "the reasoning engine never uses the loop otherwise"
 require "$ENGINE" "CognitionTriage.assess(" "which questions get the loop must be decided, not guessed"
 require "$ENGINE" "horsemen.deliberate(" "the council must survive as the fallback"
 require "$ENGINE" "confirmedTools: Set<String> = emptySet()" "chat cannot pre-approve a state change"
+require "$ENGINE" "CognitionLedger.record(" "every deep run must leave a record the owner can audit"
 
 # The loop must be pure enough to test: no Android imports below the adapters.
 if grep -q "^import android" "$CORE/CognitionCore.kt" "$CORE/AnswerAudit.kt"; then

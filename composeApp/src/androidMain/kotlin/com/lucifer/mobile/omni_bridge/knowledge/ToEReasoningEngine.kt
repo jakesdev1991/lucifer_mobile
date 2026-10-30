@@ -2,6 +2,7 @@ package com.lucifer.mobile.omni_bridge.knowledge
 
 import android.content.Context
 import com.lucifer.mobile.cognition.AndroidCognitionTools
+import com.lucifer.mobile.cognition.CognitionLedger
 import com.lucifer.mobile.cognition.CognitionOutcome
 import com.lucifer.mobile.cognition.CognitionRunner
 import com.lucifer.mobile.cognition.CognitionTriage
@@ -166,6 +167,9 @@ class ToEReasoningEngine(
             confirmedTools = confirmedTools
         )
         lastCognition = outcome
+        // The loop's decisions are unauditable unless something writes them down. Names and counts only;
+        // what a tool returned is never persisted.
+        CognitionLedger.record(appContext, outcome, input)
         return outcome
     }
 
