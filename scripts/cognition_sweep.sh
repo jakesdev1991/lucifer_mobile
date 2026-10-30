@@ -75,6 +75,15 @@ run_pass() {
     failures=$((failures + 1))
   fi
 
+  # 2b. the loop end to end: scripted model replies, simulated tools, a new seed every pass
+  if FUZZ_SEED="$seed" python3 tools/cognition-core/loop_sim.py 1500 >/tmp/sweep-loop.txt 2>&1; then
+    say "   loop      PASS  $(grep -o '[0-9]* simulated runs' /tmp/sweep-loop.txt | head -1) · seed $seed"
+  else
+    say "   loop      FAIL  seed $seed"
+    grep -E '^  FAIL|LOOP SIM FAILED' /tmp/sweep-loop.txt | head -5 | sed 's/^/             /'
+    failures=$((failures + 1))
+  fi
+
   # 3. the harness: spec + fuzz + the static claims about the shipped loop
   if bash scripts/verify_cognition_core.sh >/tmp/sweep-core.txt 2>&1; then
     say "   cognition PASS  $(grep -c '^  ok' /tmp/sweep-core.txt) static claims hold"

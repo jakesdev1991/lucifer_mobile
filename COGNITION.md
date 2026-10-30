@@ -220,6 +220,30 @@ nothing to protect against there — the cheap path is already the default.
 
 ---
 
+### 7.6 The loop, run without a model
+
+Every harness above tests a part. The composition is what runs on the phone, and every bug found in this
+pass lived in the composition: a thought that became an answer, a stop swallowed as a tool failure, a
+description quoting the wrong budget. So `tools/cognition-core/loop_sim.py` mirrors `CognitionRunner.run`
+— same order of checks, same termination reasons, same audit gate — and drives it with **scripts**: a list
+of model replies plus a toolbox that returns whatever the scenario says. No model, no network, no clock;
+`times` is a list of elapsed milliseconds, so time exhaustion is testable in microseconds.
+
+It holds seven properties over every run, scripted or random:
+
+| | property |
+| --- | --- |
+| L1 | it always terminates with a reason, inside the budget |
+| L2 | a tool needing confirmation never runs without it |
+| L3 | an invented tool is refused and never executed |
+| L4 | a control-format line never reaches the reader unflagged |
+| L5 | a run with no answer says why instead of returning nothing |
+| L6 | calls and observations stay in step; nothing empty reaches memory |
+| L7 | the audit gate blocks what it should and never passes everything |
+
+The sweep runs it with a fresh seed every pass. It is a mirror, so it can drift: a `drift` section quotes
+twelve lines from the Kotlin, and `verify_cognition_core.sh` fails if any of them moves.
+
 ### 7.5 A thought is not an answer
 
 The loop asks for `THOUGHT:` + `ANSWER:` or `THOUGHT:` + `TOOL:`. A model that writes only a thought — and
@@ -351,7 +375,7 @@ in the export bundle.
 ## 9. Verification
 
 ```
-python3 tools/cognition-core/spec_check.py         PASS · 197 checks
+python3 tools/cognition-core/spec_check.py         PASS · 199 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
 ./scripts/verify_cognition_core.sh                 PASS (Kotlin half SKIPPED — no kotlinc)
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run

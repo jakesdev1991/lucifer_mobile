@@ -56,6 +56,14 @@ object AnswerAudit {
         "this app is", "lucifer is running", "your storage"
     )
 
+    /**
+     * A line that looks like the loop's own control format. The parser already refuses to execute one of
+     * these when it appears after `ANSWER:`, but a model that writes `ANSWER: TOOL: clock(now)` produces a
+     * reply whose first line is a tool call nobody made. That reads as "he ran something", so it is
+     * flagged: the text is prose, and nothing in it was executed.
+     */
+    private val CONTROL_LINE = Regex("""(?im)^\s*(TOOL|ACTION|CALL|THOUGHT|REASONING|THINKING)\s*:""")
+
     private val CITATION = Regex("""\[(Vol|Omega|ToE|corpus)[^\]]*]""", RegexOption.IGNORE_CASE)
     private val HEDGES = listOf("i think", "probably", "maybe", "possibly", "might be", "not sure")
 
@@ -132,6 +140,15 @@ object AnswerAudit {
                 Severity.WARNING,
                 if (hasObservations) "the answer cites a corpus volume, but the corpus was not read this turn"
                 else "the answer cites a corpus volume, but no corpus read happened this turn"
+            )
+        }
+
+        if (CONTROL_LINE.containsMatchIn(text)) {
+            findings += Finding(
+                "PROTOCOL_IN_ANSWER",
+                Severity.WARNING,
+                "the reply contains a line shaped like a tool call; nothing in it was executed, and it " +
+                    "was not read as an instruction"
             )
         }
 

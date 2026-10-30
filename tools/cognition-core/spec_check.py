@@ -281,6 +281,7 @@ DEVICE_CLAIMS = ["your phone", "your device", "this device", "on your phone", "y
                  "is installed", "android version", "your battery", "your network", "your carrier",
                  "this app is", "lucifer is running", "your storage"]
 CITATION = re.compile(r"\[(Vol|Omega|ToE|corpus)[^\]]*\]", re.I)
+CONTROL_LINE = re.compile(r"^\s*(TOOL|ACTION|CALL|THOUGHT|REASONING|THINKING)\s*:", re.I | re.M)
 WORD = re.compile(r"[a-z0-9]{6,}")
 
 
@@ -310,6 +311,8 @@ def audit(goal: str, answer: str, observations=None, effects=None, tool_ids=None
     corpus_read = any(t.lower() == "corpus_search" for t in tool_ids)
     if CITATION.search(text) and not corpus_read:
         tags.append("CITES_WITHOUT_SOURCE")
+    if CONTROL_LINE.search(text):
+        tags.append("PROTOCOL_IN_ANSWER")
     norm = lambda s: re.sub(r"\s+", " ", re.sub(r"[^a-z0-9 ]", "", s.lower())).strip()
     if norm(text) == norm(goal):
         tags.append("ECHO")
@@ -328,6 +331,13 @@ def audit(goal: str, answer: str, observations=None, effects=None, tool_ids=None
 
 def case_audit() -> None:
     check("audit: empty answer is a blocker", audit("q", "")["confidence"] == "NONE")
+
+    # A reply whose first line looks like a tool call reads as "he ran something".
+    leaked = audit("what time is it", "TOOL: clock(now)\nIt is noon.", ["12:00"], tool_ids=["clock"])
+    check("audit: a control-shaped line in the reply is flagged",
+          "PROTOCOL_IN_ANSWER" in leaked["findings"], str(leaked))
+    clean = audit("what time is it", "The clock tool returned 12:00.", ["12:00"], tool_ids=["clock"])
+    check("audit: an ordinary reply is not", "PROTOCOL_IN_ANSWER" not in clean["findings"], str(clean))
     check("audit: a one-word reply to a long question is a blocker",
           "THIN" in audit("a really long question " * 4, "yes")["findings"])
     check("audit: a short reply to a short question is fine",

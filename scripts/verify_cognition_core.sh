@@ -6,6 +6,7 @@
 #
 #   1. the rules, executed as a spec (Python mirror — always runs)
 #   2. the same rules executed against the real Kotlin (only when kotlinc + java are present)
+#   1c. the loop end to end, driven by scripted replies (tools/cognition-core/loop_sim.py)
 #   3. the shipped loop still behaves as claimed: it refuses unconfirmed tools, it never executes an
 #      invented tool, it audits before answering, and it is reachable from the reasoning engine
 #
@@ -35,6 +36,10 @@ if python3 "$SPEC"; then :; else status=1; fi
 echo
 echo "== 1b. cognition invariants (fuzz, 1 500 cases per property) =="
 if python3 "$ROOT/tools/cognition-core/fuzz.py" 1500; then :; else status=1; fi
+
+echo
+echo "== 1c. the loop, end to end (scripted model, simulated tools) =="
+if python3 "$ROOT/tools/cognition-core/loop_sim.py" 400; then :; else status=1; fi
 
 echo
 echo "== 2. cognition core (real Kotlin) =="
