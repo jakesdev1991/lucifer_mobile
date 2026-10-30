@@ -138,6 +138,11 @@ class WorkingMemory(
         require(charBudget >= 500) { "charBudget must fit at least the goal" }
     }
 
+    private companion object {
+        /** What a cut entry ends with, so a prefix never reads as the whole thing. */
+        const val CUT_MARKER = " …(cut for length)"
+    }
+
     fun append(kind: EntryKind, text: String, source: String = "", at: Long = 0L): WorkingMemory {
         val clean = text.trim()
         if (clean.isEmpty()) return this
@@ -187,8 +192,10 @@ class WorkingMemory(
     /**
      * Render for a prompt, newest and most important first, inside [charBudget].
      *
-     * Pinned kinds are rendered first and are not truncated. Observations are rendered newest-first and
-     * stop at the budget, so a long tool output cannot push the question out of the window.
+     * Pinned kinds are rendered first and are never *dropped*, but they are still bounded: if the goal
+     * alone is longer than the budget it is cut with an explicit marker rather than allowed to overrun.
+     * Observations are rendered newest-first and stop at the budget, so a long tool output cannot push
+     * the question out of the window.
      */
     fun render(charBudget: Int = this.charBudget): String {
         val builder = StringBuilder()
@@ -197,9 +204,22 @@ class WorkingMemory(
             .sortedWith(compareBy({ it.value.kind.priority }, { -it.index }))
             .map { it.value }
         for (entry in ordered) {
-            val line = "- [${entry.kind.name}] ${entry.text}" + if (entry.source.isNotBlank()) " (${entry.source})" else ""
-            if (builder.length + line.length + 1 > charBudget && entry.kind.priority > 0) break
-            builder.append(line).append('\n')
+            val header = "- [${entry.kind.name}] "
+            val suffix = if (entry.source.isNotBlank()) " (${entry.source})" else ""
+            val room = charBudget - builder.length - header.length - suffix.length - 1
+            if (room <= 0) break
+            var body = entry.text
+            if (body.length > room) {
+                // A droppable entry that does not fit is skipped. A pinned one is *cut* instead, because
+                // "never dropped" was never a licence to exceed the budget: a pasted 5 000-character
+                // message is not a question, and exempting it sent the whole thing to the model on every
+                // step while the observations it needed were squeezed out. The marker is what keeps the
+                // truncation honest — the model can see that it is reading a prefix.
+                if (entry.kind.priority > 0) break
+                if (room <= CUT_MARKER.length + 1) break
+                body = body.take(room - CUT_MARKER.length) + CUT_MARKER
+            }
+            builder.append(header).append(body).append(suffix).append('\n')
         }
         return builder.toString().trim()
     }

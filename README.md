@@ -102,7 +102,7 @@ Pure recovery/self-learning logic has a host-side harness that does not need the
 ./scripts/verify_privacy_core.sh      # egress policy: 92 checks + socket-owner audit
 ./scripts/verify_browser_core.sh      # interactive browser policy + WebView hardening: 77 + 17
 ./scripts/verify_voice_core.sh        # press-to-talk: 12 static properties
-./scripts/verify_cognition_core.sh    # the reasoning loop: 202 spec + 134 Kotlin checks, fuzz, end-to-end sim
+./scripts/verify_cognition_core.sh    # the reasoning loop: 204 spec + 137 Kotlin checks, fuzz, end-to-end sim
 ./scripts/cognition_sweep.sh --loop 0 # the same, on repeat, with a new fuzz seed each pass
 ```
 

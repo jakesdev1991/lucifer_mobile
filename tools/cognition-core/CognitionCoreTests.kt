@@ -121,6 +121,20 @@ object CognitionCoreTests {
         check("render keeps the goal", rendered.contains("goal line"))
         check("render keeps constraints", rendered.contains("constraint line"))
 
+        // A pasted document is not a question. The goal is pinned — never dropped — but it was also
+        // exempt from the budget, so a long paste went to the model in full on every step while the
+        // observations it needed were squeezed out.
+        val hugeGoal = WorkingMemory(capacity = 10, charBudget = 600).append(EntryKind.GOAL, "q".repeat(5_000))
+        repeat(5) { hugeGoal.append(EntryKind.OBSERVATION, "o".repeat(200)) }
+        val hugeRendered = hugeGoal.render()
+        check("a huge goal cannot push render past its budget", hugeRendered.length <= 600, "${hugeRendered.length}")
+        check("a cut goal says it was cut", hugeRendered.contains("cut for length"), "${hugeRendered.take(80)}")
+        check("a cut goal keeps its opening words", hugeGoal.let {
+            val wm = WorkingMemory(capacity = 10, charBudget = 600)
+                .append(EntryKind.GOAL, "MIGRATE-NOTES " + "x".repeat(2_000))
+            wm.render().startsWith("- [GOAL] MIGRATE-NOTES")
+        })
+
         val context = WorkingMemory(capacity = 10)
             .append(EntryKind.GOAL, "and why?")
             .append(EntryKind.CONTEXT, "we were discussing entropy")

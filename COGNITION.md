@@ -1,7 +1,7 @@
 # The cognition scaffold
 
 **Date:** 2026-10-30
-**State:** implemented as pure Kotlin + an Android adapter, verified by 202 executable spec checks, a
+**State:** implemented as pure Kotlin + an Android adapter, verified by 204 executable spec checks, a
 13-invariant fuzz harness, and **155 Kotlin checks compiled and executed on the host** with a real
 `kotlinc` and JDK — including `CognitionRunner.run`, the loop itself, driven end to end by a scripted
 model. Nothing here has run on a device: there is still no Gradle, Android SDK or emulator,
@@ -249,6 +249,11 @@ found four more defects that no static check could have:
   only appeared inside the page as a `querySelector` SyntaxError, which the user reads as nothing
   happening.
 
+- **A pasted document was re-sent in full on every step.** Working memory's renderer exempted pinned
+  entries from its character budget, so a 5 000-character goal reached the model whole on every step
+  while the observations meant to answer it were squeezed out. Pinned entries are still never dropped —
+  they are cut with an explicit marker instead, which is what keeps the truncation honest.
+
 Two harness bugs are worth naming because they are the same kind of thing: the cognition harness asked
 for a working-memory capacity of 6 when the class requires at least 8, and named a parameter `budget`
 that the function calls `charBudget`. A harness that cannot compile is a harness nobody has checked.
@@ -420,9 +425,9 @@ in the export bundle.
 ## 9. Verification
 
 ```
-python3 tools/cognition-core/spec_check.py         PASS · 202 checks
+python3 tools/cognition-core/spec_check.py         PASS · 204 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
-./scripts/verify_cognition_core.sh                PASS · 134 + 21 Kotlin checks + 49 static claims
+./scripts/verify_cognition_core.sh                PASS · 137 + 21 Kotlin checks + 49 static claims
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run
 ```
 

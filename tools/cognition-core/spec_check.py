@@ -83,14 +83,27 @@ class Memory:
     def kinds(self) -> list[str]:
         return [e[0] for e in self.entries]
 
-    def render(self, budget: int = 6000) -> str:
+    CUT_MARKER = " …(cut for length)"
+
+    def render(self, budget: "int | None" = None) -> str:
+        # The Kotlin defaults to the instance's own charBudget, not to a constant. The mirror defaulted
+        # to 6000 and so could not catch a renderer that ignored its budget.
+        budget = self.char_budget if budget is None else budget
         ordered = sorted(enumerate(self.entries), key=lambda pair: (PRIORITY[pair[1][0]], -pair[0]))
         out = []
         used = 0
         for _, (kind, text, source) in ordered:
-            line = f"- [{kind}] {text}" + (f" ({source})" if source else "")
-            if used + len(line) + 1 > budget and PRIORITY[kind] > 0:
+            header = f"- [{kind}] "
+            suffix = f" ({source})" if source else ""
+            room = budget - used - len(header) - len(suffix) - 1
+            if room <= 0:
                 break
+            if len(text) > room:
+                # A droppable entry that does not fit is skipped; a pinned one is cut, with a marker.
+                if PRIORITY[kind] > 0 or room <= len(self.CUT_MARKER) + 1:
+                    break
+                text = text[: room - len(self.CUT_MARKER)] + self.CUT_MARKER
+            line = header + text + suffix
             out.append(line)
             used += len(line) + 1
         return "\n".join(out)
@@ -112,6 +125,16 @@ def case_memory() -> None:
         m.append("OBSERVATION", f"observation {i}")
     check("memory: capacity respected", len(m.entries) <= 10, str(len(m.entries)))
     check("memory: goal survives eviction", "GOAL" in m.kinds())
+
+    # A pasted document is not a question: pinned entries are never dropped, but they are not exempt
+    # from the budget either — the Kotlin renderer used to send a 5 000-character goal in full on every
+    # step while squeezing out the observations that were supposed to answer it.
+    huge = Memory(capacity=10, char_budget=600).append("GOAL", "q" * 5_000)
+    for i in range(5):
+        huge.append("OBSERVATION", "o" * 200)
+    rendered = huge.render()
+    check("memory: a huge goal cannot push render past its budget", len(rendered) <= 600, str(len(rendered)))
+    check("memory: a cut goal says it was cut", "cut for length" in rendered)
     check("memory: constraint survives eviction", "CONSTRAINT" in m.kinds())
     check("memory: oldest observation evicted first", not any("observation 0" in e[1] for e in m.entries))
 

@@ -381,11 +381,11 @@ Run in this workspace, just now:
 | `python3 tools/config-core/audit_config.py` | every config path named once, every write atomic, no bypass writers |
 | `python3 scripts/validate_skill_library.py` | 100 skills, 10 packs, 53,392 bytes, all `REFERENCE_ONLY` |
 | `python3 tools/net-core/spec_check.py` | **PASS · 110 checks** |
-| `python3 tools/cognition-core/spec_check.py` | **PASS · 202 checks** |
+| `python3 tools/cognition-core/spec_check.py` | **PASS · 204 checks** |
 | `python3 tools/cognition-core/fuzz.py` | **FUZZ OK · 13 invariants** |
 | `python3 tools/cognition-core/loop_sim.py` | **LOOP SIM OK · 7 invariants, scripted runs** |
 | `./scripts/verify_all.sh --quiet` | **PASS 18 · SKIP 0 · FAIL 0** |
-| `./scripts/verify_cognition_core.sh` | **PASS · 134 Kotlin checks** + 49 static claims |
+| `./scripts/verify_cognition_core.sh` | **PASS · 137 Kotlin checks** + 49 static claims |
 | `./scripts/verify_synth_core.sh` | **PASS · 128 spec checks + 28 Kotlin checks** |
 | `./scripts/verify_verification_core.sh` | **PASS · 32 + 23 Kotlin checks** + adapter type-check |
 
