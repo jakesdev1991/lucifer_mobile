@@ -306,6 +306,8 @@ class LauncherActivity : ComponentActivity() {
         var chatMessages by remember { mutableStateOf(listOf<ChatMessage>()) }
         var voiceMuted by remember { mutableStateOf(false) }
         var chatThinking by remember { mutableStateOf(false) }
+        // The current step of a deep run, so the dialog can say "reading the corpus" rather than shimmer.
+        var chatProgress by remember { mutableStateOf("") }
         var listening by remember { mutableStateOf(false) }
         val scope = rememberCoroutineScope()
 
@@ -385,6 +387,7 @@ class LauncherActivity : ComponentActivity() {
             val history = chatMessages.takeLast(6)
             chatMessages = chatMessages + ChatMessage(text, false)
             chatThinking = true
+            chatProgress = ""
             val selectedTarget = CommandTarget.fromLauncherIndex(target)
             val shouldSpeak = !voiceMuted
             scope.launch(Dispatchers.IO) {
@@ -405,7 +408,13 @@ class LauncherActivity : ComponentActivity() {
                             reasoner.reason(
                                 text,
                                 Surface.LAUNCHER_CHAT,
-                                budget = com.lucifer.mobile.cognition.LoopBudget.OVERLAY
+                                budget = com.lucifer.mobile.cognition.LoopBudget.OVERLAY,
+                                onStep = { record ->
+                                    if (record.call != null) {
+                                        val line = record.brief()
+                                        scope.launch(Dispatchers.Main) { chatProgress = line }
+                                    }
+                                }
                             )
                         } catch (e: Exception) {
                             "I couldn't complete that reply: ${e.message}"
@@ -417,6 +426,7 @@ class LauncherActivity : ComponentActivity() {
                         withContext(Dispatchers.Main) {
                             chatMessages = chatMessages + ChatMessage(answer, true)
                             chatThinking = false
+                            chatProgress = ""
                             if (shouldSpeak) voice.speak(answer)
                         }
                     }
@@ -838,6 +848,7 @@ class LauncherActivity : ComponentActivity() {
                         },
                         onSend = { text -> sendChatMessage(text) },
                         thinking = chatThinking,
+                        progress = chatProgress,
                         voiceMuted = voiceMuted,
                         onToggleVoice = { voiceMuted = !voiceMuted },
                         onClose = { showChat = false }

@@ -151,6 +151,12 @@ require "$ENGINE" "horsemen.deliberate(" "the council must survive as the fallba
 require "$ENGINE" "confirmedTools: Set<String> = emptySet()" "chat cannot pre-approve a state change"
 require "$ENGINE" "CognitionLedger.record(" "every deep run must leave a record the owner can audit"
 
+# A forty-second overlay run must say what it is doing, or it reads as a hang.
+require "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/launcher/ChatDialog.kt" \
+  "progress: String = \"\"" "the launcher dialog can show the current step"
+require "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/launcher/LauncherActivity.kt" \
+  "onStep = { record ->" "the launcher passes the loop's steps to it"
+
 # A ninety-second run needs a way out.
 require "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/ui/components/AnimatedTerminalTab.kt" \
   "onStop: () -> Unit" "the terminal must offer a stop control"
