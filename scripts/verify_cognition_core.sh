@@ -210,6 +210,9 @@ require "$RUNNER" "LoopGuard.stopReason(" "the loop is bounded on every iteratio
 require "$RUNNER" 'raw.startsWith("[LLM]")' "an unavailable model is not turned into an answer"
 require "$RUNNER" "confirmedTools: Set<String> = emptySet()" "the default is: change nothing"
 require "$RUNNER" "ObservationFence.sanitize(" "tool output is defanged before it can speak the protocol"
+require "$ENGINE" "rememberTurn(input, answer)" \
+  "every answered turn is remembered, not only the deep ones — a follow-up after a shallow answer had no context"
+require "$ENGINE" "while (recentTurns.size > 2)" "the window is the two turns the self-description promises"
 require "$RUNNER" "withTimeout(remaining)" "one slow model call cannot overrun the wall-clock budget"
 require "$RUNNER" "withTimeout(toolRemaining)" "one slow tool cannot overrun it either"
 require "$RUNNER" "Calculator.evaluate(" "arithmetic is computed, not guessed"

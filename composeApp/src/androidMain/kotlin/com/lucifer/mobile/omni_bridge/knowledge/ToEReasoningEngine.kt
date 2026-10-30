@@ -99,7 +99,12 @@ class ToEReasoningEngine(
         onStep: ((com.lucifer.mobile.cognition.StepRecord) -> Unit)? = null,
         budget: com.lucifer.mobile.cognition.LoopBudget = com.lucifer.mobile.cognition.LoopBudget()
     ): String {
-        SurfaceRuntime.answerIfAboutSurface(appContext, input, surface)?.let { return it }
+        // A capability question is still a turn: the next "and in the overlay?" needs to know what was
+        // already said here, or it is answered as if the conversation had just started.
+        SurfaceRuntime.answerIfAboutSurface(appContext, input, surface)?.let { answer ->
+            rememberTurn(input, answer)
+            return answer
+        }
 
         // Before the single-pass council: is this a question that needs work, and does the work succeed?
         // A deep run that reaches its own conclusion is better than a council verdict because it had to
@@ -155,11 +160,13 @@ class ToEReasoningEngine(
         val offlineMemory = if (deliberation.startsWith("Council offline")) {
             try { localMemory.search(input) } catch (_: Exception) { "" }
         } else ""
-        if (offlineMemory.isNotBlank()) {
-            return "$deliberation\n\n$offlineMemory"
-        }
-
-        return if (evidence.isNotBlank()) {
+        // Every answered turn is remembered, not only the deep ones. The deep path records inside
+        // deepReason (it can run for a minute before it answers); these two paths are the single-pass
+        // council and the offline-memory answer, which used to leave "and why?" with no context at all
+        // while the self-description promised the previous two turns were in view.
+        val answer = if (offlineMemory.isNotBlank()) {
+            "$deliberation\n\n$offlineMemory"
+        } else if (evidence.isNotBlank()) {
             val citationList = evidence.lines()
                 .filter { it.startsWith("[Vol") || it.startsWith("[Omega") || it.startsWith("[ToE") }
                 .take(3)
@@ -170,6 +177,8 @@ class ToEReasoningEngine(
         } else {
             deliberation
         }
+        rememberTurn(input, answer)
+        return answer
     }
 
     /**
