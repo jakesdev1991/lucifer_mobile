@@ -73,6 +73,15 @@ claim "$BROWSER" 'userInitiated: Boolean = true' "the browser takes who asked, i
 claim "$BROWSER" 'userInitiated = userInitiated' "and passes it to the exchange that records it"
 claim "$CORE_SRC" 'browser.navigate(url, userInitiated = false)' "a fetch the reasoning loop chose is his, not the owner's"
 claim "$HEARTBEAT" 'userInitiated = false' "so is a heartbeat probe"
+# The model route: a draft nobody asked for is not the owner's request.
+LLM="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/omni_bridge/llm/NemotronClient.kt"
+claim "$LLM" 'userInitiated: Boolean = true' "the model client takes who asked"
+claim "$LLM" 'NetworkGuard.authorize(BASE_URL, userInitiated, expected = EgressClass.MODEL)' \
+  "and records it instead of assuming the owner"
+claim "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/resilience/ResilienceEngine.kt" \
+  'userInitiated = false' "recovery diagnosis is the app's initiative"
+claim "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/agents/android/TacticianRunner.kt" \
+  'userInitiated = false' "so is a tactician pass"
 
 echo
 echo "== 3. every socket asks the guard first =="

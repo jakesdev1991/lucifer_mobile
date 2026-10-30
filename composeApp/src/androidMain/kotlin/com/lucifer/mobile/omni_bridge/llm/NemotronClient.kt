@@ -69,7 +69,13 @@ class NemotronClient(private val context: Context) {
         messages: List<Pair<String, String>>,
         maxTokens: Int = 2048,
         temperature: Double = 0.7,
-        requestTimeoutMs: Int = 120_000
+        requestTimeoutMs: Int = 120_000,
+        /**
+         * Whether a person asked for this. It is recorded in the egress ledger and changes nothing else:
+         * a heartbeat draft or a recovery research pass is something the app decided to do, and the log
+         * should say so rather than attributing it to the owner.
+         */
+        userInitiated: Boolean = true
     ): String {
         val keys = keyPool()
         if (keys.isEmpty()) {
@@ -78,7 +84,7 @@ class NemotronClient(private val context: Context) {
 
         // Ask the egress guard before anything is prepared or sent. This is the only route that
         // carries conversation content off the device, so it is the one that must check first.
-        val clearance = NetworkGuard.authorize(BASE_URL, userInitiated = true, expected = EgressClass.MODEL)
+        val clearance = NetworkGuard.authorize(BASE_URL, userInitiated, expected = EgressClass.MODEL)
         if (clearance.blocked) return NetworkGuard.refusalMessage(clearance, "the model call")
 
         // Retrieve local episodic memories first; optional Drive retrieval may add more context online.

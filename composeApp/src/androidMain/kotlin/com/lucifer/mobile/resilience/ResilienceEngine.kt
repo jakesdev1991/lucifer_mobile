@@ -67,7 +67,9 @@ class ResilienceEngine(context: Context) {
                 listOf("system" to system, "user" to user),
                 maxTokens = maxTokens,
                 temperature = temperature,
-                requestTimeoutMs = 45_000
+                requestTimeoutMs = 45_000,
+                // Recovery diagnosis runs because something failed, not because someone asked.
+                userInitiated = false
             )
             // NemotronClient reports failures as a "[LLM] ..." line; treat it as "no model".
             return if (reply.startsWith("[LLM]")) "" else reply
