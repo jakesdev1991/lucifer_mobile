@@ -81,6 +81,8 @@ object ExportBundle {
         root.put("memoryEntries", countLines(File(context.filesDir, "memory")))
         root.put("cognitionRuns", com.lucifer.mobile.cognition.CognitionLedger.count(context))
         root.put("cognitionSummary", com.lucifer.mobile.cognition.CognitionLedger.summary(context))
+        // Counts per tool, never what a tool returned: the same rule as the run log.
+        root.put("cognitionTools", com.lucifer.mobile.cognition.CognitionScores.report(context))
         root.put("heartbeatSessions", countLines(File(context.filesDir, "heartbeat")))
         root.put("resilienceLessonBytes", File(context.filesDir, "resilience/lessons.json").let { if (it.isFile) it.length() else 0L })
 

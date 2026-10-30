@@ -220,6 +220,14 @@ nothing to protect against there — the cheap path is already the default.
 
 ---
 
+### 7.7 Erasable, like everything else he keeps
+
+The egress ledger has a CLEAR LEDGER button. His thinking now has one too: **CLEAR THINKING HISTORY** in
+Settings wipes `cognition/runs.jsonl` and `cognition/tools.json`, and the Skills card falls back to "no deep
+runs recorded yet". An audit trail the owner cannot delete is not a courtesy; it is a second thing to
+trust. `ExportBundle` carries the same two facts as text — the run summary and the per-tool counts, never
+what a tool returned.
+
 ### 7.6 The loop, run without a model
 
 Every harness above tests a part. The composition is what runs on the phone, and every bug found in this

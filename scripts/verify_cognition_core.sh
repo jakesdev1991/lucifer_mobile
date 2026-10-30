@@ -116,6 +116,12 @@ require "$SCORES" "record.call ?: return@mapNotNull null" "only calls that reall
 require "$SCORES" "result.ok && result.output.isNotBlank()" "an empty result is a failed call, not a success"
 require "$RUNNER" "CognitionScores.adviceLine(context)" "the planner reads the record on every step"
 require "$ENGINE" "CognitionScores.record(appContext, outcome.trace)" "and the record is written from the trace after the run"
+SETTINGS="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/ui/components/SettingsPanel.kt"
+require "$SETTINGS" "onClearCognition: () -> Unit" "the owner can erase the thinking history, like the egress log"
+require "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/MainActivity.kt" \
+  "CognitionLedger.clear(this@MainActivity)" "and the control actually deletes it"
+require "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/data/export/ExportBundle.kt" \
+  "cognitionTools" "the export carries the tool counts (never their output)"
 if [[ -f "$SCORES" ]]; then
   if grep -q "output" "$SCORES" && grep -qE "put\(\"(output|body|text)\"" "$SCORES"; then
     echo "  MISSING  the score file must not persist tool output" >&2

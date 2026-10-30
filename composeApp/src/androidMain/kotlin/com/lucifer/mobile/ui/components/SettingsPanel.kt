@@ -81,6 +81,8 @@ fun AnimatedSettingsPanel(
     onWorldPanelOpen: () -> Unit = {},
     onShizukuTest: () -> Unit = {},
     onShizukuAudit: (String) -> Unit = {},
+    /** Wipes the cognition ledger and the tool record — his thinking, erasable like his egress log. */
+    onClearCognition: () -> Unit = {},
     shizukuAuditOutput: String = "",
     shizukuAuditBusy: Boolean = false,
     shizukuStatus: String = "Checking Shizuku…",
@@ -232,6 +234,17 @@ fun AnimatedSettingsPanel(
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
                 ) { Text("CLEAR LEDGER", fontSize = 10.sp, fontFamily = Morningstar.Body) }
+            }
+            Spacer(Modifier.height(6.dp))
+            Button(
+                onClick = { onClearCognition() },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
+            ) {
+                Text(
+                    "CLEAR THINKING HISTORY · run log and tool record",
+                    fontSize = 10.sp, fontFamily = Morningstar.Body
+                )
             }
             // ── TRANSPORT · Tor for Lucifer's own traffic ──
             SigilRule()

@@ -1284,6 +1284,22 @@ class MainActivity : ComponentActivity() {
                                         )
                                         3 -> AnimatedSettingsPanel(
                                             modifier = Modifier.fillMaxSize(),
+                                            onClearCognition = {
+                                                // Same property the egress ledger has: what he did is
+                                                // recorded, and the owner can erase the record.
+                                                scope.launch(Dispatchers.IO) {
+                                                    com.lucifer.mobile.cognition.CognitionLedger.clear(this@MainActivity)
+                                                    com.lucifer.mobile.cognition.CognitionScores.clear(this@MainActivity)
+                                                    val line = com.lucifer.mobile.cognition.CognitionScores
+                                                        .panelLines(this@MainActivity)
+                                                    withContext(Dispatchers.Main) {
+                                                        cognitionHistory = line
+                                                        cognitionSummary = ""
+                                                        cognitionTrace = ""
+                                                        settingsToast = "Thinking history cleared: run log and tool record."
+                                                    }
+                                                }
+                                            },
                                             onSoulMdEdit = { saveSoulPrompt(it) },
                                             onAgentPanelOpen = { selectedTab = 9 },
                                             onWorldPanelOpen = { selectedTab = 10 },
