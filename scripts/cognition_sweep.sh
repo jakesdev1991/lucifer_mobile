@@ -47,6 +47,15 @@ pass=0
 
 say() { [[ $QUIET -eq 1 ]] || echo "$@"; }
 
+# A harness can also fail by crashing, and a traceback matches none of the FAIL patterns. Show the tail
+# as well, so an unattended sweep leaves something diagnosable instead of "FAIL" and nothing else.
+why() {
+  grep -E '^FAIL|^  FAIL|FAILED|MISSING|Traceback|[A-Za-z]*Error:' "$1" | head -5 | sed 's/^/             /'
+  if ! grep -qE '^FAIL|^  FAIL|FAILED|MISSING' "$1"; then
+    tail -5 "$1" | sed 's/^/             /'
+  fi
+}
+
 # A seed that changes every pass: the point is to look somewhere new each time, not to replay.
 seed_for() { echo $(( ( $(date +%s) + $1 * 7919 ) % 100000 )); }
 
@@ -62,7 +71,7 @@ run_pass() {
   if python3 tools/cognition-core/spec_check.py >/tmp/sweep-spec.txt 2>&1; then
     say "   spec      PASS  $(grep -o 'PASS · [0-9]* checks' /tmp/sweep-spec.txt | head -1)"
   else
-    say "   spec      FAIL"; grep -E '^FAIL|FAILED' /tmp/sweep-spec.txt | head -5 | sed 's/^/             /'
+    say "   spec      FAIL"; why /tmp/sweep-spec.txt
     failures=$((failures + 1))
   fi
 
@@ -71,7 +80,7 @@ run_pass() {
     say "   fuzz      PASS  $(grep -o 'FUZZ OK · [0-9]* cases' /tmp/sweep-fuzz.txt | head -1) · seed $seed"
   else
     say "   fuzz      FAIL  seed $seed"
-    grep -E '^  FAIL|FUZZ FAILED' /tmp/sweep-fuzz.txt | head -5 | sed 's/^/             /'
+    why /tmp/sweep-fuzz.txt
     failures=$((failures + 1))
   fi
 
@@ -80,7 +89,7 @@ run_pass() {
     say "   loop      PASS  $(grep -o '[0-9]* simulated runs' /tmp/sweep-loop.txt | head -1) · seed $seed"
   else
     say "   loop      FAIL  seed $seed"
-    grep -E '^  FAIL|LOOP SIM FAILED' /tmp/sweep-loop.txt | head -5 | sed 's/^/             /'
+    why /tmp/sweep-loop.txt
     failures=$((failures + 1))
   fi
 
@@ -89,7 +98,7 @@ run_pass() {
     say "   cognition PASS  $(grep -c '^  ok' /tmp/sweep-core.txt) static claims hold"
   else
     say "   cognition FAIL"
-    grep -E 'FAILED|MISSING' /tmp/sweep-core.txt | head -5 | sed 's/^/             /'
+    why /tmp/sweep-core.txt
     failures=$((failures + 1))
   fi
 
@@ -98,7 +107,7 @@ run_pass() {
     say "   repo      PASS  $(grep -E '^PASS [0-9]+ ·' /tmp/sweep-all.txt | head -1)"
   else
     say "   repo      FAIL"
-    grep -E '^FAIL|failed:' /tmp/sweep-all.txt | head -5 | sed 's/^/             /'
+    why /tmp/sweep-all.txt
     failures=$((failures + 1))
   fi
 
