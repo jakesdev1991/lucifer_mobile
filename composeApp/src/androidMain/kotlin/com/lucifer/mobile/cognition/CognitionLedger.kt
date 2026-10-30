@@ -59,6 +59,35 @@ object CognitionLedger {
         }
     }
 
+    /**
+     * A run the owner stopped. It never produces a [CognitionOutcome] — a cancelled coroutine cannot
+     * return one — so without this line the history would quietly omit every turn a person interrupted,
+     * and "12 runs, 11 concluded" would read as one failure rather than one decision.
+     */
+    fun recordInterrupted(context: Context, goal: String, steps: Int, elapsedMs: Long) {
+        try {
+            val line = JSONObject().apply {
+                put("at", System.currentTimeMillis())
+                put("goal", goal.take(160))
+                put("steps", steps)
+                put("toolCalls", steps)
+                put("tools", org.json.JSONArray())
+                put("elapsedMs", elapsedMs)
+                put("termination", Termination.CANCELLED.name)
+                put("stopDetail", "stopped by the owner after ${elapsedMs / 1000}s")
+                put("concluded", false)
+                put("confidence", AnswerAudit.Confidence.NONE.name)
+                put("findings", org.json.JSONArray())
+                put("memory", "")
+            }.toString()
+            val target = file(context)
+            if (target.isFile && target.length() > MAX_BYTES) rotate(target)
+            target.appendText(line + "\n", Charsets.UTF_8)
+        } catch (error: Exception) {
+            Log.w(TAG, "could not record the interruption: ${error.javaClass.simpleName}")
+        }
+    }
+
     /** Keep the newest half when the file grows past the cap. Cheaper than rewriting on every append. */
     private fun rotate(target: File) {
         try {
@@ -95,7 +124,9 @@ object CognitionLedger {
         // Parenthesised on purpose: `a ?: 0 > 0` parses as `a ?: (0 > 0)`, which does not compile.
         val withFindings = runs.count { (it.optJSONArray("findings")?.length() ?: 0) > 0 }
         val avgSteps = runs.map { it.optInt("steps") }.average().let { (it * 10).toInt() / 10.0 }
+        val interrupted = runs.count { it.optString("termination") == Termination.CANCELLED.name }
         return "${runs.size} run(s) · $concluded concluded · $withFindings with caveats · " +
+            (if (interrupted > 0) "$interrupted stopped by you · " else "") +
             "${avgSteps} steps on average"
     }
 

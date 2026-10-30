@@ -216,6 +216,26 @@ nothing to protect against there — the cheap path is already the default.
 
 ---
 
+### 7.3 Stopping, and why it is a separate code path
+
+A person can outlast a ninety-second run by pressing STOP in the terminal. That calls
+`activeJob.cancel()`, which throws `CancellationException` at the next suspension point — inside the
+model call, inside a tool, or inside the audit repair. Two things follow from that, and both were wrong
+before they were checked:
+
+1. **`catch (Exception)` must not eat it.** The tool wrapper catches failures to turn them into
+   observations. `CancellationException` is an `Exception`, so without an explicit rethrow a STOP became
+   a "failed observation" and the loop kept spending a budget it had been told to abandon. Every catch in
+   the loop and in the chat handler now rethrows it first.
+2. **A cancelled turn cannot produce an outcome**, so `CognitionLedger.record` never runs and the history
+   would silently omit every turn the owner interrupted — "12 runs, 11 concluded" reading as a failure
+   rather than a decision. `CognitionLedger.recordInterrupted` writes that line from the caller instead:
+   goal, steps completed, time served, `CANCELLED`, `concluded=false`, and the summary line counts them
+   separately ("2 stopped by you").
+
+`Termination.CANCELLED` therefore covers two different facts, and the detail string distinguishes them:
+a model call that threw, and a run the owner stopped.
+
 ### 7.2 A follow-up is not blind
 
 `and why?` is 8 characters and contains no clue about entropy. The engine keeps the last two

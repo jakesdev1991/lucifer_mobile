@@ -13,6 +13,7 @@ import com.lucifer.mobile.surface.Surface
 import com.lucifer.mobile.surface.SurfaceFacts
 import com.lucifer.mobile.surface.SurfaceKnowledge
 import com.lucifer.mobile.surface.SurfaceRuntime
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.TimeoutCancellationException
@@ -193,6 +194,9 @@ object CognitionRunner {
                 break
             } catch (error: Exception) {
                 Log.w(TAG, "planner failed on step $step: ${error.javaClass.simpleName}")
+                // Note the two different CANCELLED cases: this one is a failure ("the call threw"),
+                // whereas a person pressing STOP unwinds past the loop entirely and is recorded by the
+                // caller, because a cancelled coroutine cannot deliver an outcome at all.
                 stop = StopReason(Termination.CANCELLED, "the model call failed (${error.javaClass.simpleName})")
                 break
             }
@@ -266,6 +270,10 @@ object CognitionRunner {
                 withTimeout(toolRemaining) { toolbox.run(call) }
             } catch (timeout: TimeoutCancellationException) {
                 ToolResult.failed("${call.tool} did not finish within ${toolRemaining / 1000}s")
+            } catch (stop: CancellationException) {
+                // A person pressed STOP. Swallowing this would turn their decision into a "failed
+                // observation" and the loop would keep spending the budget it was told to abandon.
+                throw stop
             } catch (error: Exception) {
                 ToolResult.failed("${call.tool} threw ${error.javaClass.simpleName}")
             }
@@ -302,6 +310,8 @@ object CognitionRunner {
             if (check.blocked) {
                 val repaired = try {
                     planner.repair(goal, answer, check.findings, memory)
+                } catch (stop: CancellationException) {
+                    throw stop
                 } catch (error: Exception) {
                     Log.w(TAG, "repair failed: ${error.javaClass.simpleName}")
                     null

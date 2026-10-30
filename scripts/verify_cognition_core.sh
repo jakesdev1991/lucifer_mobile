@@ -65,7 +65,8 @@ echo
 echo "== 3. the shipped loop still cannot act without permission =="
 
 RUNNER="$CORE/CognitionRunner.kt"
-for file in "$CORE/CognitionCore.kt" "$CORE/AnswerAudit.kt" "$RUNNER" "$ENGINE"; do
+LEDGER="$CORE/CognitionLedger.kt"
+for file in "$CORE/CognitionCore.kt" "$CORE/AnswerAudit.kt" "$RUNNER" "$LEDGER" "$ENGINE"; do
   [[ -f "$file" ]] || { echo "  MISSING  $file" >&2; exit 1; }
 done
 
@@ -112,6 +113,15 @@ require "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/ui/component
   "onStop: () -> Unit" "the terminal must offer a stop control"
 require "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/MainActivity.kt" \
   "activeJob?.cancel()" "and the control must actually cancel the turn"
+# Swallowing a cancellation turns a person's decision into a "failed observation".
+if grep -q 'catch (stop: CancellationException)' "$RUNNER"; then
+  echo "  ok    a stop unwinds instead of becoming a failed observation"
+else
+  echo "  MISSING  the loop swallows CancellationException" >&2
+  echo "        ↳ a person pressing STOP would be recorded as a tool failure" >&2
+  status=1
+fi
+require "$LEDGER" "recordInterrupted" "an interrupted run still reaches the history"
 
 # The loop must be pure enough to test: no Android imports below the adapters.
 if grep -q "^import android" "$CORE/CognitionCore.kt" "$CORE/AnswerAudit.kt"; then

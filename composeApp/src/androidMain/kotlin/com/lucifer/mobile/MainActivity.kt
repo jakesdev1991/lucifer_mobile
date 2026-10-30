@@ -140,6 +140,11 @@ class MainActivity : ComponentActivity() {
                 // The in-flight turn, so the STOP control has something to cancel. A deep run can last
                 // ninety seconds; a UI that offers no way out of that is a UI that traps you.
                 var activeJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+                // What the in-flight turn is, so a stop can be recorded truthfully rather than vanishing
+                // from the history. The counter is atomic because it is written on a worker thread.
+                var activeGoal by remember { mutableStateOf<String?>(null) }
+                val activeSteps = remember { java.util.concurrent.atomic.AtomicInteger(0) }
+                val activeStarted = remember { java.util.concurrent.atomic.AtomicLong(0L) }
                 var terminalTarget by remember { mutableStateOf(0) } // 0=LOCAL, 1=TERMUX, 2=VM, 3=SHIZUKU
                 val terminalExecutor = remember { TerminalExecutor(this@MainActivity) }
                 val router = remember { NaturalLanguageRouter(this@MainActivity) }
@@ -1051,11 +1056,29 @@ class MainActivity : ComponentActivity() {
                                             outputLines = terminalLines,
                                             isProcessing = isProcessing,
                                             onStop = {
+                                                val stoppedGoal = activeGoal
+                                                val stoppedAt = System.currentTimeMillis() - activeStarted.get()
+                                                val stoppedAfter = activeSteps.get()
                                                 activeJob?.cancel()
                                                 activeJob = null
+                                                activeGoal = null
                                                 isProcessing = false
+                                                if (stoppedGoal != null) {
+                                                    // A cancelled coroutine cannot return an outcome, so the
+                                                    // record is written here or not at all.
+                                                    scope.launch(Dispatchers.IO) {
+                                                        com.lucifer.mobile.cognition.CognitionLedger
+                                                            .recordInterrupted(this@MainActivity, stoppedGoal, stoppedAfter, stoppedAt)
+                                                        val line = com.lucifer.mobile.cognition.CognitionLedger
+                                                            .summary(this@MainActivity)
+                                                        withContext(Dispatchers.Main) { cognitionHistory = line }
+                                                    }
+                                                }
                                                 appendTerminalLines(
-                                                    listOf("[STOPPED] Cancelled. Whatever it had already done stands; nothing further will run.")
+                                                    listOf(
+                                                        "[STOPPED] Cancelled after ${stoppedAt / 1000}s and $stoppedAfter step(s). " +
+                                                            "Whatever it had already done stands; nothing further will run."
+                                                    )
                                                 )
                                             },
                                             target = terminalTarget,
@@ -1102,11 +1125,19 @@ class MainActivity : ComponentActivity() {
                                                         SkillSynthRuntime.observeIncoming(this@MainActivity, cmd, Surface.CORE_CHAT.name)
                                                         val route = try {
                                                             router.understand(cmd, selectedTarget, installedAppNames = installedAppNames())
+                                                        } catch (stop: kotlinx.coroutines.CancellationException) {
+                                                            throw stop
                                                         } catch (_: Exception) {
                                                             ChatRoute.Clarify("I couldn't route that request. Rephrase it or choose LOCAL, TERMUX, VM, or SHIZUKU.")
                                                         }
                                                         when (route) {
                                                             ChatRoute.Conversation -> {
+                                                                // Only a reasoning run is worth recording as
+                                                                // interrupted; a stopped panel open is not a
+                                                                // lost answer.
+                                                                activeGoal = cmd
+                                                                activeSteps.set(0)
+                                                                activeStarted.set(System.currentTimeMillis())
                                                                 val answer = try {
                                                                     reasoner.reason(
                                                                         cmd,
@@ -1115,6 +1146,7 @@ class MainActivity : ComponentActivity() {
                                                                         // silence reads as a hang, and the trace is the honest
                                                                         // answer to "what is it doing".
                                                                         onStep = { record ->
+                                                                            activeSteps.incrementAndGet()
                                                                             if (record.call != null) {
                                                                                 scope.launch(Dispatchers.Main) {
                                                                                     appendTerminalLines(listOf("[THINK] " + record.brief()))
@@ -1122,6 +1154,10 @@ class MainActivity : ComponentActivity() {
                                                                             }
                                                                         }
                                                                     )
+                                                                } catch (stop: kotlinx.coroutines.CancellationException) {
+                                                                    // STOP was pressed: let it unwind instead of
+                                                                    // reporting the cancellation as a chat error.
+                                                                    throw stop
                                                                 } catch (e: Exception) {
                                                                     "[CHAT ERROR] ${e.message ?: "Could not answer"}"
                                                                 }
@@ -1140,6 +1176,7 @@ class MainActivity : ComponentActivity() {
                                                                             .summary(this@MainActivity)
                                                                         withContext(Dispatchers.Main) { cognitionHistory = line }
                                                                     }
+                                                                    activeGoal = null
                                                                     isProcessing = false
                                                                 }
                                                             }
