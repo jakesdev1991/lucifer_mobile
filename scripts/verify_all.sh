@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run every host-side verification in the repo, once, with one exit code.
 #
-# There are eleven `verify_*_core.sh` harnesses plus the static audits under `tools/*-core/`, and this is
+# There are twelve `verify_*_core.sh` harnesses plus the static audits under `tools/*-core/`, and this is
 # the only way to run them together. A check nobody runs is a comment. This is the entry point CI uses
 # and the one a person should run before pushing:
 #

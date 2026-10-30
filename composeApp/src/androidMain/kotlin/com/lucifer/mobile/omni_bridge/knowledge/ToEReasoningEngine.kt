@@ -1,6 +1,12 @@
 package com.lucifer.mobile.omni_bridge.knowledge
 
 import android.content.Context
+import com.lucifer.mobile.cognition.AndroidCognitionTools
+import com.lucifer.mobile.cognition.CognitionOutcome
+import com.lucifer.mobile.cognition.CognitionRunner
+import com.lucifer.mobile.cognition.CognitionTriage
+import com.lucifer.mobile.cognition.NemotronCognitionPlanner
+import com.lucifer.mobile.cognition.Termination
 import com.lucifer.mobile.omni_bridge.four_horsemen.FourHorsemenOrchestrator
 import com.lucifer.mobile.memory.LocalConversationMemory
 import com.lucifer.mobile.surface.Surface
@@ -29,6 +35,14 @@ class ToEReasoningEngine(
     private val remote = OmegaKnowledgeClient()
     private val localMemory = LocalConversationMemory(context.applicationContext)
 
+    /** Built once: the planner holds a client, and a client per turn would re-read the key and config. */
+    private val cognitionPlanner by lazy { NemotronCognitionPlanner(appContext) }
+
+    /** The last deep run, for a status surface. Guarded because the launcher and the core both read it. */
+    @Volatile
+    var lastCognition: CognitionOutcome? = null
+        private set
+
     init {
         // Warm the embedded index at startup — instant intuition, no I/O wait later.
         Thread {
@@ -55,10 +69,6 @@ class ToEReasoningEngine(
     }
 
     /**
-     * The full reasoning pass for a chat message.
-     * Corpus evidence comes from the embedded ToE; optional remote enrichment.
-     */
-    /**
      * Answer [input].
      *
      * @param surface the interface the user is actually speaking through. Capability questions about
@@ -68,6 +78,26 @@ class ToEReasoningEngine(
      */
     suspend fun reason(input: String, surface: Surface = Surface.UNKNOWN): String {
         SurfaceRuntime.answerIfAboutSurface(appContext, input, surface)?.let { return it }
+
+        // Before the single-pass council: is this a question that needs work, and does the work succeed?
+        // A deep run that reaches its own conclusion is better than a council verdict because it had to
+        // gather evidence. One that does not is *worse* than the council, so the council still runs.
+        val triage = CognitionTriage.assess(input, AndroidCognitionTools.specs().size)
+        if (triage.deep) {
+            val outcome = try {
+                deepReason(input, surface)
+            } catch (error: Exception) {
+                null
+            }
+            if (outcome != null && outcome.concluded && outcome.stop.termination == Termination.ANSWERED) {
+                return buildString {
+                    append(outcome.answer)
+                    append("\n\n")
+                    append(outcome.confidenceLine)
+                }
+            }
+        }
+
         warmUpIfNeeded()
 
         // 1. UNDERSTAND: consult the corpus on the key concepts.
@@ -114,6 +144,29 @@ class ToEReasoningEngine(
         } else {
             deliberation
         }
+    }
+
+    /**
+     * One bounded think-act-observe loop, exposed so a caller can run it deliberately (and so the
+     * outcome — trace, confidence, why it stopped — survives for a panel instead of being flattened
+     * into a string).
+     *
+     * [confirmedTools] is empty by default and stays empty unless a person has approved a specific tool
+     * for this turn: the loop reads, it does not write, change the device or send anything.
+     */
+    suspend fun deepReason(
+        input: String,
+        surface: Surface = Surface.UNKNOWN,
+        confirmedTools: Set<String> = emptySet()
+    ): CognitionOutcome {
+        val outcome = CognitionRunner.run(
+            goal = input,
+            planner = cognitionPlanner,
+            toolbox = AndroidCognitionTools.toolbox(appContext),
+            confirmedTools = confirmedTools
+        )
+        lastCognition = outcome
+        return outcome
     }
 
     /** Direct corpus access for the chat UI when the user asks for a file/proof. */

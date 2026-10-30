@@ -157,6 +157,10 @@ class MainActivity : ComponentActivity() {
                 var pendingRecoveryMove by remember { mutableStateOf<RecoveryMove?>(null) }
                 var voiceEnabled by remember { mutableStateOf(loadVoiceEnabled()) }
                 var settingsToast by remember { mutableStateOf<String?>(null) }
+                // The last deep reasoning run, kept so the Skills tab can show how an answer was reached
+                // rather than only what it said.
+                var cognitionSummary by remember { mutableStateOf("") }
+                var cognitionTrace by remember { mutableStateOf("") }
                 var showTermuxToolkitDialog by remember { mutableStateOf(false) }
                 var showLeanVerificationConfirmation by remember { mutableStateOf(false) }
                 var leanVerificationBusy by remember { mutableStateOf(false) }
@@ -1092,8 +1096,13 @@ class MainActivity : ComponentActivity() {
                                                                     "[CHAT ERROR] ${e.message ?: "Could not answer"}"
                                                                 }
                                                                 SkillSynthRuntime.recordAnswer(this@MainActivity, cmd, answer, Surface.CORE_CHAT.name)
+                                                                val run = reasoner.lastCognition
                                                                 withContext(Dispatchers.Main) {
                                                                     appendTerminalLines(listOf("[CHAT] $answer"))
+                                                                    if (run != null) {
+                                                                        cognitionSummary = run.summaryLine()
+                                                                        cognitionTrace = run.traceText()
+                                                                    }
                                                                     isProcessing = false
                                                                 }
                                                             }
@@ -1180,6 +1189,8 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier.fillMaxSize(),
                                             skills = skills,
                                             library = referenceSkillLibrary,
+                                            cognitionSummary = cognitionSummary,
+                                            cognitionTrace = cognitionTrace,
                                             synthSummary = synthSummary,
                                             synthEnabled = synthEnabled,
                                             onToggleSynth = {

@@ -196,7 +196,11 @@ fun AnimatedSkillsPanel(
     synthSummary: String = "",
     synthEnabled: Boolean = true,
     onToggleSynth: (() -> Unit)? = null,
-    onForgetLearned: (() -> Unit)? = null
+    onForgetLearned: (() -> Unit)? = null,
+    /** One line about Lucifer's last deep reasoning run; blank hides the card. */
+    cognitionSummary: String = "",
+    /** The step-by-step trace of that run. Shown only when expanded. */
+    cognitionTrace: String = ""
 ) {
     var query by remember { mutableStateOf("") }
     val operationalMatches = skills.filter { skill ->
@@ -285,6 +289,35 @@ fun AnimatedSkillsPanel(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // How he reached the last non-trivial answer. Collapsed by default: an answer is what was
+            // asked for, the trace is what makes it checkable.
+            if (cognitionSummary.isNotBlank()) {
+                item {
+                    var expanded by remember { mutableStateOf(false) }
+                    Card(
+                        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+                        colors = CardDefaults.cardColors(containerColor = Morningstar.Glass)
+                    ) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                "HOW HE THINKS · LAST DEEP RUN",
+                                color = Morningstar.Gilded, fontSize = 11.sp,
+                                fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold
+                            )
+                            Text(cognitionSummary, color = Morningstar.Bone, fontSize = 11.sp, fontFamily = Morningstar.Body)
+                            if (cognitionTrace.isNotBlank()) {
+                                Text(
+                                    if (expanded) "TAP TO COLLAPSE" else "TAP FOR THE STEP-BY-STEP TRACE",
+                                    color = Morningstar.Ash, fontSize = 9.sp, fontFamily = Morningstar.Body
+                                )
+                                if (expanded) {
+                                    Text(cognitionTrace, color = Morningstar.Ash, fontSize = 10.sp, fontFamily = Morningstar.Body)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if (operationalMatches.isNotEmpty()) {
                 item {
                     Text("IMPLEMENTED / OPERATIONAL REGISTRY", color = Morningstar.Gilded, fontSize = 11.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold)
