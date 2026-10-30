@@ -601,12 +601,20 @@ object CognitionKnowledge {
         append("shallower answer — the cheap path is already the default.")
     }
 
-    /** The two-line version injected into every model call, so he never answers as if he had no tools. */
+    /**
+     * The two-line version injected into every model call, so he never answers as if looking were
+     * impossible — and never pretends to have looked when this call has no tools.
+     *
+     * Wording is load-bearing. This block also reaches the single-pass council, which *cannot* call a
+     * tool; telling it "you may use these tools" would invite invented `TOOL:` lines in prose. So it
+     * states what exists, and separates the two cases explicitly.
+     */
     fun promptLine(tools: List<ToolSpec> = ToolCatalogue.specs()): String = buildString {
         appendLine("=== HOW YOU WORK ===")
         appendLine(
-            "You may answer in one pass, or — on a hard question — reason in steps with these tools: " +
-                tools.joinToString(", ") { it.id } + "."
+            "The app can run a bounded step loop with these tools: " + tools.joinToString(", ") { it.id } +
+                ". If you are in that loop you may call one per step; if you are not, answer directly and " +
+                "do not emit tool-call lines."
         )
         append("Anything about this device must come from a tool result in this turn. If you cannot check " +
             "it, say you cannot check it.")
