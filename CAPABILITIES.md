@@ -114,8 +114,15 @@ audited: grounded in what a tool returned, no certainty it has not earned, no cl
 without a device read. One repair attempt on a blocker, then it says so. Confidence is a four-rung ladder
 that is never HIGH without two observations. Tool output is treated as hostile: a fetched page cannot
 speak the control format, because every observation is defanged before it reaches a prompt. Every run is
-logged to `files/cognition/runs.jsonl` (names, counts, confidence — never what a tool returned), and the
-last run's step-by-step trace is in the Skills tab.
+logged to `files/cognition/runs.jsonl` (names, counts, confidence — never what a tool returned), the last
+run's step-by-step trace is in the Skills tab, and **CLEAR THINKING HISTORY** in Settings erases both that
+log and the per-tool record. He also keeps score on his own tools: called, and came back with something.
+Once a tool has been tried three times and succeeded less than half of them, one line joins the loop's
+instructions naming it and saying not to retry it unchanged, and "how do you think?" answers with that
+record rather than only with a description. A follow-up ("and why?") is fed the previous two turns; the
+overlay and the launcher print each step while it runs, and a STOP control cancels a run mid-flight
+without the cancellation being mistaken for a tool failure. `/deep` still forces the loop from any of
+them.
 
 **Reference library.** 100 reference-only skills in 10 packs (`assets/skills/skill_library.json`, 53 KB),
 schema-validated and fail-closed, lexically retrieved into Four Horsemen and workflow prompts. Immutable,
