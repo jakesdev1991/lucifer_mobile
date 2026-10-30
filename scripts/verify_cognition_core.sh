@@ -107,6 +107,12 @@ require "$ENGINE" "horsemen.deliberate(" "the council must survive as the fallba
 require "$ENGINE" "confirmedTools: Set<String> = emptySet()" "chat cannot pre-approve a state change"
 require "$ENGINE" "CognitionLedger.record(" "every deep run must leave a record the owner can audit"
 
+# A ninety-second run needs a way out.
+require "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/ui/components/AnimatedTerminalTab.kt" \
+  "onStop: () -> Unit" "the terminal must offer a stop control"
+require "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/MainActivity.kt" \
+  "activeJob?.cancel()" "and the control must actually cancel the turn"
+
 # The loop must be pure enough to test: no Android imports below the adapters.
 if grep -q "^import android" "$CORE/CognitionCore.kt" "$CORE/AnswerAudit.kt"; then
   echo "  FAILED  the pure core imports Android; the spec can no longer run on a host" >&2

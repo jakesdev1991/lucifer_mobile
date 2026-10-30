@@ -137,6 +137,9 @@ class MainActivity : ComponentActivity() {
 
                 var terminalLines by remember { mutableStateOf(loadTerminalHistory()) }
                 var isProcessing by remember { mutableStateOf(false) }
+                // The in-flight turn, so the STOP control has something to cancel. A deep run can last
+                // ninety seconds; a UI that offers no way out of that is a UI that traps you.
+                var activeJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
                 var terminalTarget by remember { mutableStateOf(0) } // 0=LOCAL, 1=TERMUX, 2=VM, 3=SHIZUKU
                 val terminalExecutor = remember { TerminalExecutor(this@MainActivity) }
                 val router = remember { NaturalLanguageRouter(this@MainActivity) }
@@ -1047,6 +1050,14 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier.fillMaxSize(),
                                             outputLines = terminalLines,
                                             isProcessing = isProcessing,
+                                            onStop = {
+                                                activeJob?.cancel()
+                                                activeJob = null
+                                                isProcessing = false
+                                                appendTerminalLines(
+                                                    listOf("[STOPPED] Cancelled. Whatever it had already done stands; nothing further will run.")
+                                                )
+                                            },
                                             target = terminalTarget,
                                             onTargetSelected = { terminalTarget = it },
                                             onOpenInteractiveTermux = {
@@ -1085,7 +1096,7 @@ class MainActivity : ComponentActivity() {
                                                     isProcessing = true
                                                     appendTerminalLines(listOf("λ $cmd"))
                                                     val selectedTarget = CommandTarget.fromLauncherIndex(terminalTarget)
-                                                    scope.launch(Dispatchers.IO) {
+                                                    activeJob = scope.launch(Dispatchers.IO) {
                                                         // Judge this message against the last answer before
                                                         // anything new is produced, off the main thread.
                                                         SkillSynthRuntime.observeIncoming(this@MainActivity, cmd, Surface.CORE_CHAT.name)
