@@ -149,17 +149,23 @@ object BrowserPolicy {
     /**
      * Selectors the click/type actions accept.
      *
-     * Deliberately narrow: `#id`, `.class`, `tag`, `[attr=value]` and simple descendant chains. It is
-     * interpolated into JavaScript, so the character set is the safety boundary — no quotes, no
-     * backslashes, no whitespace beyond a single descendant space.
+     * Deliberately narrow: `#id`, `.class`, `tag`, `[attr=value]`, and descendant/child chains. It is
+     * interpolated into a JavaScript string, so the character set is the safety boundary — no
+     * backslash, no backtick, no `$`, no interpolation of any kind.
+     *
+     * Quotes and parentheses are the interesting cases. Quotes are *allowed* because CSS attribute
+     * values legitimately need them (`a[href='/x']`) and [jsString] escapes them anyway — but a
+     * stray quote is still the cheapest escape attempt there is, so it stays on the reject list
+     * below. Parentheses are *not* allowed: `div)` is never a selector, and a selector that only
+     * reaches the page as a `querySelector` SyntaxError is a failure the user reads as "nothing
+     * happened".
      */
     fun isValidSelector(selector: String): Boolean {
         val s = selector.trim()
         if (s.isEmpty() || s.length > MAX_SELECTOR_CHARS) return false
         if (s.lowercase().startsWith("javascript:")) return false
-        val allowed = Regex("^[A-Za-z0-9#._\\-\\[\\]=\"'*>:+~(),/\\s]+$")
-        if (!allowed.matches(s)) return false
-        // Nothing that could close the JS string it is embedded in.
+        // A literal space rather than \s: a tab or a newline in a selector is never intentional here.
+        if (!Regex("""^[A-Za-z0-9#._\-\[\]='"+*>:+~/ ]+$""").matches(s)) return false
         return !s.contains("\\") && !s.contains("`") && !s.contains("$") && !s.contains("\"")
     }
 

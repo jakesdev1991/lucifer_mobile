@@ -113,7 +113,10 @@ object BrowserCoreTests {
         for (good in listOf("#login", ".btn-primary", "input[name=email]", "form > input", "a[href='/x']")) {
             check("selector accepted: $good", BrowserPolicy.isValidSelector(good))
         }
-        for (bad in listOf("", "   ", "div)", "a{color:red}", "'; alert(1); //", "a`b", "a\$b", "a\"b", "javascript:x")) {
+        for (bad in listOf(
+            "", "   ", "div)", "div(", "a, b", "a{color:red}", "'; alert(1); //", "a`b", "a\$b", "a\"b",
+            "javascript:x", "div\n> span"
+        )) {
             check("selector rejected: '$bad'", !BrowserPolicy.isValidSelector(bad))
         }
 
