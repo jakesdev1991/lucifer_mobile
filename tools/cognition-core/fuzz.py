@@ -120,14 +120,17 @@ def case_memory(n: int) -> None:
         for _ in range(rng.randint(0, 120)):
             kind = rng.choice(kinds)
             text = random_text()[:200] or "x"
-            if kind == "GOAL" and first_goal is None and text.strip():
-                # Only a goal that was actually accepted can be required to survive: a blank append is
-                # ignored by design, and asserting on it would be a test bug, not a finding.
-                first_goal = text.strip()
             try:
                 m.append(kind, text, rng.choice(["", "corpus", "device"]))
             except Exception as error:  # I9
                 fail("I9 memory raised", f"{error.__class__.__name__}")
+            if kind == "GOAL" and first_goal is None and text.strip():
+                # Only a goal the memory actually kept can be required to survive. Two ways one is not
+                # kept, both by design: a blank append is ignored, and an append into a memory whose
+                # capacity is entirely pinned entries is refused (the docs say "refusing the append
+                # instead of evicting the goal"). Asserting on either is a test bug, not a finding.
+                if any(entry[1] == text.strip() for entry in m.entries):
+                    first_goal = text.strip()
         checked += 1
         if len(m.entries) > capacity:  # I4
             fail("I4 capacity exceeded", f"{len(m.entries)} > {capacity}")
@@ -135,6 +138,16 @@ def case_memory(n: int) -> None:
             pinned = sum(1 for e in m.entries if spec.PRIORITY[e[0]] == 0)
             if pinned <= capacity and not any(e[1] == first_goal for e in m.entries):
                 fail("I4 the first goal was dropped while pinned entries fit", f"cap={capacity}")
+        # A pinned append into a memory that is entirely pinned must be refused, not silently bought by
+        # evicting a constraint someone stated.
+        if m.entries and all(spec.PRIORITY[e[0]] == 0 for e in m.entries) \
+                and len(m.entries) == capacity:
+            before = list(m.entries)
+            m.append("CONSTRAINT", f"pin-{checked}")
+            if list(m.entries) != before:
+                fail("I5 a pinned append into a full pinned memory was kept",
+                     f"cap={capacity} now={len(m.entries)}")
+
         rendered = m.render(budget=rng.choice([100, 500, 6000]))
         if len(rendered) > 6000 + 2000:
             fail("I4 render ignored its budget", str(len(rendered)))
