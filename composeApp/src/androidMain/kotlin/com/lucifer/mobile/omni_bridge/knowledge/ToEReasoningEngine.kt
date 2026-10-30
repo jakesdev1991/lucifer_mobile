@@ -6,6 +6,7 @@ import com.lucifer.mobile.cognition.CognitionLedger
 import com.lucifer.mobile.cognition.CognitionOutcome
 import com.lucifer.mobile.cognition.CognitionRunner
 import com.lucifer.mobile.cognition.CognitionTriage
+import com.lucifer.mobile.cognition.DepthDirective
 import com.lucifer.mobile.cognition.NemotronCognitionPlanner
 import com.lucifer.mobile.cognition.Termination
 import com.lucifer.mobile.omni_bridge.four_horsemen.FourHorsemenOrchestrator
@@ -72,6 +73,9 @@ class ToEReasoningEngine(
     /**
      * Answer [input].
      *
+     * **Asking for depth.** A message beginning `/deep`, `deep:` or `/think` skips triage and runs the
+     * loop regardless of length or shape — the directive is stripped before the model sees it.
+     *
      * @param surface the interface the user is actually speaking through. Capability questions about
      *   that interface are answered deterministically here — no model, no guessing — and every other
      *   turn carries a surface block so "here" means something. Callers must pass their real surface;
@@ -83,10 +87,14 @@ class ToEReasoningEngine(
         // Before the single-pass council: is this a question that needs work, and does the work succeed?
         // A deep run that reaches its own conclusion is better than a council verdict because it had to
         // gather evidence. One that does not is *worse* than the council, so the council still runs.
-        val triage = CognitionTriage.assess(input, AndroidCognitionTools.specs().size)
-        if (triage.deep) {
+        // An explicit `/deep` overrides triage upward — the one direction a user's judgement can be
+        // trusted in, since nobody asks for a slower answer by accident.
+        val directive = DepthDirective.parse(input)
+        val question = directive.input.ifBlank { input }
+        val triage = CognitionTriage.assess(question, AndroidCognitionTools.specs().size)
+        if (triage.deep || directive.forced) {
             val outcome = try {
-                deepReason(input, surface)
+                deepReason(question, surface)
             } catch (error: Exception) {
                 null
             }

@@ -635,6 +635,30 @@ def calculate(expression: str) -> dict:
         return {"err": f"could not evaluate ({error.__class__.__name__})"}
 
 
+
+DEPTH_PREFIX = re.compile(r"^\s*(/deep|deep:|/think)\s*", re.I)
+
+
+def depth_directive(raw: str) -> dict:
+    m = DEPTH_PREFIX.search(raw)
+    if not m:
+        return {"forced": False, "input": raw.strip()}
+    return {"forced": True, "input": raw[m.end():].strip()}
+
+
+def case_directive() -> None:
+    check("directive: plain text is untouched", depth_directive("hello") == {"forced": False, "input": "hello"})
+    check("directive: /deep forces the loop", depth_directive("/deep why")["forced"] is True)
+    check("directive: the directive is stripped", depth_directive("/deep why")["input"] == "why")
+    check("directive: 'deep:' works", depth_directive("deep: why")["input"] == "why")
+    check("directive: '/think' works", depth_directive("/think about it")["forced"] is True)
+    check("directive: case does not matter", depth_directive("/DEEP why")["forced"] is True)
+    check("directive: leading spaces are fine", depth_directive("   /deep why")["input"] == "why")
+    check("directive: mid-sentence is not a directive",
+          depth_directive("i want to go deep on this")["forced"] is False)
+    check("directive: a bare /deep leaves an empty question", depth_directive("/deep")["input"] == "")
+
+
 def case_calculator() -> None:
     cases = {
         "1+1": "2",
@@ -752,6 +776,8 @@ def case_drift() -> None:
     # The engine must reach the runner, and keep the council as the fallback.
     check("drift: the engine calls the loop", "CognitionRunner.run(" in engine)
     check("drift: the engine gates the loop on triage", "CognitionTriage.assess(" in engine)
+    check("drift: an explicit /deep overrides triage", "directive.forced" in engine)
+    check("drift: the directive is stripped before the model sees it", "directive.input" in engine)
     check("drift: the council still runs when the loop does not conclude",
           "horsemen.deliberate(" in engine)
     check("drift: the engine exposes the outcome", "var lastCognition" in engine)
@@ -786,6 +812,7 @@ def main() -> int:
     case_parser()
     case_audit()
     case_triage()
+    case_directive()
     case_calculator()
     case_fence()
     case_drift()

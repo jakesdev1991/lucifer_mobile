@@ -197,6 +197,20 @@ back. `triage.reason` is always populated, so a future UI can say *why* a turn w
 
 ---
 
+### 7.1 Asking for depth explicitly
+
+The classifier is a guess. The user is not. So a message beginning `/deep`, `deep:` or `/think` runs the
+loop regardless of length or shape, with the directive stripped before the model sees it:
+
+```
+/deep why does BrowserPolicy refuse a WebView under Tor?
+```
+
+This only ever overrides *upward*. There is no way to ask for a shallower answer, because there is
+nothing to protect against there — the cheap path is already the default.
+
+---
+
 ## 8. What it does not do
 
 - **No self-modification.** The loop cannot change its own prompts, tools or budgets; those are compiled
@@ -258,7 +272,7 @@ in the export bundle.
 ## 9. Verification
 
 ```
-python3 tools/cognition-core/spec_check.py         PASS · 155 checks
+python3 tools/cognition-core/spec_check.py         PASS · 166 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
 ./scripts/verify_cognition_core.sh                 PASS (Kotlin half SKIPPED — no kotlinc)
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run

@@ -510,6 +510,26 @@ object CognitionTriage {
     }
 }
 
+/**
+ * A way to *ask* for depth instead of guessing whether the question deserves it.
+ *
+ * `/deep why does the transport policy refuse a WebView under Tor?` runs the loop regardless of length or
+ * shape, and strips the directive before the model ever sees it. The user is the one person who knows
+ * whether they want an answer in a second or an answer that took a minute, so this overrides triage in
+ * the one direction that can be trusted: upward.
+ */
+object DepthDirective {
+
+    private val PREFIX = Regex("""^\s*(/deep|deep:|/think)\s*""", RegexOption.IGNORE_CASE)
+
+    data class Parsed(val forced: Boolean, val input: String)
+
+    fun parse(raw: String): Parsed {
+        val match = PREFIX.find(raw) ?: return Parsed(false, raw.trim())
+        return Parsed(true, raw.substring(match.range.last + 1).trim())
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Arithmetic a language model can trust
 // ─────────────────────────────────────────────────────────────────────────────

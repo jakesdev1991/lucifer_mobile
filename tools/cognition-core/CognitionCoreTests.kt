@@ -4,6 +4,7 @@ import com.lucifer.mobile.cognition.AnswerAudit
 import com.lucifer.mobile.cognition.Calculator
 import com.lucifer.mobile.cognition.CognitionTriage
 import com.lucifer.mobile.cognition.Depth
+import com.lucifer.mobile.cognition.DepthDirective
 import com.lucifer.mobile.cognition.EntryKind
 import com.lucifer.mobile.cognition.LoopBudget
 import com.lucifer.mobile.cognition.ObservationFence
@@ -361,5 +362,13 @@ object CognitionCoreTests {
         )
         check("one short 'why' stays shallow", CognitionTriage.assess("why does entropy increase?").depth == Depth.SHALLOW)
         check("the reason is always stated", CognitionTriage.assess("hello").reason.isNotBlank())
+
+        check("directive: plain text is untouched", !DepthDirective.parse("hello").forced)
+        check("directive: /deep forces the loop", DepthDirective.parse("/deep why").forced)
+        check("directive: the directive is stripped", DepthDirective.parse("/deep why").input == "why")
+        check("directive: 'deep:' works", DepthDirective.parse("deep: why").input == "why")
+        check("directive: case does not matter", DepthDirective.parse("/DEEP why").forced)
+        check("directive: mid-sentence is not a directive", !DepthDirective.parse("go deep on this").forced)
+        check("directive: a bare /deep leaves nothing", DepthDirective.parse("/deep").input.isEmpty())
     }
 }
