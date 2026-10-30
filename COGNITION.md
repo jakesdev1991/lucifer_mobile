@@ -435,7 +435,7 @@ in the export bundle.
 ```
 python3 tools/cognition-core/spec_check.py         PASS · 204 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
-./scripts/verify_cognition_core.sh                PASS · 141 + 21 + 10 + 9 Kotlin checks + 49 static claims
+./scripts/verify_cognition_core.sh                PASS · 141 + 21 + 10 + 9 + 13 Kotlin checks + 49 static claims
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run
 ```
 
@@ -459,6 +459,15 @@ looks like:
   invented answer, and the answer says which of the three happened
 - a thin draft to a long question is repaired exactly once; a draft that fails twice is reported, not shipped
 - confidence is `LOW` with no observations and the footer says "nothing was consulted"
+
+A fifth harness, `ToolsTests` (13 checks), executes the toolbox the app actually ships —
+`AndroidCognitionTools.toolbox(context)`, called with arguments a model could send. The six collaborating
+services are fixtures; what is asserted is the tool layer's own judgement: `page_read` refuses
+`file://`, `javascript:` and a bare host *without asking the browser*; a failed fetch reports the
+browser's reason rather than a generic one; a body is bounded at 4 000 characters; `web_research`
+refuses a one-word question and does not answer from zero sources; an empty corpus is a result while an
+unreadable index is a failure with a reason; `device_facts` filters by topic and falls back to the whole
+snapshot; the clock contains a year; and an unknown tool id is refused.
 
 A fourth harness, `ScoresTests` (9 checks), executes the tool tally — the thing that makes the loop's own
 history change its behaviour. It proves that counts survive between runs, that two bad calls are silence

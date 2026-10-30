@@ -22,6 +22,7 @@ HARNESS="$ROOT/tools/cognition-core/CognitionCoreTests.kt"
 RUNNER_HARNESS="$ROOT/tools/cognition-core/RunnerTests.kt"
 LEDGER_HARNESS="$ROOT/tools/cognition-core/LedgerTests.kt"
 SCORES_HARNESS="$ROOT/tools/cognition-core/ScoresTests.kt"
+TOOLS_HARNESS="$ROOT/tools/cognition-core/ToolsTests.kt"
 STUBS="$ROOT/tools/cognition-core/android-stubs"
 SPEC="$ROOT/tools/cognition-core/spec_check.py"
 OUT="${TMPDIR:-/tmp}/lucifer-cognition-build"
@@ -121,6 +122,23 @@ if [[ "$have_kotlin" -eq 1 ]]; then
   fi
 else
   echo "SKIPPED — kotlinc and/or java not found, so CognitionScores has NOT been executed."
+fi
+
+echo
+echo "== 2e. the six tools the app actually ships =="
+if [[ "$have_kotlin" -eq 1 ]]; then
+  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$TOOLS_HARNESS" -d "$OUT/tools-tests.jar" -nowarn; then
+    if [[ -f "$STDLIB" ]]; then
+      java -cp "$OUT/tools-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.ToolsTestsKt || status=1
+    else
+      java -cp "$OUT/tools-tests.jar" com.lucifer.mobile.cognition.harness.ToolsTestsKt || status=1
+    fi
+  else
+    echo "kotlinc failed to compile the tool harness" >&2
+    status=1
+  fi
+else
+  echo "SKIPPED — kotlinc and/or java not found, so AndroidCognitionTools has NOT been executed."
 fi
 
 echo
