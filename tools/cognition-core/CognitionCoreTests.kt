@@ -75,11 +75,14 @@ object CognitionCoreTests {
     }
 
     private fun memory() {
-        val m = WorkingMemory(capacity = 6)
+        // The class requires room for a goal and its constraints (>= 8). The harness used 6 and 4 and
+        // crashed at the constructor on the first real JVM run — a test that had never been compiled.
+        val m = WorkingMemory(capacity = 10)
             .append(EntryKind.GOAL, "why does entropy increase")
             .append(EntryKind.CONSTRAINT, "no root")
-        repeat(5) { m.append(EntryKind.OBSERVATION, "observation $it") }
-        check("capacity is respected", m.size() <= 6, "${m.size()}")
+        // Enough appends to force eviction at capacity 10, so "oldest goes first" is exercised.
+        repeat(20) { m.append(EntryKind.OBSERVATION, "observation $it") }
+        check("capacity is respected", m.size() <= 10, "${m.size()}")
         check("the goal survives eviction", m.count(EntryKind.GOAL) == 1)
         check("the constraint survives eviction", m.count(EntryKind.CONSTRAINT) == 1)
         check(
@@ -92,7 +95,16 @@ object CognitionCoreTests {
         check("an all-pinned overflow still respects capacity", pinned.size() == 8)
         check("the first goal survives an all-pinned overflow", pinned.snapshot().first().text == "the question")
 
-        val mixed = WorkingMemory(capacity = 4)
+        // The constructor's own guard is part of the contract; assert it rather than discover it.
+        val refused = try {
+            WorkingMemory(capacity = 4)
+            false
+        } catch (_: IllegalArgumentException) {
+            true
+        }
+        check("a capacity too small for a goal is refused", refused)
+
+        val mixed = WorkingMemory(capacity = 10)
             .append(EntryKind.GOAL, "g")
             .append(EntryKind.FACT, "a durable fact", "corpus")
             .append(EntryKind.OBSERVATION, "x1")
@@ -104,12 +116,12 @@ object CognitionCoreTests {
             .append(EntryKind.GOAL, "goal line")
             .append(EntryKind.CONSTRAINT, "constraint line")
         repeat(60) { big.append(EntryKind.OBSERVATION, "o".repeat(100)) }
-        val rendered = big.render(budget = 600)
+        val rendered = big.render(charBudget = 600)
         check("render honours the budget", rendered.length <= 800, "${rendered.length}")
         check("render keeps the goal", rendered.contains("goal line"))
         check("render keeps constraints", rendered.contains("constraint line"))
 
-        val context = WorkingMemory(capacity = 6)
+        val context = WorkingMemory(capacity = 10)
             .append(EntryKind.GOAL, "and why?")
             .append(EntryKind.CONTEXT, "we were discussing entropy")
         repeat(8) { context.append(EntryKind.OBSERVATION, "o$it") }

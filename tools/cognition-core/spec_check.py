@@ -45,8 +45,23 @@ PRIORITY = {"GOAL": 0, "CONSTRAINT": 0, "DECISION": 1, "QUESTION": 2, "CONTEXT":
 
 
 class Memory:
-    def __init__(self, capacity: int = 64):
+    """Mirror of WorkingMemory, including its constructor guard.
+
+    The guard is load-bearing: a memory with fewer than eight slots cannot hold a goal and its
+    constraints, and the Kotlin refuses to build one. The mirror used to allow it, which is how the
+    Kotlin harness came to be written against capacities the class rejects.
+    """
+
+    MIN_CAPACITY = 8
+    MIN_CHAR_BUDGET = 500
+
+    def __init__(self, capacity: int = 64, char_budget: int = 6_000):
+        if capacity < self.MIN_CAPACITY:
+            raise ValueError("capacity must leave room for a goal and its constraints")
+        if char_budget < self.MIN_CHAR_BUDGET:
+            raise ValueError("char_budget must fit at least the goal")
         self.capacity = capacity
+        self.char_budget = char_budget
         self.entries: list[tuple[str, str, str]] = []
 
     def append(self, kind: str, text: str, source: str = "") -> "Memory":
@@ -90,11 +105,12 @@ class Memory:
 
 
 def case_memory() -> None:
-    m = Memory(capacity=6).append("GOAL", "why does entropy increase")
+    m = Memory(capacity=10).append("GOAL", "why does entropy increase")
     m.append("CONSTRAINT", "no root")
-    for i in range(5):
+    # Enough appends to force eviction at capacity 10, so "oldest goes first" is actually exercised.
+    for i in range(20):
         m.append("OBSERVATION", f"observation {i}")
-    check("memory: capacity respected", len(m.entries) <= 6, str(len(m.entries)))
+    check("memory: capacity respected", len(m.entries) <= 10, str(len(m.entries)))
     check("memory: goal survives eviction", "GOAL" in m.kinds())
     check("memory: constraint survives eviction", "CONSTRAINT" in m.kinds())
     check("memory: oldest observation evicted first", not any("observation 0" in e[1] for e in m.entries))
@@ -109,7 +125,7 @@ def case_memory() -> None:
           p.entries[0][1] == "the question")
 
     # Facts outlive observations when space is tight.
-    f = Memory(capacity=4).append("GOAL", "g").append("FACT", "a durable fact", "corpus")
+    f = Memory(capacity=10).append("GOAL", "g").append("FACT", "a durable fact", "corpus")
     f.append("OBSERVATION", "x1").append("OBSERVATION", "x2").append("OBSERVATION", "x3")
     check("memory: fact survives observation pressure", "FACT" in f.kinds(), str(f.kinds()))
 
@@ -130,7 +146,7 @@ def case_memory() -> None:
     check("memory: summary names what is held", "1 goal" in Memory().append("GOAL", "g").summary())
 
     # Prior turns are as protected as a question: a follow-up dies without them.
-    c = Memory(capacity=6).append("GOAL", "and why?").append("CONTEXT", "we were discussing entropy")
+    c = Memory(capacity=10).append("GOAL", "and why?").append("CONTEXT", "we were discussing entropy")
     for i in range(8):
         c.append("OBSERVATION", f"o{i}")
     check("memory: context survives observation pressure", "CONTEXT" in c.kinds(), str(c.kinds()))

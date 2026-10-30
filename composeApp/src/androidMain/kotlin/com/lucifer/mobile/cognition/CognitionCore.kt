@@ -290,13 +290,18 @@ object LoopGuard {
                 "tools returned ${budget.maxObservationChars} characters; further results would evict the question"
             )
         }
-        val last = recentCalls.lastOrNull() ?: return null
-        val repeats = recentCalls.takeLast(budget.maxRepeats + 1).count { it == last }
-        if (repeats > budget.maxRepeats) {
-            return StopReason(
-                Termination.STALLED,
-                "called ${last.render()} $repeats times with the same argument"
-            )
+        // Only the call check needs a call. Returning early when there is none skipped the observation
+        // check entirely — and refusals add observations without adding calls, so two identical refusals
+        // were never treated as a stall. Found by the Kotlin harness on its first real run.
+        val last = recentCalls.lastOrNull()
+        if (last != null) {
+            val repeats = recentCalls.takeLast(budget.maxRepeats + 1).count { it == last }
+            if (repeats > budget.maxRepeats) {
+                return StopReason(
+                    Termination.STALLED,
+                    "called ${last.render()} $repeats times with the same argument"
+                )
+            }
         }
         if (observations.size >= 2) {
             val tail = observations.takeLast(2)
@@ -612,7 +617,7 @@ object CognitionKnowledge {
         appendLine("Here is how I actually work, not how a chatbot describes itself.")
         appendLine()
         appendLine("A message is triaged first. Most get one pass. A question that is multi-part, or shaped")
-        appendLine("like reasoning ("design", "debug", "why does"), enters a bounded loop:")
+        appendLine("like reasoning (\"design\", \"debug\", \"why does\"), enters a bounded loop:")
         appendLine("think → use one tool → read the result → think again.")
         appendLine()
         appendLine("The loop is bounded at ${budget.maxSteps} steps, ${budget.maxElapsedMs / 1000} seconds and " +
