@@ -221,6 +221,14 @@ def case_classifier():
     check("reasoning: the overlay surface is on that budget",
           '"overlay-termux", "overlay-vm"' in core)
     check("reasoning: the runtime supplies it from the device", "CognitionScores.report(context)" in runtime)
+
+    # An unobservable fact must be reported as unknown, not as "nothing pending".
+    surfaces = open(os.path.join(ROOT, "composeApp", "src", "androidMain", "kotlin", "com", "lucifer",
+                                 "mobile", "surface", "Surfaces.kt"), encoding="utf-8").read()
+    check("facts: the confirmation queue is tri-state", "val pendingConfirmation: Boolean? = null" in surfaces)
+    check("facts: unknown is rendered as unknown", "confirmation queue: not visible from here" in surfaces)
+    check("facts: the runtime does not guess it", "pendingConfirmation = null" in runtime)
+    check("facts: the answer has a case for not knowing", "I cannot see the confirmation queue" in answers)
     check("reasoning: a statement about thinking is NONE",
           classify("thinking about the terminal is hard") == "NONE")
     check("reasoning: confirmation still wins",

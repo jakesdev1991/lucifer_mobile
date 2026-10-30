@@ -85,7 +85,12 @@ data class SurfaceFacts(
     val networkOnline: Boolean = true,
     val modelKeyConfigured: Boolean = false,
     val memoryMcpConfigured: Boolean = false,
-    val pendingConfirmation: Boolean = false
+    /**
+     * Whether a command is waiting for the owner's tap. `null` means *not known* — the surface runtime
+     * has no view of the pending-action state, which lives in the activity. It used to be hardcoded
+     * false, which made "nothing is waiting for confirmation" an assertion with no evidence behind it.
+     */
+    val pendingConfirmation: Boolean? = null
 ) {
     /** One line per fact that changes an answer, so a stale claim is visible. */
     fun snapshot(): List<String> = buildList {
@@ -109,7 +114,11 @@ data class SurfaceFacts(
         })
         if (!overlayPermission) add("display-over-other-apps: not granted")
         if (memoryMcpConfigured) add("memory MCP: configured")
-        if (pendingConfirmation) add("a command is waiting for your confirmation")
+        when (pendingConfirmation) {
+            true -> add("a command is waiting for your confirmation")
+            false -> add("nothing is waiting for your confirmation")
+            null -> add("confirmation queue: not visible from here")
+        }
     }
 }
 

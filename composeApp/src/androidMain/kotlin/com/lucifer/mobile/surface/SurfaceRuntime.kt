@@ -60,7 +60,9 @@ object SurfaceRuntime {
             networkOnline = NetworkGuard.isOnline(app),
             modelKeyConfigured = AppConfig.isSet(app, AppConfig.NVIDIA_KEY),
             memoryMcpConfigured = AppConfig.isSet(app, AppConfig.MEMORY_MCP_URL),
-            pendingConfirmation = false
+            // Deliberately unknown: the pending-action state belongs to the activity, and guessing
+            // "nothing is pending" is the kind of claim this codebase is built not to make.
+            pendingConfirmation = null
         )
     }
 

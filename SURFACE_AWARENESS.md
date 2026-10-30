@@ -131,6 +131,9 @@ and sound certain; this is the cheapest possible defence against that.
 ## What this does not do
 
 - He does not see the UI. He is told the surface identifier and its documented behaviour.
+- He does not know whether a command is waiting for confirmation. `SurfaceFacts.pendingConfirmation` is
+  tri-state and the runtime reports `null`, so the answer says "I cannot see the confirmation queue from
+  this interface" instead of the false "nothing is waiting" it used to assert with no evidence.
 - The reasoning answer describes the *scaffold* (tools, budgets, audit), not his internal state — he
   cannot observe his own activations any more than he can see the screen.
 - The `TERMINAL_TAB`, `AGENTS` and `HEARTBEAT` descriptions exist for when those surfaces are wired to
@@ -143,7 +146,7 @@ and sound certain; this is the cheapest possible defence against that.
 ## Verification
 
 ```bash
-./scripts/verify_surface_core.sh                    # spec (60 checks) + Kotlin harness + audit
+./scripts/verify_surface_core.sh                    # spec (70 checks) + Kotlin harness + audit
 python3 tools/surface-core/spec_check.py            # recall, precision, answer shapes
 python3 tools/surface-core/audit_surfaces.py        # which call sites declare a surface
 python3 tools/surface-core/audit_surfaces.py --check # non-zero if one forgets

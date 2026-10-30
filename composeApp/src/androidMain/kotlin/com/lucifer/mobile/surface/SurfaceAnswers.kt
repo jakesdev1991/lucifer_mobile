@@ -227,11 +227,16 @@ object SurfaceAnswers {
                 SurfaceKnowledge.invariants.take(2).forEach { appendLine("· $it") }
                 appendLine()
                 append(
-                    if (facts.pendingConfirmation) {
-                        "There is a command waiting for your confirmation right now."
-                    } else {
-                        "Nothing is waiting for confirmation at the moment. If I propose something that " +
-                            "changes the device, you will see the exact command and target first."
+                    when (facts.pendingConfirmation) {
+                        true -> "There is a command waiting for your confirmation right now."
+                        false -> "Nothing is waiting for confirmation at the moment. If I propose something " +
+                            "that changes the device, you will see the exact command and target first."
+                        // The honest third case. He cannot see the pending-action slot from here, and
+                        // saying "nothing is waiting" without looking is exactly the failure this
+                        // whole file exists to prevent.
+                        null -> "I cannot see the confirmation queue from this interface. If I have " +
+                            "proposed something, its exact command and target are shown for your tap " +
+                            "before anything runs."
                     }
                 )
             }
