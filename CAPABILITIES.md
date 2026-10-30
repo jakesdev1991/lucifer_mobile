@@ -381,7 +381,7 @@ Run in this workspace, just now:
 | `python3 tools/config-core/audit_config.py` | every config path named once, every write atomic, no bypass writers |
 | `python3 scripts/validate_skill_library.py` | 100 skills, 10 packs, 53,392 bytes, all `REFERENCE_ONLY` |
 | `python3 tools/net-core/spec_check.py` | **PASS · 110 checks** |
-| `python3 tools/cognition-core/spec_check.py` | **PASS · 199 checks** |
+| `python3 tools/cognition-core/spec_check.py` | **PASS · 200 checks** |
 | `python3 tools/cognition-core/fuzz.py` | **FUZZ OK · 13 invariants** |
 | `python3 tools/cognition-core/loop_sim.py` | **LOOP SIM OK · 7 invariants, scripted runs** |
 | `./scripts/verify_all.sh --quiet` | **PASS 6 · SKIP 11 · FAIL 0** |

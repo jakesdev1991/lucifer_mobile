@@ -170,6 +170,7 @@ loop actually observed, and it can refuse to attach confidence it has not earned
 | `UNVERIFIED_DEVICE_CLAIM` | warning | "your phone", "is installed", "your storage"… with no device read |
 | `CITES_WITHOUT_SOURCE` | warning | `[Vol 12]` with no corpus read this turn |
 | `ECHO` | warning | the answer restates the question |
+| `PROTOCOL_IN_ANSWER` | warning | a line in the reply is shaped like `TOOL:` — prose, and nothing in it ran |
 | `HEDGE_STACK` | note | three or more hedges |
 
 Confidence is a four-rung ladder and it is never flattering:
@@ -397,7 +398,7 @@ in the export bundle.
 ## 9. Verification
 
 ```
-python3 tools/cognition-core/spec_check.py         PASS · 199 checks
+python3 tools/cognition-core/spec_check.py         PASS · 200 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
 ./scripts/verify_cognition_core.sh                 PASS (Kotlin half SKIPPED — no kotlinc)
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run
