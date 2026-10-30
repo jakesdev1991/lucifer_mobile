@@ -753,6 +753,27 @@ object ToolRecord {
             .sortedWith(compareByDescending<ToolTally> { it.calls }.thenBy { it.id })
 
     /**
+     * Fold this run's calls into the tallies already on disk.
+     *
+     * The counts are what make the advice exist across runs — an in-memory tally would forget every
+     * failure that happened in a previous turn. This takes the *outcomes* rather than a mixed list
+     * because a tally cannot be turned back into the outcomes it came from; the earlier version tried,
+     * which is a type error the host never caught (the file had never been compiled) and would have
+     * silently restarted the count on every run.
+     */
+    fun merge(existing: List<ToolTally>, outcomes: List<ToolCallOutcome>): List<ToolTally> {
+        val added = tally(outcomes).associateBy { it.id }
+        val ids = (existing.map { it.id } + added.keys).distinct()
+        return ids.map { id ->
+            val base = existing.firstOrNull { it.id == id }
+            val extra = added[id]
+            val calls = (base?.calls ?: 0) + (extra?.calls ?: 0)
+            val ok = ((base?.ok ?: 0) + (extra?.ok ?: 0)).coerceIn(0, calls)
+            ToolTally(id, calls, ok)
+        }.sortedWith(compareByDescending<ToolTally> { it.calls }.thenBy { it.id })
+    }
+
+    /**
      * One line for the loop's own instructions, or empty.
      *
      * Empty is the common case and the honest one: until a tool has been tried [MIN_CALLS] times there

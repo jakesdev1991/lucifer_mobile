@@ -249,6 +249,11 @@ found four more defects that no static check could have:
   only appeared inside the page as a `querySelector` SyntaxError, which the user reads as nothing
   happening.
 
+- **The tool tally could never have worked.** `CognitionScores.record` merged stored tallies with new
+  outcomes and passed the mixed list to `tally()` — a type error, in a file that had never been compiled.
+  Had it compiled, the count would have restarted on every run, so no tool would ever have reached the
+  three calls that make the advice fire: the loop was designed to learn which tools fail on this device
+  and could not. `ToolRecord.merge` does the arithmetic now, and the harness proves the count survives.
 - **"Stopped by you" also counted model failures.** The ledger marked every `CANCELLED` run as the owner's
   decision, but a planner that threw and an unavailable model route are `CANCELLED` too — so a transport
   failure was reported as "1 stopped by you". The interrupted flag is the record now, not the termination.
@@ -430,7 +435,7 @@ in the export bundle.
 ```
 python3 tools/cognition-core/spec_check.py         PASS · 204 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
-./scripts/verify_cognition_core.sh                PASS · 137 + 21 + 10 Kotlin checks + 49 static claims
+./scripts/verify_cognition_core.sh                PASS · 141 + 21 + 10 + 9 Kotlin checks + 49 static claims
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run
 ```
 
@@ -454,6 +459,12 @@ looks like:
   invented answer, and the answer says which of the three happened
 - a thin draft to a long question is repaired exactly once; a draft that fails twice is reported, not shipped
 - confidence is `LOW` with no observations and the footer says "nothing was consulted"
+
+A fourth harness, `ScoresTests` (9 checks), executes the tool tally — the thing that makes the loop's own
+history change its behaviour. It proves that counts survive between runs, that two bad calls are silence
+and three are advice, that a call which returned nothing is not a success, that a step with no result is
+not counted, that the record is capped at 24 tools and stays under 2 KB, and that a corrupt count restarts
+instead of breaking the turn.
 
 A third harness, `LedgerTests` (10 checks), executes the ledger against a real (small) JSON
 implementation and a temporary filesystem, because the promises there are about the file: **what a tool

@@ -29,6 +29,18 @@ class JSONArray {
 
     fun opt(index: Int): Any? = items.getOrNull(index)
 
+    fun optInt(index: Int, fallback: Int = 0): Int = when (val value = items.getOrNull(index)) {
+        is Number -> value.toInt()
+        is String -> value.toIntOrNull() ?: fallback
+        else -> fallback
+    }
+
+    fun optString(index: Int, fallback: String = ""): String = when (val value = items.getOrNull(index)) {
+        null -> fallback
+        is String -> value
+        else -> value.toString()
+    }
+
     fun toList(): List<Any?> = items.toList()
 
     override fun toString(): String = buildString {

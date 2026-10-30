@@ -21,6 +21,7 @@ ENGINE="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/omni_bridge/k
 HARNESS="$ROOT/tools/cognition-core/CognitionCoreTests.kt"
 RUNNER_HARNESS="$ROOT/tools/cognition-core/RunnerTests.kt"
 LEDGER_HARNESS="$ROOT/tools/cognition-core/LedgerTests.kt"
+SCORES_HARNESS="$ROOT/tools/cognition-core/ScoresTests.kt"
 STUBS="$ROOT/tools/cognition-core/android-stubs"
 SPEC="$ROOT/tools/cognition-core/spec_check.py"
 OUT="${TMPDIR:-/tmp}/lucifer-cognition-build"
@@ -72,8 +73,9 @@ fi
 echo
 echo "== 2b. the loop itself, executed (scripted model, recording toolbox) =="
 if [[ "$have_kotlin" -eq 1 ]]; then
-  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE/CognitionCore.kt" "$CORE/AnswerAudit.kt" \
-      "$CORE/CognitionRunner.kt" "$RUNNER_HARNESS" -d "$OUT/runner-tests.jar" -nowarn; then
+  # The whole package: the loop, the ledger and the tally reference each other, and every one of them
+  # is real code compiled from source.
+  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$RUNNER_HARNESS" -d "$OUT/runner-tests.jar" -nowarn; then
     if [[ -f "$STDLIB" ]]; then
       java -cp "$OUT/runner-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.RunnerTestsKt || status=1
     else
@@ -90,9 +92,7 @@ fi
 echo
 echo "== 2c. the ledger a run leaves behind =="
 if [[ "$have_kotlin" -eq 1 ]]; then
-  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE/CognitionCore.kt" "$CORE/AnswerAudit.kt" \
-      "$CORE/CognitionRunner.kt" "$CORE/CognitionLedger.kt" "$LEDGER_HARNESS" \
-      -d "$OUT/ledger-tests.jar" -nowarn; then
+  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$LEDGER_HARNESS" -d "$OUT/ledger-tests.jar" -nowarn; then
     if [[ -f "$STDLIB" ]]; then
       java -cp "$OUT/ledger-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.LedgerTestsKt || status=1
     else
@@ -104,6 +104,23 @@ if [[ "$have_kotlin" -eq 1 ]]; then
   fi
 else
   echo "SKIPPED — kotlinc and/or java not found, so CognitionLedger has NOT been executed."
+fi
+
+echo
+echo "== 2d. the tool tally the loop learns from =="
+if [[ "$have_kotlin" -eq 1 ]]; then
+  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$SCORES_HARNESS" -d "$OUT/scores-tests.jar" -nowarn; then
+    if [[ -f "$STDLIB" ]]; then
+      java -cp "$OUT/scores-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.ScoresTestsKt || status=1
+    else
+      java -cp "$OUT/scores-tests.jar" com.lucifer.mobile.cognition.harness.ScoresTestsKt || status=1
+    fi
+  else
+    echo "kotlinc failed to compile the tool-tally harness" >&2
+    status=1
+  fi
+else
+  echo "SKIPPED — kotlinc and/or java not found, so CognitionScores has NOT been executed."
 fi
 
 echo

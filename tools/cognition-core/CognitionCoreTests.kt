@@ -16,6 +16,7 @@ import com.lucifer.mobile.cognition.ToolCall
 import com.lucifer.mobile.cognition.ToolCallOutcome
 import com.lucifer.mobile.cognition.ToolRecord
 import com.lucifer.mobile.cognition.ToolSpec
+import com.lucifer.mobile.cognition.ToolTally
 import com.lucifer.mobile.cognition.WorkingMemory
 
 /**
@@ -444,5 +445,21 @@ object CognitionCoreTests {
         )
         check("tool record: three of four names the rate", ToolRecord.advice(bad).contains("web_research failed 3 of 4"))
         check("tool record: the report is one line", ToolRecord.report(bad) == "tools: web_research 1/4")
+
+        // Counts have to survive between runs, or the advice never fires: two failures in one turn and
+        // a third in the next is three calls. The old code merged tallies with outcomes, which does not
+        // type-check — the file had never been compiled, so it was never noticed.
+        val carried = ToolRecord.merge(listOf(ToolTally("page_read", 2, 0)), listOf(ToolCallOutcome("page_read", false)))
+        check("tool record: counts carry across runs", carried.single().calls == 3, carried.single().line())
+        check("tool record: and the advice fires on the carried count", ToolRecord.advice(carried).contains("page_read failed 3 of 3"))
+        check(
+            "tool record: merge cannot invent successes",
+            ToolRecord.merge(listOf(ToolTally("clock", 1, 1)), listOf(ToolCallOutcome("clock", false))).single().ok == 1
+        )
+        check(
+            "tool record: merge orders by use",
+            ToolRecord.merge(listOf(ToolTally("rare", 1, 1)), listOf(ToolCallOutcome("busy", true), ToolCallOutcome("busy", true)))
+                .map { it.id } == listOf("busy", "rare")
+        )
     }
 }

@@ -1,17 +1,10 @@
-// Type-check-only stand-ins for the collaborators the runner is wired to on a device.
+// Type-check-only stand-ins for the Android-only collaborators.
 //
-// Each one mirrors the real signature exactly (the harness fails to compile if that drifts) and each
-// one returns "nothing" rather than pretending. The loop under test is given its own planner and
-// toolbox, so none of these are executed by the assertions.
+// The loop, the ledger and the tool tally are real code compiled from source; nothing in this directory
+// pretends to be them. Each stub here mirrors the real signature exactly (the harness fails to compile
+// if that drifts) and returns "nothing" rather than pretending.
 @file:Suppress("unused", "UNUSED_PARAMETER")
 
 package com.lucifer.mobile.cognition
 
-import android.content.Context
-
-/** The device's tool tally is read from a file; the harness passes its own record instead. */
-object CognitionScores {
-    fun adviceLine(context: Context): String = ""
-    fun report(context: Context): String = ""
-    fun record(context: Context, call: ToolCall, ok: Boolean) = Unit
-}
+// (No stubs are needed for this package any more: every object in `cognition/` is compiled for real.)

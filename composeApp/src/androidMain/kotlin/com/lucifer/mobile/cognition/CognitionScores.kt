@@ -70,8 +70,7 @@ object CognitionScores {
             ToolCallOutcome(call.tool, result.ok && result.output.isNotBlank())
         }
         if (outcomes.isEmpty()) return
-        val merged = load(context) + outcomes
-        val tallies = ToolRecord.tally(merged)
+        val tallies = ToolRecord.merge(load(context), outcomes)
         save(context, tallies)
         cachedAdvice = ToolRecord.advice(tallies)
     }
