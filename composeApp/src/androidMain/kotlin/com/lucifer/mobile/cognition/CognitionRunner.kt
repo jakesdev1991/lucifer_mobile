@@ -3,6 +3,9 @@ package com.lucifer.mobile.cognition
 import android.content.Context
 import android.util.Log
 import com.lucifer.mobile.data.browser.LuciferBrowser
+import com.lucifer.mobile.resilience.FetchedPage
+import com.lucifer.mobile.resilience.PageFetcher
+import com.lucifer.mobile.resilience.ResearchAgent
 import com.lucifer.mobile.memory.LocalConversationMemory
 import com.lucifer.mobile.omni_bridge.knowledge.EmbeddedToE
 import com.lucifer.mobile.omni_bridge.llm.NemotronClient
@@ -11,6 +14,7 @@ import com.lucifer.mobile.surface.SurfaceFacts
 import com.lucifer.mobile.surface.SurfaceKnowledge
 import com.lucifer.mobile.surface.SurfaceRuntime
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -390,13 +394,17 @@ object AndroidCognitionTools {
     const val DEVICE = "device_facts"
     const val CLOCK = "clock"
     const val PAGE = "page_read"
+    const val CALCULATE = "calculate"
+    const val RESEARCH = "web_research"
 
     fun specs(): List<ToolSpec> = listOf(
         ToolSpec(CORPUS, "search the embedded Omega ToE corpus", SideEffect.NONE, "query", 200),
         ToolSpec(MEMORY, "search what Lucifer remembers from earlier conversations", SideEffect.NONE, "query", 200),
         ToolSpec(DEVICE, "read this device's real state", SideEffect.DEVICE_READ, "topic: build|apps|network|memory|all", 40),
         ToolSpec(CLOCK, "current local date and time", SideEffect.NONE, "ignored", 20),
-        ToolSpec(PAGE, "fetch a public page's text through the egress gate", SideEffect.NETWORK_READ, "https URL", 400)
+        ToolSpec(PAGE, "fetch a public page's text through the egress gate", SideEffect.NETWORK_READ, "https URL", 400),
+        ToolSpec(CALCULATE, "exact arithmetic: + - * / % ^, parentheses, sqrt/ln/log/min/max/pow…", SideEffect.NONE, "expression", 300),
+        ToolSpec(RESEARCH, "search public sources and read the best few, through the egress gate", SideEffect.NETWORK_READ, "question", 300)
     )
 
     fun toolbox(context: Context): CognitionToolbox {
@@ -448,6 +456,43 @@ object AndroidCognitionTools {
                             ToolResult.ok("${page.title}\n${page.text}".take(4_000), "fetched through the egress gate")
                         } else {
                             ToolResult.failed(page.error.ifBlank { "the fetch returned nothing" })
+                        }
+                    }
+
+                    CALCULATE -> when (val result = Calculator.evaluate(call.argument)) {
+                        is Calculator.Result.Ok -> ToolResult.ok(result.formatted, "computed exactly")
+                        is Calculator.Result.Err -> ToolResult.failed(result.message)
+                    }
+
+                    RESEARCH -> {
+                        val question = call.argument.trim()
+                        if (question.length < 4) return@withContext ToolResult.refused("a research question needs a few words")
+                        val agent = ResearchAgent(
+                            fetcher = object : PageFetcher {
+                                override suspend fun fetch(url: String): FetchedPage {
+                                    val page = browser.navigate(url, timeoutMs = 15_000)
+                                    return if (page.success) {
+                                        FetchedPage(url = page.url, status = 200, body = page.html.ifBlank { page.text })
+                                    } else {
+                                        FetchedPage(url = url, status = 0, body = "", error = page.error.ifBlank { "fetch failed" })
+                                    }
+                                }
+                            },
+                            // Four pages, not seven: the loop has a 90-second budget for all its steps, and
+                            // a research call that eats it leaves no room to read what came back.
+                            sleeper = { millis -> delay(millis.coerceIn(0, 2_000)) },
+                            maxPages = 4,
+                            maxResultPages = 2
+                        )
+                        try {
+                            val brief = agent.research(ResearchAgent.Request(question = question))
+                            if (brief.sources.isEmpty()) {
+                                ToolResult.failed(brief.stoppedReason.ifBlank { "no sources answered" })
+                            } else {
+                                ToolResult.ok(brief.toPromptContext(4_000), "${brief.sources.size} sources, ${brief.pagesFetched} pages")
+                            }
+                        } catch (error: Exception) {
+                            ToolResult.failed("research failed: ${error.javaClass.simpleName}")
                         }
                     }
 

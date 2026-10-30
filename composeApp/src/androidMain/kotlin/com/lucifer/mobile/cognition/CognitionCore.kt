@@ -509,3 +509,223 @@ object CognitionTriage {
         }
     }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Arithmetic a language model can trust
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * A calculator, because a language model is bad at arithmetic and this one is exact.
+ *
+ * `calculate("17 * 23 + 4")` is a tool call that returns 395 without a token of guesswork. The grammar is
+ * small on purpose: numbers, `+ - * / % ^`, parentheses, four constants and a dozen functions. There is
+ * no variable binding, no assignment, no string, no way to call anything that is not on the list, and no
+ * `eval` — it is a recursive-descent parser over a string, so the worst input can do is fail.
+ *
+ * Every failure is a sentence the model can act on ("unknown function 'foo'"), not an exception, because
+ * a tool that throws teaches the loop nothing.
+ */
+object Calculator {
+
+    const val MAX_EXPRESSION_CHARS = 300
+    private const val MAX_DEPTH = 32
+
+    sealed class Result {
+        data class Ok(val value: Double, val formatted: String) : Result()
+        data class Err(val message: String) : Result()
+    }
+
+    private val FUNCTIONS = mapOf(
+        "sqrt" to 1, "abs" to 1, "round" to 1, "floor" to 1, "ceil" to 1,
+        "ln" to 1, "log10" to 1, "log2" to 1, "sin" to 1, "cos" to 1, "tan" to 1, "exp" to 1,
+        "min" to 2, "max" to 2, "pow" to 2, "log" to 2
+    )
+    private val CONSTANTS = mapOf("pi" to Math.PI, "e" to Math.E, "tau" to Math.PI * 2)
+
+    fun evaluate(expression: String): Result {
+        val text = expression.trim()
+        if (text.isEmpty()) return Result.Err("nothing to calculate")
+        if (text.length > MAX_EXPRESSION_CHARS) {
+            return Result.Err("that expression is longer than $MAX_EXPRESSION_CHARS characters")
+        }
+        return try {
+            val parser = Parser(text)
+            val value = parser.parseExpression(0)
+            parser.expectEnd()
+            when {
+                value.isNaN() -> Result.Err("the result is not a number")
+                value.isInfinite() -> Result.Err("the result is too large to represent")
+                else -> Result.Ok(value, format(value))
+            }
+        } catch (error: CalculatorException) {
+            Result.Err(error.message ?: "that expression could not be parsed")
+        } catch (error: Exception) {
+            Result.Err("that expression could not be evaluated (${error.javaClass.simpleName})")
+        }
+    }
+
+    fun format(value: Double): String {
+        if (value == 0.0) return "0"
+        val magnitude = Math.abs(value)
+        if (magnitude >= 1e15 || magnitude < 1e-9) return String.format("%.6e", value).replace("e+", "e")
+        val rounded = Math.round(value).toDouble()
+        return if (Math.abs(value - rounded) < 1e-9) String.format("%.0f", rounded)
+        else {
+            val raw = String.format("%.10f", value)
+            raw.trimEnd('0').trimEnd('.')
+        }
+    }
+
+    private class CalculatorException(message: String) : Exception(message)
+
+    private class Parser(private val text: String) {
+        private var index = 0
+        private var depth = 0
+
+        fun parseExpression(depth: Int): Double {
+            if (depth > MAX_DEPTH) throw CalculatorException("that expression nests too deeply")
+            var value = parseTerm(depth)
+            while (true) {
+                skipSpaces()
+                val op = peek()
+                if (op != '+' && op != '-') return value
+                index++
+                val right = parseTerm(depth)
+                value = if (op == '+') value + right else value - right
+            }
+        }
+
+        private fun parseTerm(depth: Int): Double {
+            var value = parsePower(depth)
+            while (true) {
+                skipSpaces()
+                val op = peek()
+                if (op != '*' && op != '/' && op != '%') return value
+                index++
+                val right = parsePower(depth)
+                if ((op == '/' || op == '%') && right == 0.0) {
+                    throw CalculatorException("division by zero")
+                }
+                value = when (op) {
+                    '*' -> value * right
+                    '/' -> value / right
+                    else -> value % right
+                }
+            }
+        }
+
+        /** `^` binds tighter than `*` and associates to the right: 2^3^2 is 512. */
+        private fun parsePower(depth: Int): Double {
+            val base = parseUnary(depth)
+            skipSpaces()
+            if (peek() == '^') {
+                index++
+                val exponent = parsePower(depth + 1)
+                return Math.pow(base, exponent)
+            }
+            return base
+        }
+
+        private fun parseUnary(depth: Int): Double {
+            skipSpaces()
+            val op = peek()
+            if (op == '-') {
+                index++
+                return -parseUnary(depth)
+            }
+            if (op == '+') {
+                index++
+                return parseUnary(depth)
+            }
+            return parsePrimary(depth)
+        }
+
+        private fun parsePrimary(depth: Int): Double {
+            skipSpaces()
+            val character = peek() ?: throw CalculatorException("the expression ends early")
+            if (character == '(') {
+                index++
+                val value = parseExpression(depth + 1)
+                skipSpaces()
+                if (peek() != ')') throw CalculatorException("a '(' is not closed")
+                index++
+                return value
+            }
+            if (character.isDigit() || character == '.') return parseNumber()
+            if (character.isLetter()) return parseNamed(depth)
+            throw CalculatorException("unexpected '${character}'")
+        }
+
+        private fun parseNumber(): Double {
+            val start = index
+            while (index < text.length && (text[index].isDigit() || text[index] == '.')) index++
+            // Scientific notation: 1.2e-3 is one number, not a number, a name and a subtraction.
+            if (index < text.length && (text[index] == 'e' || text[index] == 'E')) {
+                val mark = index
+                index++
+                if (index < text.length && (text[index] == '+' || text[index] == '-')) index++
+                if (index < text.length && text[index].isDigit()) {
+                    while (index < text.length && text[index].isDigit()) index++
+                } else {
+                    index = mark
+                }
+            }
+            val slice = text.substring(start, index)
+            return slice.toDoubleOrNull() ?: throw CalculatorException("'$slice' is not a number")
+        }
+
+        private fun parseNamed(depth: Int): Double {
+            val start = index
+            while (index < text.length && (text[index].isLetter() || text[index] == '_' || text[index].isDigit())) index++
+            val name = text.substring(start, index).lowercase()
+            CONSTANTS[name]?.let { return it }
+            val arity = FUNCTIONS[name] ?: throw CalculatorException("unknown function or constant '$name'")
+            skipSpaces()
+            if (peek() != '(') throw CalculatorException("'$name' needs parentheses, like $name(x)")
+            index++
+            val first = parseExpression(depth + 1)
+            var second = Double.NaN
+            skipSpaces()
+            if (peek() == ',') {
+                index++
+                second = parseExpression(depth + 1)
+                skipSpaces()
+            }
+            if (peek() != ')') throw CalculatorException("'$name(' is not closed")
+            index++
+            if (arity == 2 && second.isNaN()) throw CalculatorException("'$name' needs two arguments")
+            return apply(name, first, second)
+        }
+
+        private fun apply(name: String, x: Double, y: Double): Double = when (name) {
+            "sqrt" -> if (x < 0) throw CalculatorException("sqrt of a negative number") else Math.sqrt(x)
+            "abs" -> Math.abs(x)
+            "round" -> Math.round(x).toDouble()
+            "floor" -> Math.floor(x)
+            "ceil" -> Math.ceil(x)
+            "ln" -> if (x <= 0) throw CalculatorException("ln needs a positive argument") else Math.log(x)
+            "log10" -> if (x <= 0) throw CalculatorException("log10 needs a positive argument") else Math.log10(x)
+            "log2" -> if (x <= 0) throw CalculatorException("log2 needs a positive argument") else Math.log(x) / Math.log(2.0)
+            "sin" -> Math.sin(x)
+            "cos" -> Math.cos(x)
+            "tan" -> Math.tan(x)
+            "exp" -> Math.exp(x)
+            "min" -> Math.min(x, y)
+            "max" -> Math.max(x, y)
+            "pow" -> Math.pow(x, y)
+            "log" -> if (x <= 0 || y <= 0) throw CalculatorException("log needs positive arguments") else Math.log(x) / Math.log(y)
+            else -> throw CalculatorException("unknown function '$name'")
+        }
+
+        fun expectEnd() {
+            skipSpaces()
+            if (index != text.length) throw CalculatorException("unexpected '${text[index]}' after the expression")
+        }
+
+        private fun skipSpaces() {
+            while (index < text.length && text[index].isWhitespace()) index++
+        }
+
+        private fun peek(): Char? = if (index < text.length) text[index] else null
+    }
+}

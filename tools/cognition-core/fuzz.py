@@ -15,6 +15,8 @@ budgets. The invariants are the ones that matter when a model — not a person �
   I8  triage never says DEEP when there are no tools
   I10 sanitising an observation always removes control-format lines (a fetched page cannot speak the
       protocol)
+  I11 the calculator is total: every input returns a value or a refusal, never an exception, never NaN,
+      and never a result whose formatting does not round-trip
   I9  no function raises, for any input
 
 Usage:
@@ -223,6 +225,44 @@ def case_fence(n: int) -> None:
             fail("I10 NUL survived sanitising", out[:60])
 
 
+CALC_ALPHABET = "0123456789.+-*/%^(), _abcdefghijklmnopqrstuvwxyz"
+
+
+def case_calculator(n: int) -> None:
+    global checked
+    for _ in range(n):
+        roll = rng.random()
+        if roll < 0.5:
+            expression = "".join(rng.choice(CALC_ALPHABET) for _ in range(rng.randint(0, 40)))
+        elif roll < 0.8:
+            expression = f"{rng.uniform(-1e6, 1e6):.6f}{rng.choice('+-*/%^')}{rng.uniform(-1e6, 1e6):.6f}"
+        else:
+            expression = random_text()[:60]
+        try:
+            result = spec.calculate(expression)
+        except Exception as error:  # I11
+            fail("I11 the calculator raised", f"{error.__class__.__name__} on {expression[:40]!r}")
+            continue
+        checked += 1
+        if "err" in result:
+            if not result["err"]:
+                fail("I11 an empty refusal", expression[:40])
+            continue
+        if "formatted" not in result or "value" not in result:
+            fail("I11 a result with no value", expression[:40])
+            continue
+        value = result["value"]
+        if value != value or value in (float("inf"), float("-inf")):
+            fail("I11 a non-finite result was returned", f"{expression[:40]!r} -> {value}")
+        formatted = result["formatted"]
+        if not formatted or "e" not in formatted and "E" not in formatted:
+            try:
+                if abs(float(formatted) - value) > max(1e-6, abs(value) * 1e-9):
+                    fail("I11 the formatted value does not round-trip", f"{expression[:40]!r} -> {formatted}")
+            except ValueError:
+                fail("I11 the formatted value is not a number", formatted)
+
+
 def case_roundtrip(n: int) -> None:
     """A model that writes a clean plan must always be understood; nothing valid is ever misread."""
     global checked
@@ -247,6 +287,7 @@ def main() -> int:
     case_audit(CASES)
     case_triage(CASES)
     case_fence(CASES)
+    case_calculator(CASES)
     case_roundtrip(CASES)
 
     for line in failures:
@@ -255,7 +296,7 @@ def main() -> int:
     if failures:
         print(f"FUZZ FAILED · {len(failures)} invariant breach(es) over {checked} cases")
         return 1
-    print(f"FUZZ OK · {checked} cases · 10 invariants held")
+    print(f"FUZZ OK · {checked} cases · 11 invariants held")
     return 0
 
 

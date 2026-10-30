@@ -96,7 +96,19 @@ Five tools ship, and each declares what calling it does to the world:
 | `memory_search` | `NONE` | no | searches local episodic memory |
 | `device_facts` | `DEVICE_READ` | no | reads build, package, network and memory state |
 | `clock` | `NONE` | no | the actual time |
+| `calculate` | `NONE` | no | exact arithmetic — see §4.1 |
 | `page_read` | `NETWORK_READ` | no | fetches a public page **through the egress gate**, so it appears in the ledger and rides Tor when Tor is on |
+| `web_research` | `NETWORK_READ` | no | searches public sources and reads the best few, through the existing robots-aware `ResearchAgent`, bounded to 4 pages |
+
+### 4.1 Why a calculator is a real capability
+
+A language model is fluent about arithmetic and unreliable at it. `calculate("17 * 23 + 4")` returns
+`395` from a recursive-descent parser, not from a guess — numbers, `+ - * / % ^`, parentheses, `pi`, `e`,
+`tau`, and sixteen functions (`sqrt`, `ln`, `log10`, `log2`, `log`, `exp`, `sin`, `cos`, `tan`, `min`,
+`max`, `pow`, `abs`, `round`, `floor`, `ceil`). No variables, no assignment, no names it does not know,
+no `eval`, 300 characters, depth 32. Every failure is a sentence ("unknown function 'foo'") rather than
+an exception, because a tool that throws teaches the loop nothing. The fuzz harness asserts totality over
+random input: a value or a refusal, never a crash and never a non-finite result that formats as `NaN`.
 
 Anything with `LOCAL_WRITE`, `DEVICE_CHANGE` or `EXTERNAL_SEND` requires the tool id to be in
 `confirmedTools`, which is populated by a person and **defaults to empty**. When the loop wants such a
@@ -246,13 +258,13 @@ in the export bundle.
 ## 9. Verification
 
 ```
-python3 tools/cognition-core/spec_check.py         PASS · 122 checks
-python3 tools/cognition-core/fuzz.py 5000          FUZZ OK · 30 500 cases · 10 invariants
+python3 tools/cognition-core/spec_check.py         PASS · 155 checks
+python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
 ./scripts/verify_cognition_core.sh                 PASS (Kotlin half SKIPPED — no kotlinc)
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run
 ```
 
-The ten fuzz invariants, which are what makes it safe to let a model write the input:
+The eleven fuzz invariants, which are what makes it safe to let a model write the input:
 
 1. the parser never returns a call to a tool that was not offered
 2. the parser never returns an argument longer than that tool's cap
@@ -264,6 +276,8 @@ The ten fuzz invariants, which are what makes it safe to let a model write the i
 8. triage never says `DEEP` with no tools
 9. nothing raises, for any input — including NUL bytes, RTL overrides and 5 000-character arguments
 10. a sanitised observation can never parse as a control directive, whatever the page contained
+11. the calculator is total: a value or a refusal for every input, never an exception, never `NaN`, and
+    every formatted result round-trips to the number it claims
 
 `sweep.sh` runs spec + fuzz (new seed each pass) + the static claims + `verify_all`, appends one line per
 pass to `build/sweep/report.log`, and repeats. For a crontab:

@@ -91,6 +91,9 @@ require "$RUNNER" 'raw.startsWith("[LLM]")' "an unavailable model is not turned 
 require "$RUNNER" "confirmedTools: Set<String> = emptySet()" "the default is: change nothing"
 require "$RUNNER" "ObservationFence.sanitize(" "tool output is defanged before it can speak the protocol"
 require "$RUNNER" "withTimeout(remaining)" "one slow model call cannot overrun the wall-clock budget"
+require "$RUNNER" "Calculator.evaluate(" "arithmetic is computed, not guessed"
+require "$RUNNER" "ResearchAgent(" "research goes through the existing bounded, robots-aware searcher"
+require "$CORE/CognitionCore.kt" "object Calculator" "the calculator lives in the testable core"
 
 # The engine must reach the loop, and keep the single-pass council as the fallback.
 require "$ENGINE" "CognitionRunner.run(" "the reasoning engine never uses the loop otherwise"

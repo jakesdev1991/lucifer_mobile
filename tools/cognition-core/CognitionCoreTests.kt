@@ -1,6 +1,7 @@
 package com.lucifer.mobile.cognition.harness
 
 import com.lucifer.mobile.cognition.AnswerAudit
+import com.lucifer.mobile.cognition.Calculator
 import com.lucifer.mobile.cognition.CognitionTriage
 import com.lucifer.mobile.cognition.Depth
 import com.lucifer.mobile.cognition.EntryKind
@@ -56,6 +57,7 @@ object CognitionCoreTests {
 
         guard()
         fence()
+        calculator()
         parser()
         audit()
         triage()
@@ -158,6 +160,55 @@ object CognitionCoreTests {
         check("output is capped", ObservationFence.sanitize("x".repeat(9000)).length <= 4_000)
         check("a clean passage is unchanged", ObservationFence.sanitize("Entropy is microstates.") == "Entropy is microstates.")
         check("the fence labels the boundary", ObservationFence.fence("x").contains("UNTRUSTED"))
+    }
+
+    private fun calculator() {
+        val good = mapOf(
+            "1+1" to "2",
+            "17 * 23 + 4" to "395",
+            "(2+3)*4" to "20",
+            "2^10" to "1024",
+            "2^3^2" to "512",
+            "-5 + 3" to "-2",
+            "10 / 4" to "2.5",
+            "7 % 3" to "1",
+            "1.2e3 + 1" to "1201",
+            "sqrt(2)" to "1.4142135624",
+            "max(3, 9)" to "9",
+            "round(2.6)" to "3",
+            "  ( 1 + 2 ) * 3  " to "9",
+            ".5 + .5" to "1"
+        )
+        for ((expression, expected) in good) {
+            val result = Calculator.evaluate(expression)
+            val actual = (result as? Calculator.Result.Ok)?.formatted
+            check("calc: $expression = $expected", actual == expected, actual ?: (result as Calculator.Result.Err).message)
+        }
+        check("calc: pi is exact enough", (Calculator.evaluate("pi") as? Calculator.Result.Ok)?.formatted == "3.1415926536")
+
+        val bad = mapOf(
+            "" to "nothing to calculate",
+            "1/0" to "division by zero",
+            "foo(1)" to "unknown function",
+            "(1+2" to "not closed",
+            "1+" to "ends early",
+            "1 2" to "after the expression",
+            "sqrt(-1)" to "negative",
+            "ln(0)" to "positive",
+            "1;rm -rf /" to "after the expression",
+            "__import__('os')" to "unexpected"
+        )
+        for ((expression, needle) in bad) {
+            val result = Calculator.evaluate(expression)
+            val message = (result as? Calculator.Result.Err)?.message ?: "returned a value"
+            check("calc: '$expression' is refused", message.contains(needle), message)
+        }
+        check("calc: a 5 000-character expression is refused", Calculator.evaluate("1+".repeat(2_500)) is Calculator.Result.Err)
+        check("calc: deep nesting is bounded",
+            Calculator.evaluate("(".repeat(40) + "1" + ")".repeat(40)) is Calculator.Result.Err)
+        check("calc: a lone dot is refused", Calculator.evaluate(".") is Calculator.Result.Err)
+        check("calc: no expression executes anything",
+            Calculator.evaluate("System.exit(0)") is Calculator.Result.Err)
     }
 
     private fun parser() {
