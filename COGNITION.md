@@ -438,11 +438,11 @@ in the export bundle.
 ```
 python3 tools/cognition-core/spec_check.py         PASS · 204 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
-./scripts/verify_cognition_core.sh                PASS · 141 + 21 + 10 + 9 + 13 + 9 Kotlin checks + 200-run loop fuzz + 49 static claims
+./scripts/verify_cognition_core.sh                PASS · 176 + 21 + 10 + 9 + 13 + 9 Kotlin checks + 200-run loop fuzz + 49 static claims
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run
 ```
 
-Two Kotlin harnesses run here. `CognitionCoreTests` (134 checks) proves the pieces — parser, guard,
+Two Kotlin harnesses run here. `CognitionCoreTests` (176 checks) proves the pieces — parser, guard,
 working memory, audit, calculator. `RunnerTests` (21 checks) proves **the loop that uses them**:
 `CognitionRunner.run` is compiled for the first time and driven by a scripted model and a toolbox that
 records every call, so each of these is an assertion about what the loop did rather than what the code

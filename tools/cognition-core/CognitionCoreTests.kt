@@ -2,6 +2,7 @@ package com.lucifer.mobile.cognition.harness
 
 import com.lucifer.mobile.cognition.AnswerAudit
 import com.lucifer.mobile.cognition.Calculator
+import com.lucifer.mobile.cognition.CognitionKnowledge
 import com.lucifer.mobile.cognition.CognitionTriage
 import com.lucifer.mobile.cognition.Depth
 import com.lucifer.mobile.cognition.DepthDirective
@@ -14,6 +15,7 @@ import com.lucifer.mobile.cognition.SideEffect
 import com.lucifer.mobile.cognition.Termination
 import com.lucifer.mobile.cognition.ToolCall
 import com.lucifer.mobile.cognition.ToolCallOutcome
+import com.lucifer.mobile.cognition.ToolCatalogue
 import com.lucifer.mobile.cognition.ToolRecord
 import com.lucifer.mobile.cognition.ToolSpec
 import com.lucifer.mobile.cognition.ToolTally
@@ -65,6 +67,7 @@ object CognitionCoreTests {
         parser()
         audit()
         triage()
+        selfDescription()
 
         println()
         if (failed == 0) {
@@ -381,6 +384,64 @@ object CognitionCoreTests {
         check(
             "the footer says nothing was checked on the device",
             footer.contains("nothing was checked on the device")
+        )
+    }
+
+    /**
+     * What he says about himself.
+     *
+     * This is a standing requirement, not decoration: a capability he cannot describe accurately is one
+     * he will describe inaccurately. Every claim in the answer is generated from the live objects, so the
+     * checks are about that — the tool list, the budget and the limits are the ones in force, not a
+     * paragraph written beside the code.
+     */
+    private fun selfDescription() {
+        val described = CognitionKnowledge.describe()
+        ToolCatalogue.specs().forEach { spec ->
+            check("self-description names ${spec.id}", described.contains(spec.id), spec.id)
+            check("self-description names what ${spec.id} does", described.contains(spec.effect.label))
+        }
+        check("self-description says reads are free", described.contains("Reads are free"))
+        check(
+            "self-description says writes need confirmation",
+            described.contains("needs\nyour confirmation") || described.contains("needs your confirmation")
+        )
+        check("self-description names the audit before display", described.contains("audited"))
+        check("self-description names STOP", described.contains("STOP cancels"))
+        check("self-description promises the two previous turns", described.contains("previous two turns"))
+
+        // The budget he quotes is the budget he is on.
+        val tight = LoopBudget(maxSteps = 3, maxElapsedMs = 45_000, maxObservationChars = 9_000)
+        val onTight = CognitionKnowledge.describe(budget = tight)
+        check("self-description quotes the step budget", onTight.contains("3 steps"), onTight.take(200))
+        check("self-description quotes the time budget", onTight.contains("45 seconds"))
+        check("self-description quotes the observation budget", onTight.contains("9000 characters"))
+
+        // A tool that needs a person is announced as one.
+        val dangerous = ToolSpec("wipe_cache", "clear the app cache", SideEffect.DEVICE_CHANGE, "ignored", 20)
+        val withDangerous = CognitionKnowledge.describe(tools = ToolCatalogue.specs() + dangerous)
+        check("a confirming tool is announced as one", withDangerous.contains("wipe_cache") && withDangerous.contains("needs your confirmation"))
+
+        // The record of what tools have actually done is included only when there is one.
+        check("no record claim without a record", !CognitionKnowledge.describe().contains("actually done on this device"))
+        check(
+            "the record is quoted when there is one",
+            CognitionKnowledge.describe(record = "clock 2/2").contains("clock 2/2")
+        )
+
+        // The two-line block reaches a model that may not be in a loop at all.
+        val promptLine = CognitionKnowledge.promptLine()
+        ToolCatalogue.specs().forEach { spec -> check("prompt line names ${spec.id}", promptLine.contains(spec.id)) }
+        check("prompt line separates the loop from the single pass", promptLine.contains("if you are not"))
+        check("prompt line forbids claiming an unread device", promptLine.contains("say you cannot check it"))
+
+        // The status line counts the real catalogue and the real budget.
+        check(
+            "the one-line summary is generated, not written",
+            CognitionKnowledge.summary() ==
+                "${ToolCatalogue.specs().size} tools · ${LoopBudget().maxSteps} steps · " +
+                "${LoopBudget().maxElapsedMs / 1000}s · every deep answer audited",
+            CognitionKnowledge.summary()
         )
     }
 
