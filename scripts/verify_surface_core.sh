@@ -13,6 +13,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SURFACE_DIR="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/surface"
+# The surface module now names the cognition core (how he thinks, and the budget in force), so that file
+# must be on the compiler's path — otherwise this harness breaks only on a machine that has kotlinc.
+COGNITION_CORE="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/cognition/CognitionCore.kt"
 HARNESS="$ROOT/tools/surface-core/SurfaceCoreTests.kt"
 SPEC="$ROOT/tools/surface-core/spec_check.py"
 AUDIT="$ROOT/tools/surface-core/audit_surfaces.py"
@@ -33,7 +36,8 @@ echo
 echo "== 2. surface awareness (real Kotlin) =="
 if [[ "$have_kotlin" -eq 1 ]]; then
   mkdir -p "$OUT"
-  if "$KOTLINC_BIN" "$SURFACE_DIR/Surfaces.kt" "$SURFACE_DIR/SurfaceAnswers.kt" "$HARNESS" \
+  if "$KOTLINC_BIN" "$SURFACE_DIR/Surfaces.kt" "$SURFACE_DIR/SurfaceAnswers.kt" \
+      "$COGNITION_CORE" "$HARNESS" \
       -d "$OUT/surface-tests.jar" -nowarn; then
     STDLIB="$(dirname "$(command -v "$KOTLINC_BIN")")/../lib/kotlin-stdlib.jar"
     if [[ -f "$STDLIB" ]]; then

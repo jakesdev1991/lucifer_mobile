@@ -229,6 +229,27 @@ fun main() {
         expect(!catalogue.contains("unnamed surface"), "UNKNOWN must not be offered as an interface")
     }
 
+    test("confirmation: an unseen queue is reported as unseen") {
+        val unknown = SurfaceAnswers.answer("will you ask before running things?", Surface.CORE_CHAT, ONLINE)
+            ?: throw AssertionError("no answer")
+        expect(unknown.contains("cannot see the confirmation queue"), "unknown case missing: $unknown")
+        expect(!unknown.contains("Nothing is waiting"), "asserted nothing pending without looking: $unknown")
+
+        val pending = SurfaceAnswers.answer(
+            "will you ask before running things?",
+            Surface.CORE_CHAT,
+            ONLINE.copy(pendingConfirmation = true)
+        ) ?: throw AssertionError("no answer")
+        expect(pending.contains("waiting for your confirmation"), "true case missing")
+
+        val clear = SurfaceAnswers.answer(
+            "will you ask before running things?",
+            Surface.CORE_CHAT,
+            ONLINE.copy(pendingConfirmation = false)
+        ) ?: throw AssertionError("no answer")
+        expect(clear.contains("Nothing is waiting"), "false case missing")
+    }
+
     test("data answers quote the surface's own egress claim") {
         val answer = SurfaceAnswers.answer("what leaves the device?", Surface.FLOATING_TERMUX, ONLINE)
             ?: throw AssertionError("no answer")

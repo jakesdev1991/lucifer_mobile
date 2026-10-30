@@ -229,6 +229,15 @@ def case_classifier():
     check("facts: unknown is rendered as unknown", "confirmation queue: not visible from here" in surfaces)
     check("facts: the runtime does not guess it", "pendingConfirmation = null" in runtime)
     check("facts: the answer has a case for not knowing", "I cannot see the confirmation queue" in answers)
+
+    # The Kotlin half of this harness only runs where kotlinc exists — which is not here. If the module
+    # names a file that is not on the compiler's path, that failure is invisible in this workspace and
+    # instant on the owner's machine. So the path is checked instead of assumed.
+    verify = open(os.path.join(ROOT, "scripts", "verify_surface_core.sh"), encoding="utf-8").read()
+    check("harness: the surface module's new dependency is compiled with it",
+          '"$COGNITION_CORE"' in verify.split('if "$KOTLINC_BIN"')[1].split("-d")[0])
+    check("harness: the dependency is the cognition core",
+          'cognition/CognitionCore.kt' in verify)
     check("reasoning: a statement about thinking is NONE",
           classify("thinking about the terminal is hard") == "NONE")
     check("reasoning: confirmation still wins",
