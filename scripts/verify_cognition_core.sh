@@ -156,6 +156,11 @@ require "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/launcher/Cha
   "progress: String = \"\"" "the launcher dialog can show the current step"
 require "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/launcher/LauncherActivity.kt" \
   "onStep = { record ->" "the launcher passes the loop's steps to it"
+require "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/terminal/FloatingChatService.kt" \
+  "onStep = { record ->" "and so does the floating overlay"
+require "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/terminal/FloatingChatService.kt" \
+  "scope.launch { uiState = uiState.copy(progress = line) }" \
+  "written on the main thread, not from the worker that reported it"
 
 # A ninety-second run needs a way out.
 require "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/ui/components/AnimatedTerminalTab.kt" \

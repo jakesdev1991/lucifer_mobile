@@ -87,7 +87,9 @@ internal data class OverlayState(
     val liveMonitor: Boolean = false,
     val target: Int = 1,
     val lines: List<OverlayLine> = listOf(OverlayLine("Lucifer is ready. Commands sent from chat enter the active Termux tmux shell after any required approval. When you ask about the terminal, up to 2 KB of visible output may be shared with the configured assistant service.", false)),
-    val pending: TerminalAction? = null
+    val pending: TerminalAction? = null,
+    /** What the reasoning loop is doing right now, so the overlay is not a silent forty seconds. */
+    val progress: String = ""
 )
 
 /** Small, user-visible chat surface over another app. It is explicitly started by
@@ -291,11 +293,20 @@ class FloatingChatService : LifecycleService() {
                             // The overlay sits on top of Termux: a person is mid-command and watching. A
                             // 90-second loop is fine in the control app and wrong here, so the overlay
                             // gets the short budget and takes the cheap path sooner.
-                            budget = com.lucifer.mobile.cognition.LoopBudget.OVERLAY
+                            budget = com.lucifer.mobile.cognition.LoopBudget.OVERLAY,
+                            onStep = { record ->
+                                // The loop reports from a worker thread; Compose state is written on
+                                // the service's main-immediate scope.
+                                if (record.call != null) {
+                                    val line = record.brief()
+                                    scope.launch { uiState = uiState.copy(progress = line) }
+                                }
+                            }
                         )
                     } catch (error: Exception) {
                         "I couldn't complete that reply: ${error.message ?: "assistant unavailable"}"
                     }
+                    uiState = uiState.copy(progress = "")
                     localMemory.rememberExchange(text, answer)
                     withContext(Dispatchers.IO) {
                         SkillSynthRuntime.recordAnswer(this@FloatingChatService, text, answer, surface.name)
@@ -516,7 +527,15 @@ private fun FloatingChatPanel(service: FloatingChatService) {
                 }
             }
             OverlayComposer(enabled = !state.busy, onSend = service::sendMessage)
-            if (state.busy) Text("Lucifer is working…", color = LuciferColors.Aether, fontSize = 10.sp, fontFamily = Morningstar.Body)
+            if (state.busy) {
+                Text(
+                    if (state.progress.isBlank()) "Lucifer is working…" else state.progress,
+                    color = LuciferColors.Aether,
+                    fontSize = 10.sp,
+                    fontFamily = Morningstar.Body,
+                    maxLines = 1
+                )
+            }
             Spacer(Modifier.height(1.dp))
         }
     }
