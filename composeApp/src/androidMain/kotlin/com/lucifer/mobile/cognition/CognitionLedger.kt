@@ -48,6 +48,9 @@ object CognitionLedger {
                 put("concluded", outcome.concluded)
                 put("confidence", outcome.audit.confidence.name)
                 put("findings", outcome.audit.findings.map { it.code })
+                // RCOD-style cognitive-state *heuristics* (uncertainty / contradiction / complexity),
+                // computed from the trace and audit — explicitly not a "phase transition" signal.
+                put("heuristics", JSONObject(CognitiveHeuristics.of(outcome).mapValues { it.value }))
                 put("memory", outcome.memorySummary)
             }.toString()
 

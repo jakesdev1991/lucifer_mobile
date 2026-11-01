@@ -128,6 +128,8 @@ class HeartbeatSessionEngine(context: Context) {
 
         val record = JSONObject().apply {
             put("timestamp", timestamp)
+            put("sessionId", "$timestamp")
+            put("state", HeartbeatSessionState.COMMITTED.name)
             put("title", title)
             put("importance", importance)
             put("status", status)
@@ -212,7 +214,10 @@ class HeartbeatSessionEngine(context: Context) {
         try {
             root.mkdirs()
             File(root, "sessions.jsonl").appendText(
-                JSONObject().put("timestamp", System.currentTimeMillis()).put("status", "ERROR")
+                JSONObject().put("timestamp", System.currentTimeMillis())
+                    .put("sessionId", "${System.currentTimeMillis()}")
+                    .put("state", HeartbeatSessionState.SAFE_STOP.name)
+                    .put("status", "ERROR")
                     .put("summary", message.take(240)).toString() + "\n"
             )
         } catch (_: Exception) { }
@@ -221,4 +226,23 @@ class HeartbeatSessionEngine(context: Context) {
     private companion object {
         const val TAG = "HeartbeatSession"
     }
+}
+
+/**
+ * The explicit lifecycle states of one heartbeat session, a subset of the spec's state machine that
+ * fits what this service actually does: it observes, plans one draft, and commits it to the
+ * private ledger. There is no EXECUTE state here by design — the heartbeat never executes anything
+ * (CAPABILITIES.md §5: it "never executes a generated command, posts, submits, deploys, messages
+ * anyone, spends"). A session that cannot even produce a draft is recorded as SAFE_STOP, which
+ * permits no further work until the owner restarts the service.
+ */
+enum class HeartbeatSessionState {
+    /** Research/ledger gathered, prompt composed. */
+    OBSERVED,
+
+    /** The draft was produced and written to the private heartbeat directory. */
+    COMMITTED,
+
+    /** No new work permitted; the session recorded a failure and stopped. */
+    SAFE_STOP
 }

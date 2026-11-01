@@ -86,6 +86,7 @@ class LuciferHeartbeatService : Service() {
                     if (waitMs > 0L) delay(waitMs)
                     if (!isActive || !preferences.getBoolean(KEY_ENABLED, false)) break
                     try {
+                        recordTransition(HeartbeatSessionState.OBSERVED, HeartbeatSessionState.OBSERVED, "session started")
                         val cameraJpeg = if (preferences.getBoolean(KEY_CAMERA_ENABLED, false)) camera.captureJpeg() else null
                         val result = try {
                             engine.runSession(cameraJpeg)
@@ -94,6 +95,9 @@ class LuciferHeartbeatService : Service() {
                         }
                         Log.i(TAG, result)
                         updateNotification(result.take(160))
+                        recordTransition(
+                            HeartbeatSessionState.OBSERVED, HeartbeatSessionState.COMMITTED, result.take(140)
+                        )
                         // One offline self-benchmark step per heartbeat pass: runs at most weekly,
                         // never records a MODEL observation, so it does not count against the
                         // General's daily budget, and completes even with no network.
@@ -109,6 +113,10 @@ class LuciferHeartbeatService : Service() {
                     } catch (error: Exception) {
                         Log.e(TAG, "session failed", error)
                         updateNotification("Session error: ${error.message ?: "unknown"}")
+                        recordTransition(
+                            HeartbeatSessionState.OBSERVED, HeartbeatSessionState.SAFE_STOP,
+                            "session failed: ${error.javaClass.simpleName}"
+                        )
                     }
                     preferences.edit().putLong(KEY_NEXT_RUN_AT, System.currentTimeMillis() + SESSION_INTERVAL_MS).apply()
                 }
@@ -171,6 +179,32 @@ class LuciferHeartbeatService : Service() {
         manager.notify(NOTIFICATION_ID, buildNotification(message))
     }
 
+    /**
+     * Append one lifecycle transition to files/heartbeat/transitions.jsonl — from_state, to_state,
+     * reason and timestamp, per the spec's transition-record rule. Bounded, app-private, and never
+     * read back into any prompt, so it cannot steer the model. Best-effort: a logging failure must
+     * not stop the service.
+     */
+    private fun recordTransition(from: HeartbeatSessionState, to: HeartbeatSessionState, reason: String) {
+        try {
+            val dir = java.io.File(applicationContext.filesDir, "heartbeat").apply { mkdirs() }
+            val file = java.io.File(dir, "transitions.jsonl")
+            if (file.isFile && file.length() > MAX_TRANSITIONS_BYTES) {
+                val lines = file.readLines(Charsets.UTF_8)
+                file.writeText(lines.takeLast((lines.size / 2).coerceAtLeast(50)).joinToString("\n", postfix = "\n"), Charsets.UTF_8)
+            }
+            val line = org.json.JSONObject().apply {
+                put("at", System.currentTimeMillis())
+                put("from", from.name)
+                put("to", to.name)
+                put("reason", reason.take(200))
+            }.toString()
+            file.appendText(line + "\n", Charsets.UTF_8)
+        } catch (error: Exception) {
+            Log.w(TAG, "could not record the transition: ${error.javaClass.simpleName}")
+        }
+    }
+
     private fun buildNotification(message: String): Notification {
         val openApp = PendingIntent.getActivity(
             this, REQUEST_OPEN,
@@ -223,6 +257,7 @@ class LuciferHeartbeatService : Service() {
         private const val KEY_NEXT_RUN_AT = "next_run_at"
         const val SESSION_INTERVAL_MS = 30L * 60L * 1_000L
         private const val TAG = "LuciferHeartbeat"
+        private const val MAX_TRANSITIONS_BYTES = 128 * 1024L
         private const val CHANNEL_ID = "lucifer_heartbeat"
         private const val NOTIFICATION_ID = 4801
         private const val REQUEST_OPEN = 4802

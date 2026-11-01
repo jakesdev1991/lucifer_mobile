@@ -101,7 +101,14 @@ data class Experience(
     val surface: String,
     val ok: Boolean,
     val question: String,
-    val detail: String = ""
+    val detail: String = "",
+    /**
+     * Reward signal attached to this event, when the source can compute one from *observed* facts —
+     * e.g. the pre-answer audit of a deep run or an explicit user correction. Null when there is
+     * none. Never model self-report; a reward is only as trustworthy as its source, and the source
+     * is named in [detail].
+     */
+    val reward: Double? = null
 )
 
 /** The turn that is waiting for a verdict — a correction or a compliment has to arrive before it counts. */
@@ -300,7 +307,8 @@ object SkillSynthCodec {
         "surface" to experience.surface,
         "ok" to experience.ok,
         "question" to experience.question,
-        "detail" to experience.detail
+        "detail" to experience.detail,
+        "reward" to experience.reward
     )
 
     private fun encodePending(pending: PendingTurn): Map<String, Any?> = linkedMapOf(
@@ -343,7 +351,8 @@ object SkillSynthCodec {
             surface = map.str("surface", ANY_SURFACE).ifBlank { ANY_SURFACE },
             ok = map.bool("ok"),
             question = map.str("question").take(SynthLimits.MAX_QUESTION_CHARS),
-            detail = map.str("detail").take(SynthLimits.MAX_ANSWER_CHARS)
+            detail = map.str("detail").take(SynthLimits.MAX_ANSWER_CHARS),
+            reward = (map["reward"] as? Number)?.toDouble()?.coerceIn(-1.0, 1.0)
         )
     }
 

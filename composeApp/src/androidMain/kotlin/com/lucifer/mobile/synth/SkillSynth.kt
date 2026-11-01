@@ -49,7 +49,13 @@ object SkillSynth {
         answer: String,
         surface: String,
         now: Long,
-        skillIds: List<String> = emptyList()
+        skillIds: List<String> = emptyList(),
+        /**
+         * Optional reward in [-1, 1] computed by the *caller* from observed facts — e.g. the
+         * pre-answer audit of a deep run. Null for an ordinary turn. Recorded on the CHAT
+         * experience only; it never changes scores, promotion or what is injected.
+         */
+        reward: Double? = null
     ): SynthState {
         val asked = Text.clamp(question, SynthLimits.MAX_QUESTION_CHARS)
         if (asked.isBlank()) return state
@@ -61,7 +67,10 @@ object SkillSynth {
             skillIds = skillIds.distinct().take(8)
         )
         // ok=true here means "an answer was produced", not "it was right"; the verdict decides that.
-        val experience = Experience(now, ExperienceKind.CHAT, surface, ok = true, question = asked)
+        val experience = Experience(
+            now, ExperienceKind.CHAT, surface, ok = true, question = asked,
+            reward = reward?.coerceIn(-1.0, 1.0)
+        )
         return state.copy(
             pending = pending,
             experiences = (state.experiences + experience).takeLast(SynthLimits.EXPERIENCE_RING),
@@ -96,6 +105,16 @@ object SkillSynth {
         var next = state
         var scored = 0
         var learned: SynthesizedSkill? = null
+        // Reward for the feedback event, derived from the *user's* verdict — never from anything
+        // the model said about its own answer. A correction is the strongest negative signal, a
+        // compliment a weak positive one, a repeated question a negative, and silence no signal.
+        val feedbackReward = when (feedback) {
+            Feedback.CORRECTION -> -1.0
+            Feedback.PRAISE -> 0.5
+            Feedback.DIRECTIVE -> 0.0
+            Feedback.NONE -> if (Text.sameQuestion(pending.question, text) &&
+                now - pending.at <= SynthLimits.REPEAT_WINDOW_MS) -0.5 else null
+        }
 
         when (feedback) {
             Feedback.CORRECTION -> {
@@ -122,6 +141,18 @@ object SkillSynth {
         }
 
         next = learned?.let { upsert(next, it, now) } ?: next
+        // Record the feedback event itself, with its reward, so the ring keeps the verdict that
+        // actually happened rather than only the lesson drawn from it.
+        if (feedbackReward != null) {
+            next = next.copy(
+                experiences = (next.experiences + Experience(
+                    now, ExperienceKind.CHAT, pending.surface, ok = feedbackReward >= 0.0,
+                    question = pending.question.take(SynthLimits.MAX_QUESTION_CHARS),
+                    detail = "feedback=${feedback.name.lowercase()}",
+                    reward = feedbackReward
+                )).takeLast(SynthLimits.EXPERIENCE_RING)
+            )
+        }
         next = clearPending(next, now)
         return Outcome(
             state = consolidate(next, now),

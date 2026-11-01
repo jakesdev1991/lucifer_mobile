@@ -213,7 +213,20 @@ class ToEReasoningEngine(
         // Same idea for the tools: which ones came back with something, so the next run can skip the
         // one that is not working today. Counted from this trace, never from the model's opinion.
         com.lucifer.mobile.cognition.CognitionScores.record(appContext, outcome.trace)
+        // The audit's verdict, as a reward signal, feeds the learned-skill record. It is computed
+        // from the audit (observed facts), never from the model's own wording.
+        com.lucifer.mobile.skills.SkillSynthRuntime.recordAnswer(
+            appContext, input, outcome.answer, surface.name, reward = auditReward(outcome.audit)
+        )
         return outcome
+    }
+
+    /** Reward in [-1, 1] derived from the pre-answer audit: blocked draft is a hard negative. */
+    private fun auditReward(audit: com.lucifer.mobile.cognition.AnswerAudit.Result): Double = when {
+        audit.blocked -> -1.0
+        audit.confidence == com.lucifer.mobile.cognition.AnswerAudit.Confidence.HIGH &&
+            audit.warnings.isEmpty() -> 0.5
+        else -> 0.0
     }
 
     /** Direct corpus access for the chat UI when the user asks for a file/proof. */
