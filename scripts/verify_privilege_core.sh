@@ -8,10 +8,18 @@
 #
 # Requires: java (17+) and kotlinc, or set KOTLINC/JAVA_HOME.
 #
+# The adapter type-check runs against the real `platforms/android-<compileSdk>/android.jar` whenever one
+# is discoverable (ANDROID_HOME, ANDROID_SDK_ROOT, local.properties `sdk.dir`, or LUCIFER_ANDROID_JAR),
+# and against `tools/privilege-core/android-stubs` otherwise. See scripts/android_surface.sh for why
+# that order matters.
+#
 #   ./scripts/verify_privilege_core.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/android_surface.sh
+source "$ROOT/scripts/android_surface.sh"
+android_surface_guard
 SRC="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile"
 HARNESS="$ROOT/tools/privilege-core/PrivilegeCoreTests.kt"
 OUT="${TMPDIR:-/tmp}/lucifer-privilege-build"
@@ -37,13 +45,17 @@ echo "== compile + run privilege / world checks =="
   -d "$OUT/privilege-tests.jar" -nowarn
 
 echo
-echo "== type-check the Android adapters against stubs =="
-"$KOTLINC_BIN" "$ROOT/tools/privilege-core/android-stubs"/*.kt \
+STUBS="$ROOT/tools/privilege-core/android-stubs"
+echo "== type-check the Android adapters =="
+android_surface_report "$STUBS"
+mapfile -t SURFACE < <(android_surface_stub_files "$STUBS")
+mapfile -t JAR_ARGS < <(android_surface_classpath)
+"$KOTLINC_BIN" ${JAR_ARGS[@]+"${JAR_ARGS[@]}"} "${SURFACE[@]}" \
   "$SRC/privilege/PrivilegeCore.kt" "$SRC/privilege/DhizukuBridge.kt" \
   "$SRC/privilege/LocalOwnerOps.kt" "$SRC/privilege/PrivilegeRouter.kt" \
   "$SRC/world/WorldCore.kt" "$SRC/world/WorldManager.kt" \
   -d "$OUT/adapters-check" -nowarn
-echo "adapter type-check passed (stubs cover the Android surface only; the Binder calls and the panel are unverified)"
+echo "adapter type-check passed (the Android surface only; the Binder calls and the panel are unverified)"
 
 STDLIB="$(dirname "$(command -v "$KOTLINC_BIN")")/../lib/kotlin-stdlib.jar"
 if [[ -f "$STDLIB" ]]; then

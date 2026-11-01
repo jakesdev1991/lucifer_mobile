@@ -13,6 +13,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/android_surface.sh
+source "$ROOT/scripts/android_surface.sh"
+android_surface_guard
 SRC="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile"
 RESILIENCE_DIR="$SRC/resilience"
 AGENTS_DIR="$SRC/agents"
@@ -20,6 +23,8 @@ TACTICIAN_DIR="$SRC/tactician"
 ADAPTER_DIR="$SRC/agents/android"
 HARNESS="$ROOT/tools/agents-core/AgentCoreTests.kt"
 STUBS="$ROOT/tools/agents-core/android-stubs"
+mapfile -t SURFACE < <(android_surface_stub_files "$STUBS")
+mapfile -t JAR_ARGS < <(android_surface_classpath)
 OUT="${TMPDIR:-/tmp}/lucifer-agents-build"
 
 KOTLINC_BIN="${KOTLINC:-kotlinc}"
@@ -60,8 +65,9 @@ else
 fi
 
 echo
-echo "== type-check the Android adapters against stubs =="
-"$KOTLINC_BIN" "$STUBS"/*.kt "${CORE_FILES[@]}" "$AGENTS_DIR"/*.kt "$TACTICIAN_DIR"/*.kt \
+echo "== type-check the Android adapters =="
+android_surface_report "$STUBS"
+"$KOTLINC_BIN" ${JAR_ARGS[@]+"${JAR_ARGS[@]}"} "${SURFACE[@]}" "${CORE_FILES[@]}" "$AGENTS_DIR"/*.kt "$TACTICIAN_DIR"/*.kt \
   "$ADAPTER_DIR"/*.kt "$SRC/omni_bridge/heartbeat/HeartbeatService.kt" \
   -d "$OUT/adapters-check" -nowarn
-echo "adapter type-check passed (stubs cover Android/JVM surface only; UI and runtime unverified)"
+echo "adapter type-check passed (the Android/JVM surface only; UI and runtime unverified)"

@@ -12,9 +12,14 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/android_surface.sh
+source "$ROOT/scripts/android_surface.sh"
+android_surface_guard
 CORE_DIR="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/resilience"
 HARNESS="$ROOT/tools/resilience-core/ResilienceCoreTests.kt"
 STUBS="$ROOT/tools/resilience-core/android-stubs"
+mapfile -t SURFACE < <(android_surface_stub_files "$STUBS")
+mapfile -t JAR_ARGS < <(android_surface_classpath)
 OUT="${TMPDIR:-/tmp}/lucifer-resilience-build"
 
 KOTLINC_BIN="${KOTLINC:-kotlinc}"
@@ -53,6 +58,7 @@ else
 fi
 
 echo
-echo "== type-check the Android adapter against stubs =="
-"$KOTLINC_BIN" "$STUBS"/*.kt "${CORE_FILES[@]}" "$CORE_DIR/ResilienceEngine.kt" -d "$OUT/engine-check" -nowarn
-echo "adapter type-check passed (stubs cover Android/JVM surface only)"
+echo "== type-check the Android adapter =="
+android_surface_report "$STUBS"
+"$KOTLINC_BIN" ${JAR_ARGS[@]+"${JAR_ARGS[@]}"} "${SURFACE[@]}" "${CORE_FILES[@]}" "$CORE_DIR/ResilienceEngine.kt" -d "$OUT/engine-check" -nowarn
+echo "adapter type-check passed (the Android/JVM surface only)"

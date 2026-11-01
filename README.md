@@ -117,7 +117,7 @@ and saying otherwise is the one thing a verification script must never do. Set
 `LUCIFER_REQUIRE_KOTLIN=1` (as CI does) to turn a missing toolchain into a failure.
 `.github/workflows/verify.yml` runs the same command on every push.
 
-The resilience harness compiles the `resilience/` core with 46 assertions and type-checks its Android adapter against stubs. The verifier harness compiles the verifier core, runtime and HTTP transport, runs them against a real loopback socket, and type-checks its service, controller and SSH adapter against stubs. The agents harness compiles the `agents/` and `tactician/` cores with 50 assertions and type-checks the prompt store, observation bus, signal collector, runner, service, and the heartbeat engine. Neither covers Compose UI, Gradle, or device runtime.
+The resilience harness compiles the `resilience/` core with 46 assertions and type-checks its Android adapter. The verifier harness compiles the verifier core, runtime and HTTP transport, runs them against a real loopback socket, and type-checks its service, controller and SSH adapter. Adapter type-checks use the real `android.jar` when the host has an Android SDK and fall back to hand-written stubs, saying which, when it does not. The agents harness compiles the `agents/` and `tactician/` cores with 50 assertions and type-checks the prompt store, observation bus, signal collector, runner, service, and the heartbeat engine. Neither covers Compose UI, Gradle, or device runtime.
 
 The repository also includes native build/deploy scripts; use them only if your target workflow needs those components. They have not been validated as part of this audit.
 

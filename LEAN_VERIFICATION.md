@@ -194,7 +194,31 @@ Lucifer can call his own server through the same gates without presenting a toke
 contract is signed, parsed and distrusted correctly (see [AUDIT_VAULT.md](AUDIT_VAULT.md)).
 
 **Adapter type-check** — `VerificationService`, `VerifierController`, `VmJobExecutor` and the runtime
-compile against stubs of the Android surface they use.
+compile against the Android surface they use: the real `android.jar` from the SDK when the host has one,
+the hand-written stubs in `tools/verification-core/android-stubs` when it does not. The run says which.
+
+### Which Android surface a harness is checking
+
+Every `verify_*_core.sh` that type-checks an adapter goes through `scripts/android_surface.sh`, which
+resolves the surface once:
+
+| Order | Source | Meaning |
+| --- | --- | --- |
+| 1 | `LUCIFER_ANDROID_JAR`, `ANDROID_JAR` | the jar named outright |
+| 2 | `$ANDROID_HOME` / `$ANDROID_SDK_ROOT` `platforms/android-<compileSdk>/android.jar` | the real SDK; `compileSdk` is read from `composeApp/build.gradle.kts` |
+| 3 | `sdk.dir` in `local.properties` | a local Android Studio SDK |
+| 4 | `tools/*-core/android-stubs` | a hand-written model — weaker, and the run says so |
+
+When a jar is found the `android.*` stubs are dropped from the compile, so they cannot shadow the SDK;
+every other stub (`kotlinx`, `org.json`, `androidx`, Lucifer's ports) is kept, because those model
+things that are not in the jar. `LUCIFER_REQUIRE_ANDROID_JAR=1` — what CI sets — turns "no jar" into a
+failure rather than a quiet downgrade.
+
+One harness needs the stubs as *fixtures* rather than as a claim: the cognition harnesses subclass
+`android.content.Context` to hand the loop a temp dir, and the real `Context` is abstract, so it can
+never be instantiated on a host. Those compiles keep the stubs, and the cognition harness pays for it
+with a separate adapter compile — Lucifer's cognition sources, no fixtures, real jar — so the adapters
+are still checked against the platform.
 
 ## What is not verified
 
@@ -221,5 +245,5 @@ compile against stubs of the Android surface they use.
 | `verification/StatementGates.kt` | the four gates: declaration parsing, vacuity heuristics, overclaim, duplicates, parity |
 | `verification/AuditVault.kt` | an optional remote Lean-host contract (HMAC-signed); audit-vault itself is a private audit workspace, not a job runner |
 | `ui/components/VerifierCard.kt` | the World-tab panel |
-| `tools/verification-core/` | the two harnesses and the Android stubs |
+| `tools/verification-core/` | the two harnesses and the Android stubs (used only when no SDK is present) |
 | `scripts/verify_verification_core.sh` | runs all of it |

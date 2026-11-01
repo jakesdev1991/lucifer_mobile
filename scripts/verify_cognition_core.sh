@@ -16,6 +16,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/android_surface.sh
+source "$ROOT/scripts/android_surface.sh"
+android_surface_guard
 CORE="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/cognition"
 ENGINE="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/omni_bridge/knowledge/ToEReasoningEngine.kt"
 HARNESS="$ROOT/tools/cognition-core/CognitionCoreTests.kt"
@@ -26,6 +29,13 @@ TOOLS_HARNESS="$ROOT/tools/cognition-core/ToolsTests.kt"
 PLANNER_HARNESS="$ROOT/tools/cognition-core/PlannerTests.kt"
 FUZZ_RUNNER="$ROOT/tools/cognition-core/RunnerFuzz.kt"
 STUBS="$ROOT/tools/cognition-core/android-stubs"
+# Two different uses of the same directory, and they must not be confused:
+#   FIXTURES — every stub, because the runnable harnesses subclass `android.content.Context` and give it
+#              a temp dir. The real jar's Context is abstract, so it cannot stand in here.
+#   SURFACE  — the non-Android stubs plus the real android.jar, for the adapter compile at the end.
+mapfile -t FIXTURES < <(android_surface_fixture_files "$STUBS")
+mapfile -t SURFACE < <(android_surface_stub_files "$STUBS")
+mapfile -t JAR_ARGS < <(android_surface_classpath)
 SPEC="$ROOT/tools/cognition-core/spec_check.py"
 OUT="${TMPDIR:-/tmp}/lucifer-cognition-build"
 
@@ -78,7 +88,7 @@ echo "== 2b. the loop itself, executed (scripted model, recording toolbox) =="
 if [[ "$have_kotlin" -eq 1 ]]; then
   # The whole package: the loop, the ledger and the tally reference each other, and every one of them
   # is real code compiled from source.
-  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$RUNNER_HARNESS" -d "$OUT/runner-tests.jar" -nowarn; then
+  if "$KOTLINC_BIN" "${FIXTURES[@]}" "$CORE"/*.kt "$RUNNER_HARNESS" -d "$OUT/runner-tests.jar" -nowarn; then
     if [[ -f "$STDLIB" ]]; then
       java -cp "$OUT/runner-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.RunnerTestsKt || status=1
     else
@@ -95,7 +105,7 @@ fi
 echo
 echo "== 2c. the ledger a run leaves behind =="
 if [[ "$have_kotlin" -eq 1 ]]; then
-  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$LEDGER_HARNESS" -d "$OUT/ledger-tests.jar" -nowarn; then
+  if "$KOTLINC_BIN" "${FIXTURES[@]}" "$CORE"/*.kt "$LEDGER_HARNESS" -d "$OUT/ledger-tests.jar" -nowarn; then
     if [[ -f "$STDLIB" ]]; then
       java -cp "$OUT/ledger-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.LedgerTestsKt || status=1
     else
@@ -112,7 +122,7 @@ fi
 echo
 echo "== 2d. the tool tally the loop learns from =="
 if [[ "$have_kotlin" -eq 1 ]]; then
-  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$SCORES_HARNESS" -d "$OUT/scores-tests.jar" -nowarn; then
+  if "$KOTLINC_BIN" "${FIXTURES[@]}" "$CORE"/*.kt "$SCORES_HARNESS" -d "$OUT/scores-tests.jar" -nowarn; then
     if [[ -f "$STDLIB" ]]; then
       java -cp "$OUT/scores-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.ScoresTestsKt || status=1
     else
@@ -129,7 +139,7 @@ fi
 echo
 echo "== 2e. the six tools the app actually ships =="
 if [[ "$have_kotlin" -eq 1 ]]; then
-  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$TOOLS_HARNESS" -d "$OUT/tools-tests.jar" -nowarn; then
+  if "$KOTLINC_BIN" "${FIXTURES[@]}" "$CORE"/*.kt "$TOOLS_HARNESS" -d "$OUT/tools-tests.jar" -nowarn; then
     if [[ -f "$STDLIB" ]]; then
       java -cp "$OUT/tools-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.ToolsTestsKt || status=1
     else
@@ -146,7 +156,7 @@ fi
 echo
 echo "== 2f. the prompt the model actually reads =="
 if [[ "$have_kotlin" -eq 1 ]]; then
-  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$PLANNER_HARNESS" -d "$OUT/planner-tests.jar" -nowarn; then
+  if "$KOTLINC_BIN" "${FIXTURES[@]}" "$CORE"/*.kt "$PLANNER_HARNESS" -d "$OUT/planner-tests.jar" -nowarn; then
     if [[ -f "$STDLIB" ]]; then
       java -cp "$OUT/planner-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.PlannerTestsKt || status=1
     else
@@ -163,7 +173,7 @@ fi
 echo
 echo "== 2g. the loop under a hostile model (property test) =="
 if [[ "$have_kotlin" -eq 1 ]]; then
-  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$FUZZ_RUNNER" -d "$OUT/runner-fuzz.jar" -nowarn; then
+  if "$KOTLINC_BIN" "${FIXTURES[@]}" "$CORE"/*.kt "$FUZZ_RUNNER" -d "$OUT/runner-fuzz.jar" -nowarn; then
     if [[ -f "$STDLIB" ]]; then
       java -cp "$OUT/runner-fuzz.jar:$STDLIB" com.lucifer.mobile.cognition.harness.RunnerFuzzKt \
         "${RUNNER_FUZZ_RUNS:-200}" "${RUNNER_FUZZ_SEED:-20261030}" || status=1
@@ -314,6 +324,24 @@ if [[ "$(grep -c "ToolSpec(" "$CORE/CognitionCore.kt")" -ge 7 ]]; then
 else
   echo "  FAILED  the catalogue lost tools" >&2
   status=1
+fi
+
+echo
+echo "== 5. the cognition adapters compile against the Android surface =="
+# The runnable parts above use fixtures (the harness subclasses Context). This part is the other check:
+# Lucifer's own cognition sources, compiled with no fixtures at all, against the real android.jar when
+# there is one. A call the platform does not have fails here rather than in the APK build nobody runs.
+if [[ "$have_kotlin" -eq 1 ]]; then
+  android_surface_report "$STUBS"
+  if "$KOTLINC_BIN" ${JAR_ARGS[@]+"${JAR_ARGS[@]}"} "${SURFACE[@]}" "$CORE"/*.kt \
+      -d "$OUT/adapter-check" -nowarn; then
+    echo "  ok    the cognition adapters type-check"
+  else
+    echo "  FAILED  the cognition adapters do not type-check" >&2
+    status=1
+  fi
+else
+  echo "  SKIPPED — kotlinc not found, so the adapters were not type-checked."
 fi
 
 echo

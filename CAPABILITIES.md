@@ -384,7 +384,7 @@ Run in this workspace, just now:
 | `python3 tools/cognition-core/spec_check.py` | **PASS · 204 checks** |
 | `python3 tools/cognition-core/fuzz.py` | **FUZZ OK · 13 invariants** |
 | `python3 tools/cognition-core/loop_sim.py` | **LOOP SIM OK · 7 invariants, scripted runs** |
-| `./scripts/verify_all.sh --quiet` | **PASS 18 · SKIP 0 · FAIL 0** |
+| `./scripts/verify_all.sh --quiet` | **PASS 19 · SKIP 0 · FAIL 0** (Kotlin 1.9.24, JDK 17, real API 35 `android.jar`) |
 | `./scripts/verify_cognition_core.sh` | **PASS · 176 + 21 + 11 + 9 + 13 + 9 Kotlin checks + 200-run loop fuzz** + 49 static claims |
 | `./scripts/verify_synth_core.sh` | **PASS · 128 spec checks + 28 Kotlin checks** |
 | `./scripts/verify_verification_core.sh` | **PASS · 32 + 23 Kotlin checks** + adapter type-check |
@@ -395,6 +395,14 @@ above are executed checks, not reviews, and the first compile found five defects
 had seen — an unescaped-quote syntax error in `CognitionCore.kt`, a loop guard that skipped its own
 observation check, a preference the synthesizer learned and then discarded, `div)` accepted as a CSS
 selector, and three harness/stub signatures that had drifted from the code they stand in for.
+
+The whole suite now also type-checks every Android adapter against the `android.jar` from an API 35
+platform, not only against the hand-written stubs. That surfaced the last drift: `verify_privilege_core.sh`
+was failing CI because its stubs — not the adapters — were wrong (`CrossProfileApps` in the wrong
+package, `logoutUser` with an argument the platform does not have, a `UserManager.getUserInfo` that
+does not exist, wrong `PERMISSION_GRANT_STATE_*` values). `scripts/android_surface.sh` now prefers the
+SDK whenever one is present and prints which surface was used, so a stub can no longer pass while the
+real API would not.
 
 **Still not verified anywhere:** there is no Gradle, Android SDK, emulator or phone in this workspace, so
 no Gradle build has run, no lint or APK was produced, and nothing has been executed on a device — the
