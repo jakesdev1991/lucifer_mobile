@@ -54,6 +54,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lucifer.mobile.diagnostics.AndroidPlatformDiagnostics
+import com.lucifer.mobile.awareness.AwarenessSurfaces
+import com.lucifer.mobile.awareness.NotificationStore
 import com.lucifer.mobile.privacy.NetworkGuard
 import com.lucifer.mobile.privacy.PlayClassifier
 import com.lucifer.mobile.privacy.PlayEnvironmentProbe
@@ -473,6 +475,149 @@ fun AnimatedSettingsPanel(
                 modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp).verticalScroll(rememberScrollState()),
                 color = Morningstar.Bone, fontFamily = Morningstar.MonoTail, fontSize = 10.sp
             )
+        }
+
+        // ── AWARENESS · SYSTEM LOG (own UID only) ──
+        SettingsCard(title = "SYSTEM LOG · OWN APP ONLY", icon = { Icon(Icons.Filled.Info, contentDescription = "System log", tint = Morningstar.Info, modifier = Modifier.size(24.dp)) }) {
+            var logBusy by remember { mutableStateOf(false) }
+            var logText by remember { mutableStateOf("Not loaded yet.") }
+            Text(
+                AwarenessSurfaces.systemLogHonesty,
+                color = Morningstar.Warning, fontSize = 11.sp, fontFamily = Morningstar.Body
+            )
+            Button(
+                onClick = {
+                    logBusy = true
+                    diagnosticsScope.launch {
+                        logText = try {
+                            val lines = withContext(Dispatchers.IO) {
+                                AwarenessSurfaces.ownLogcatViaShizuku(context, 200)
+                            }
+                            if (lines == null) "Shizuku not granted — cannot read even our own log buffer via shell. Start Shizuku and grant Lucifer access first."
+                            else lines.take(200).joinToString("\n").ifBlank { "No log lines recorded for our UID yet." }
+                        } catch (error: Exception) {
+                            "[ERROR] ${error.message ?: "log read failed"}"
+                        }
+                        logBusy = false
+                    }
+                },
+                enabled = !logBusy,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (logBusy) "READING OWN LOG…" else "READ OWN LOGCAT (SHIZUKU)") }
+            Text(
+                logText,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).verticalScroll(rememberScrollState()),
+                color = Morningstar.Bone, fontFamily = Morningstar.MonoTail, fontSize = 10.sp
+            )
+        }
+
+        // ── AWARENESS · NOTIFICATIONS (opt-in listener) ──
+        SettingsCard(title = "NOTIFICATIONS · OPT-IN LISTENER", icon = { Icon(Icons.Filled.Psychology, contentDescription = "Notifications", tint = Morningstar.Gilded, modifier = Modifier.size(24.dp)) }) {
+            var notifStatus by remember { mutableStateOf("Checking…") }
+            var notifEntries by remember { mutableStateOf(listOf<NotificationStore.Entry>()) }
+            var notifRevision by remember { mutableStateOf(0) }
+            LaunchedEffect(notifRevision) {
+                withContext(Dispatchers.IO) {
+                    notifStatus = NotificationStore.statusLine(context)
+                    notifEntries = NotificationStore.snapshot()
+                }
+            }
+            Text(
+                "Lucifer can see notification titles only if YOU enable it in Settings > Special app access > " +
+                    "Notification access — the app cannot turn this on itself. When enabled, it records package + " +
+                    "title + timestamp only, kept in memory, never sent anywhere.",
+                color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body
+            )
+            Text(notifStatus, color = Morningstar.Gilded, fontSize = 10.sp, fontFamily = Morningstar.MonoTail)
+            Button(
+                onClick = { AwarenessSurfaces.openNotificationListenerSettings(context); notifRevision++ },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("OPEN NOTIFICATION ACCESS SETTINGS") }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { NotificationStore.clear(); notifRevision++ },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
+                ) { Text("CLEAR ALL", fontSize = 10.sp, fontFamily = Morningstar.Body) }
+                Button(
+                    onClick = { notifRevision++ },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
+                ) { Text("REFRESH", fontSize = 10.sp, fontFamily = Morningstar.Body) }
+            }
+            if (notifEntries.isNotEmpty()) {
+                notifEntries.take(30).forEach { entry ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "${entry.packageName} · ${entry.title.ifBlank { "(no title)" }} · ${entry.timestamp}",
+                            color = Morningstar.Bone, fontSize = 10.sp, fontFamily = Morningstar.MonoTail,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            "ACK",
+                            color = Morningstar.Info, fontSize = 10.sp, fontFamily = Morningstar.Body,
+                            modifier = Modifier.clickable { NotificationStore.ack(entry.timestamp); notifRevision++ }
+                        )
+                    }
+                }
+            } else {
+                Text("No notifications recorded.", color = Morningstar.Whisper, fontSize = 10.sp, fontFamily = Morningstar.Body)
+            }
+        }
+
+        // ── AWARENESS · OWN-UID TRAFFIC ──
+        SettingsCard(title = "DIAGNOSTICS · OWN TRAFFIC BYTES", icon = { Icon(Icons.Filled.Wifi, contentDescription = "Traffic", tint = Morningstar.Success, modifier = Modifier.size(24.dp)) }) {
+            var trafficText by remember { mutableStateOf("Not read yet.") }
+            var trafficBusy by remember { mutableStateOf(false) }
+            Text(
+                "Byte counters for Lucifer's own UID only (TrafficStats, since boot, all networks). " +
+                    "This is not a packet capture: full pcap needs root and is NOT attempted.",
+                color = Morningstar.Warning, fontSize = 11.sp, fontFamily = Morningstar.Body
+            )
+            Button(
+                onClick = {
+                    trafficBusy = true
+                    diagnosticsScope.launch {
+                        trafficText = withContext(Dispatchers.IO) { AwarenessSurfaces.ownTraffic().render() }
+                        trafficBusy = false
+                    }
+                },
+                enabled = !trafficBusy,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (trafficBusy) "READING…" else "READ OWN-UID TRAFFIC") }
+            Text(
+                trafficText,
+                modifier = Modifier.fillMaxWidth(),
+                color = Morningstar.Bone, fontFamily = Morningstar.MonoTail, fontSize = 10.sp
+            )
+        }
+
+        // ── AWARENESS · EMAIL (mailto only) ──
+        SettingsCard(title = "EMAIL · SYSTEM MAIL APP ONLY", icon = { Icon(Icons.Filled.Share, contentDescription = "Email", tint = Morningstar.Info, modifier = Modifier.size(24.dp)) }) {
+            var mailNote by remember { mutableStateOf("Not sent yet.") }
+            Text(
+                "Lucifer stores no mail credentials and talks to no mail server. EMAIL opens your system default " +
+                    "mail app with a mailto: intent. If no mail app is installed, this reports NOT CONFIGURED honestly.",
+                color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body
+            )
+            Button(
+                onClick = {
+                    val result = AwarenessSurfaces.composeEmail(
+                        context,
+                        to = "",
+                        subject = "Lucifer Mobile — feedback",
+                        body = ""
+                    )
+                    mailNote = if (result.launched) "Mail app opened via mailto:. " + result.note
+                    else "NOT CONFIGURED — " + result.note
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("COMPOSE EMAIL (MAILTO:)") }
+            Text(mailNote, color = Morningstar.Gilded, fontSize = 10.sp, fontFamily = Morningstar.MonoTail)
         }
 
         // VM SSH Password

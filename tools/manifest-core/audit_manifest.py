@@ -71,6 +71,7 @@ CALL_SITE = {
     "android.permission.CAMERA": ["Manifest.permission.CAMERA", "ImageReader"],
     "android.permission.RECORD_AUDIO": ["Manifest.permission.RECORD_AUDIO", "SpeechRecognizer"],
     "android.permission.USE_BIOMETRIC": ["BiometricPrompt"],
+    "android.permission.BIND_NOTIFICATION_LISTENER_SERVICE": ["NotificationListenerService"],
 }
 
 PERMISSION_RE = re.compile(r'<uses-permission\s+android:name="([^"]+)"')
