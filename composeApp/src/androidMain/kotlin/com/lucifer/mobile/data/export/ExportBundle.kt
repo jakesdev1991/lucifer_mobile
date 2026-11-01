@@ -95,16 +95,18 @@ object ExportBundle {
     }
 
     /** Write the bundle to the URI the system file picker returned. Never throws at the caller. */
-    fun write(context: Context, uri: Uri): Result<String> = try {
-        val body = build(context)
-        val stream = context.contentResolver.openOutputStream(uri)
-            ?: return Result.failure(IllegalStateException("The picker returned a location Lucifer cannot write to."))
-        stream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-        Log.i(TAG, "exported ${body.length} characters to the chosen location")
-        Result.success("Exported ${body.length} characters. Nothing was uploaded.")
-    } catch (error: Exception) {
-        Log.w(TAG, "export failed: ${error.javaClass.simpleName}")
-        Result.failure(error)
+    fun write(context: Context, uri: Uri): Result<String> {
+        return try {
+            val body = build(context)
+            val stream = context.contentResolver.openOutputStream(uri)
+                ?: return Result.failure(IllegalStateException("The picker returned a location Lucifer cannot write to."))
+            stream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            Log.i(TAG, "exported ${body.length} characters to the chosen location")
+            Result.success("Exported ${body.length} characters. Nothing was uploaded.")
+        } catch (error: Exception) {
+            Log.w(TAG, "export failed: ${error.javaClass.simpleName}")
+            Result.failure(error)
+        }
     }
 
     /** Count records in a directory of JSONL/log files without loading them. */

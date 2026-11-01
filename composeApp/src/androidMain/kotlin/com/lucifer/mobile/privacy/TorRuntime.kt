@@ -171,14 +171,16 @@ object TorRuntime {
     }
 
     /** True when the OS reports an app-provided VPN transport. Read-only, like every other probe. */
-    fun vpnPresent(context: Context): Boolean = try {
-        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE)
-            as? android.net.ConnectivityManager
-        val network = manager?.activeNetwork ?: return false
-        val caps = manager.getNetworkCapabilities(network) ?: return false
-        caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
-    } catch (_: Exception) {
-        false
+    fun vpnPresent(context: Context): Boolean {
+        return try {
+            val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE)
+                as? android.net.ConnectivityManager
+            val network = manager?.activeNetwork ?: return false
+            val caps = manager.getNetworkCapabilities(network) ?: return false
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN)
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /**

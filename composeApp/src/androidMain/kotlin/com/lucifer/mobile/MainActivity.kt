@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Terminal
@@ -287,6 +288,12 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                fun appendTerminalLines(lines: List<String>) {
+                    terminalLines = (terminalLines + lines).takeLast(200)
+                    val historySnapshot = terminalLines
+                    scope.launch(Dispatchers.IO) { saveTerminalHistory(historySnapshot) }
+                }
+
                 fun runLocalSiteOperation(label: String, operation: suspend () -> List<String>) {
                     if (isProcessing) return
                     if (terminalTarget != CommandTarget.TERMUX.launcherIndex) {
@@ -476,12 +483,6 @@ class MainActivity : ComponentActivity() {
                     } catch (e: Exception) {
                         llmStatus = "DARK"
                     }
-                }
-
-                fun appendTerminalLines(lines: List<String>) {
-                    terminalLines = (terminalLines + lines).takeLast(200)
-                    val historySnapshot = terminalLines
-                    scope.launch(Dispatchers.IO) { saveTerminalHistory(historySnapshot) }
                 }
 
                 fun runTerminalAction(action: TerminalAction) {

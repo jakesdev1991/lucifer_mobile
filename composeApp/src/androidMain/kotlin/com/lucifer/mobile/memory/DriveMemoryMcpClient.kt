@@ -85,13 +85,14 @@ class DriveMemoryMcpClient(private val context: Context) {
     }
 
     /** Only the chosen same-device Termux listener is allowed; never forward prompts to arbitrary hosts. */
-    fun validateLoopbackEndpoint(raw: String): String? = try {
-        val url = URL(raw)
-        if (url.protocol != "http" || url.host !in setOf("127.0.0.1", "localhost") ||
-            url.port != 8031 || url.path != "/mcp" || url.query != null || url.userInfo != null || url.ref != null
-        ) null else raw.trimEnd('/')
-    } catch (_: Exception) { null }
-
+    fun validateLoopbackEndpoint(raw: String): String? {
+        return try {
+            val url = URL(raw)
+            if (url.protocol != "http" || url.host !in setOf("127.0.0.1", "localhost") ||
+                url.port != 8031 || url.path != "/mcp" || url.query != null || url.userInfo != null || url.ref != null
+            ) null else raw.trimEnd('/')
+        } catch (_: Exception) { null }
+    }
     private fun callTool(endpoint: String, token: String, toolName: String, arguments: JSONObject): String? {
         var nextId = 1
         var protocolVersion = PROTOCOL_VERSION
@@ -138,7 +139,7 @@ class DriveMemoryMcpClient(private val context: Context) {
                 text.append(item.optString("text"))
             }
         }
-        text.toString().takeIf { it.isNotBlank() }
+        return text.toString().takeIf { it.isNotBlank() }
     }
 
     private data class RpcResponse(val body: JSONObject?, val sessionId: String?)

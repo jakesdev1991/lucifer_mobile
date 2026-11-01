@@ -180,8 +180,9 @@ object CognitionRunner {
 
         while (true) {
             val elapsed = System.currentTimeMillis() - started
-            LoopGuard.stopReason(step, elapsed, budget, calls, observations, observedChars)?.let {
-                stop = it
+            val stopReason = LoopGuard.stopReason(step, elapsed, budget, calls, observations, observedChars)
+            if (stopReason != null) {
+                stop = stopReason
                 break
             }
             step++

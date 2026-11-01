@@ -21,7 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.lucifer.mobile.ui.effects.glassSurface
-import com.lucifer.mobile.ui.effects.shard
+import com.lucifer.mobile.ui.theme.shard
 import com.lucifer.mobile.ui.theme.Morningstar
 import com.lucifer.mobile.verification.Plan
 import com.lucifer.mobile.verification.VerifierCharter

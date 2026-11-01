@@ -34,7 +34,7 @@ import com.lucifer.mobile.privilege.Provider
 import com.lucifer.mobile.privilege.ProviderState
 import com.lucifer.mobile.ui.effects.SigilRule
 import com.lucifer.mobile.ui.effects.glassSurface
-import com.lucifer.mobile.ui.effects.shard
+import com.lucifer.mobile.ui.theme.shard
 import com.lucifer.mobile.ui.theme.Morningstar
 import com.lucifer.mobile.verification.VerifierUiCommand
 import com.lucifer.mobile.verification.VerifierUiState

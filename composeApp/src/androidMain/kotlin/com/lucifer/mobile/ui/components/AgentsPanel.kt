@@ -3,6 +3,7 @@ package com.lucifer.mobile.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -48,7 +49,7 @@ import com.lucifer.mobile.tactician.TacticianEngine
 import com.lucifer.mobile.ui.effects.Disintegration
 import com.lucifer.mobile.ui.effects.SigilRule
 import com.lucifer.mobile.ui.effects.glassSurface
-import com.lucifer.mobile.ui.effects.shard
+import com.lucifer.mobile.ui.theme.shard
 import com.lucifer.mobile.ui.theme.Morningstar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -704,8 +705,9 @@ private fun PanelCard(title: String, accent: Color, content: @Composable () -> U
 }
 
 @Composable
-private fun panelFieldColors() = TextFieldDefaults.textFieldColors(
-    containerColor = Morningstar.Void,
+private fun panelFieldColors() = TextFieldDefaults.colors(
+    focusedContainerColor = Morningstar.Void,
+            unfocusedContainerColor = Morningstar.Void,
     focusedTextColor = Morningstar.Bone,
     unfocusedTextColor = Morningstar.Bone,
     cursorColor = Morningstar.Gilded,

@@ -43,7 +43,8 @@ android {
             "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi",
             "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
             "-opt-in=androidx.compose.foundation.ExperimentalFoundationApi",
-            "-opt-in=kotlinx.serialization.ExperimentalSerializationApi"
+            "-opt-in=kotlinx.serialization.ExperimentalSerializationApi",
+            "-opt-in=kotlin.BreakContinueInInlineLambdas"
         )
     }
 
@@ -52,6 +53,7 @@ android {
         viewBinding = false
         dataBinding = false
         aidl = true
+        buildConfig = true
     }
 
     composeOptions {
@@ -61,6 +63,7 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1,LICENSE,LICENSE.txt,license.txt,NOTICE,NOTICE.txt}"
+            excludes += "META-INF/versions/*/OSGI-INF/MANIFEST.MF"
         }
     }
 
@@ -132,6 +135,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-process:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime:2.8.7")
     implementation("androidx.lifecycle:lifecycle-service:2.8.7")
 
     // MultiDex

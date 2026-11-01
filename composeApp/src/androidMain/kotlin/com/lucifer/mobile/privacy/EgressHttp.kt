@@ -91,17 +91,18 @@ object EgressHttp {
         readTimeoutMs: Int,
         followRedirects: Boolean
     ): HttpURLConnection? = try {
-        (url.openConnection() as HttpURLConnection).apply {
+        (url.openConnection() as HttpURLConnection).also { conn ->
+            conn.setInstanceFollowRedirects(followRedirects)
+        }.apply {
             connectTimeout = clampTimeout(connectTimeoutMs)
             readTimeout = clampTimeout(readTimeoutMs)
             // Never follow a redirect by default: a 302 would carry credentials or a payload to a host
             // this phone never chose. Callers that follow redirects do it one hop at a time, so every
             // new destination is authorised and recorded.
-            instanceFollowRedirects = followRedirects
         }
     } catch (error: Exception) {
         // A malformed URL is a policy outcome, not a crash: report it as refused.
-        Log.w(TAG, "could not open ${url.take(64)}: ${error.javaClass.simpleName}")
+        Log.w(TAG, "could not open ${url.toString().take(64)}: ${error.javaClass.simpleName}")
         null
     }
 

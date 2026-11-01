@@ -1,11 +1,11 @@
 package com.lucifer.mobile.world
 
 import android.content.Context
+import android.content.pm.CrossProfileApps
 import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Process
-import android.content.pm.UserInfo
 import android.os.UserHandle
 import android.os.UserManager
 import android.util.Log
@@ -37,8 +37,8 @@ class WorldManager(private val context: Context) {
 
     private val userManager: UserManager? = context.getSystemService(UserManager::class.java)
     private val launcherApps: LauncherApps? = context.getSystemService(LauncherApps::class.java)
-    private val crossProfileApps = if (Build.VERSION.SDK_INT >= 28) {
-        context.getSystemService(android.content.CrossProfileApps::class.java)
+    private val crossProfileApps: CrossProfileApps? = if (Build.VERSION.SDK_INT >= 28) {
+        context.getSystemService(CrossProfileApps::class.java)
     } else {
         null
     }
@@ -60,14 +60,15 @@ class WorldManager(private val context: Context) {
         val manager = userManager ?: return emptyList()
         return try {
             manager.userProfiles.mapNotNull { handle ->
-                val info: UserInfo = runCatching { manager.getUserInfo(handle) }.getOrNull()
-                    ?: return@mapNotNull null
-                if (!info.isManagedProfile || info.id == currentUserId()) return@mapNotNull null
+                val userId = userIdOf(handle) ?: return@mapNotNull null
+                val isManaged = crossProfileApps?.isManagedProfile(handle)
+                    ?: manager.isManagedProfile()
+                if (!isManaged || userId == currentUserId()) return@mapNotNull null
                 AndroidUser(
-                    id = info.id,
-                    name = info.name ?: "profile ${info.id}",
-                    flags = if (info.isManagedProfile) AndroidUser.FLAG_MANAGED_PROFILE else 0,
-                    running = true
+                    id = userId,
+                    name = "profile $userId",
+                    flags = AndroidUser.FLAG_MANAGED_PROFILE,
+                    running = manager.isUserRunning(handle)
                 )
             }.distinctBy { it.id }.sortedBy { it.id }
         } catch (error: Exception) {
@@ -76,11 +77,16 @@ class WorldManager(private val context: Context) {
         }
     }
 
+    /** UserHandle.getIdentifier() is @hide; parse it from toString ("UserHandle{10}"). */
+    private fun userIdOf(handle: UserHandle): Int? = try {
+        Regex("""UserHandle\{(\d+)\}""").find(handle.toString())?.groupValues?.get(1)?.toIntOrNull()
+    } catch (_: Exception) {
+        null
+    }
+
     private fun handleFor(userId: Int): UserHandle? {
         val manager = userManager ?: return null
-        return manager.userProfiles.firstOrNull { handle ->
-            runCatching { manager.getUserInfo(handle).id }.getOrNull() == userId
-        }
+        return manager.userProfiles.firstOrNull { handle -> userIdOf(handle) == userId }
     }
 
     fun crossProfileAllowed(): Boolean {
@@ -110,9 +116,18 @@ class WorldManager(private val context: Context) {
         val apps = crossProfileApps ?: return false
         return try {
             if (Build.VERSION.SDK_INT < 30) {
-                apps.requestInteractAcrossProfiles()
+                // requestInteractAcrossProfiles() was removed in API 30; the replacement is
+                // createRequestInteractAcrossProfilesIntent(), which the owner must launch.
+                val intent = apps.createRequestInteractAcrossProfilesIntent()
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
                 true
-            } else false
+            } else {
+                val intent = apps.createRequestInteractAcrossProfilesIntent()
+                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+                true
+            }
         } catch (_: Exception) {
             false
         }
@@ -277,7 +292,7 @@ class WorldManager(private val context: Context) {
     }
 
     fun openWorkProfileSettings(): Boolean = try {
-        val intent = android.content.Intent(android.provider.Settings.ACTION_MANAGED_PROFILE_SETTINGS)
+        val intent = android.content.Intent("android.settings.MANAGED_PROFILE_SETTINGS")
             .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(intent)
         true
@@ -285,13 +300,15 @@ class WorldManager(private val context: Context) {
         false
     }
 
-    fun openProfileApp(pkg: String): Boolean = try {
-        val intent = context.packageManager.getLaunchIntentForPackage(pkg) ?: return false
-        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
-        true
-    } catch (_: Exception) {
-        false
+    fun openProfileApp(pkg: String): Boolean {
+        return try {
+            val intent = context.packageManager.getLaunchIntentForPackage(pkg) ?: return false
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun resolveNewestProfile(): Int? = managedProfiles().maxByOrNull { it.id }?.id

@@ -270,8 +270,9 @@ fun WorkflowControlPanel(
 }
 
 @Composable
-private fun workflowFieldColors() = TextFieldDefaults.textFieldColors(
-    containerColor = Morningstar.Void,
+private fun workflowFieldColors() = TextFieldDefaults.colors(
+    focusedContainerColor = Morningstar.Void,
+            unfocusedContainerColor = Morningstar.Void,
     focusedTextColor = Morningstar.Bone,
     unfocusedTextColor = Morningstar.Bone,
     cursorColor = Morningstar.Gilded,

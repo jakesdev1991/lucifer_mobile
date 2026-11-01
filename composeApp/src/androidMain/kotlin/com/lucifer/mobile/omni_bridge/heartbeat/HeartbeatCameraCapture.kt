@@ -103,7 +103,7 @@ class HeartbeatCameraCapture(context: Context) {
                                         override fun onCaptureFailed(
                                             session: CameraCaptureSession,
                                             request: CaptureRequest,
-                                            failure: CameraCaptureSession.CaptureFailure
+                                            failure: android.hardware.camera2.CaptureFailure
                                         ) = fail(IllegalStateException("Camera capture failed: ${failure.reason}"))
                                     }, handler)
                                 } catch (error: Exception) { fail(error) }

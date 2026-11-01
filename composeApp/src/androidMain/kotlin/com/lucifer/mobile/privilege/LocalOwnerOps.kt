@@ -98,8 +98,13 @@ object LocalOwnerOps {
     fun logoutUser(context: Context, user: UserHandle): Result {
         val manager = dpm(context) ?: return Result(false, "DevicePolicyManager is unavailable on this build.")
         return try {
-            manager.logoutUser(admin(context), user)
-            Result(true, "Logged that user out.")
+            // logoutUser takes only the admin ComponentName; the target user is the current one.
+            val code = manager.logoutUser(admin(context))
+            if (code == android.os.UserManager.USER_OPERATION_SUCCESS) {
+                Result(true, "Logged that user out.")
+            } else {
+                Result(false, "logoutUser returned $code")
+            }
         } catch (error: Exception) {
             Result(false, "logoutUser refused: ${error.message ?: error.javaClass.simpleName}")
         }

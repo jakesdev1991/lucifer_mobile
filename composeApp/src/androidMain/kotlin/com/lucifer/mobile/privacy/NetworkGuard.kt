@@ -85,14 +85,16 @@ object NetworkGuard {
     }
 
     /** Whether the OS currently has a usable network. Advisory only; the switch is the real gate. */
-    fun deviceHasNetwork(context: Context): Boolean = try {
-        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-        val network = manager?.activeNetwork ?: return false
-        val caps = manager.getNetworkCapabilities(network) ?: return false
-        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-    } catch (error: Exception) {
-        Log.i(TAG, "connectivity lookup failed: ${error.javaClass.simpleName}")
-        false
+    fun deviceHasNetwork(context: Context): Boolean {
+        return try {
+            val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            val network = manager?.activeNetwork ?: return false
+            val caps = manager.getNetworkCapabilities(network) ?: return false
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (error: Exception) {
+            Log.i(TAG, "connectivity lookup failed: ${error.javaClass.simpleName}")
+            false
+        }
     }
 
     // ── the gate ─────────────────────────────────────────────────────

@@ -116,11 +116,11 @@ val Typography: androidx.compose.material3.Typography = MorningstarTypography
 // Every Material surface inherits the chamfer, so a Card, a dialog, and a chip all read as the
 // same obsidian material without per-call-site shapes.
 val Shapes = androidx.compose.material3.Shapes(
-    extraSmall = ShardShape(3.dp),
-    small = ShardShape(5.dp),
-    medium = ShardShape(9.dp),
-    large = ShardShape(13.dp),
-    extraLarge = ShardShape(17.dp)
+    extraSmall = androidx.compose.foundation.shape.RoundedCornerShape(3.dp),
+    small = androidx.compose.foundation.shape.RoundedCornerShape(5.dp),
+    medium = androidx.compose.foundation.shape.RoundedCornerShape(9.dp),
+    large = androidx.compose.foundation.shape.RoundedCornerShape(13.dp),
+    extraLarge = androidx.compose.foundation.shape.RoundedCornerShape(17.dp)
 )
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -55,13 +55,13 @@ class SkillLibrary private constructor(
             .distinct()
         if (terms.isEmpty()) return skills.take(limit.coerceIn(1, MAX_SEARCH_RESULTS))
 
-        return skills.mapNotNull { skill ->
+        val scored: List<Pair<ReferenceSkill, Int>> = skills.mapNotNull { skill ->
             val pack = packIndex[skill.packId] ?: return@mapNotNull null
             val name = skill.name.lowercase()
             val summary = skill.summary.lowercase()
             val category = pack.title.lowercase()
             val keywords = skill.keywords.map(String::lowercase)
-            val score = terms.sumOf { term ->
+            val score = terms.map { term ->
                 when {
                     name == term -> 8
                     name.contains(term) -> 5
@@ -70,9 +70,10 @@ class SkillLibrary private constructor(
                     summary.contains(term) -> 1
                     else -> 0
                 }
-            }
-            if (score > 0) skill to score else null
+            }.sum()
+            if (score > 0) (skill to score) else null
         }
+        return scored
             .sortedWith(compareByDescending<Pair<ReferenceSkill, Int>> { it.second }.thenBy { it.first.id })
             .take(limit.coerceIn(1, MAX_SEARCH_RESULTS))
             .map { it.first }

@@ -91,7 +91,7 @@ class LuciferVoice(context: Context) {
     // ── listening ────────────────────────────────────────────────────
 
     /** Why listening could not start, in words that do not blame the user. */
-    class SpeechUnavailable(val message: String) : Exception(message)
+    class SpeechUnavailable(override val message: String) : Exception(message)
 
     @Volatile private var recognizer: SpeechRecognizer? = null
 

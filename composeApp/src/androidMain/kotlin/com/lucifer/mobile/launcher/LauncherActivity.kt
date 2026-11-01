@@ -191,28 +191,30 @@ class LauncherActivity : ComponentActivity() {
         false
     }
 
-    private fun launchControlPanel(panel: String): Boolean = try {
-        val tab = when (panel) {
-            "terminal" -> 0
-            "memory" -> 1
-            "skills" -> 2
-            "settings" -> 3
-            "wallet" -> 4
-            "browser" -> 5
-            "workflows", "workflow" -> 7
-            "recover", "recovery" -> 8
-            "agents", "general", "tactician" -> 9
-            "world", "dhizuku", "privilege" -> 10
-            else -> return false
+    private fun launchControlPanel(panel: String): Boolean {
+        return try {
+            val tab = when (panel) {
+                "terminal" -> 0
+                "memory" -> 1
+                "skills" -> 2
+                "settings" -> 3
+                "wallet" -> 4
+                "browser" -> 5
+                "workflows", "workflow" -> 7
+                "recover", "recovery" -> 8
+                "agents", "general", "tactician" -> 9
+                "world", "dhizuku", "privilege" -> 10
+                else -> return false
+            }
+            val intent = Intent().setClassName(packageName, "com.lucifer.mobile.MainActivity")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                .putExtra("lucifer_tab", tab)
+            startActivity(intent)
+            true
+        } catch (e: Exception) {
+            Log.w("LuciferLauncher", "could not open Lucifer panel $panel", e)
+            false
         }
-        val intent = Intent().setClassName(packageName, "com.lucifer.mobile.MainActivity")
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            .putExtra("lucifer_tab", tab)
-        startActivity(intent)
-        true
-    } catch (e: Exception) {
-        Log.w("LuciferLauncher", "could not open Lucifer panel $panel", e)
-        false
     }
 
     private fun launchSystemSettings(section: String): Boolean = try {
@@ -422,7 +424,7 @@ class LauncherActivity : ComponentActivity() {
                         localMemory.rememberExchange(text, answer)
                         // Attributed to the learned skills that were in this turn's prompt: a
                         // correction of this answer becomes their loss, praise becomes their win.
-                        SkillSynthRuntime.recordAnswer(this, text, answer, Surface.LAUNCHER_CHAT.name)
+                        SkillSynthRuntime.recordAnswer(this@LauncherActivity, text, answer, Surface.LAUNCHER_CHAT.name)
                         withContext(Dispatchers.Main) {
                             chatMessages = chatMessages + ChatMessage(answer, true)
                             chatThinking = false

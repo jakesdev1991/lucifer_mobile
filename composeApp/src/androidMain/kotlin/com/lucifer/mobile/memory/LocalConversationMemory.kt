@@ -30,13 +30,13 @@ class LocalConversationMemory(context: Context) : SQLiteOpenHelper(
 
     override fun onConfigure(db: SQLiteDatabase) {
         super.onConfigure(db)
-        db.execSQL("PRAGMA secure_delete=ON")
+        db.rawQuery("PRAGMA secure_delete=ON", null).use { }
         // 2 GiB disk quota; the SQLite engine enforces it without allocating 2 GiB of RAM.
         val pageSize = db.rawQuery("PRAGMA page_size", null).use { cursor ->
             if (cursor.moveToFirst()) cursor.getLong(0).coerceAtLeast(1L) else 4_096L
         }
         val maxPages = (MAX_DATABASE_BYTES / pageSize).coerceAtLeast(1L)
-        db.execSQL("PRAGMA max_page_count=$maxPages")
+        db.rawQuery("PRAGMA max_page_count=$maxPages", null).use { }
     }
 
     override fun onCreate(db: SQLiteDatabase) {

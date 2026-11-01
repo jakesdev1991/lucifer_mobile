@@ -76,13 +76,15 @@ object DhizukuBridge {
         false
     }
 
-    fun openApp(context: Context): Boolean = try {
-        val intent = context.packageManager.getLaunchIntentForPackage(PACKAGE) ?: return false
-        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(intent)
-        true
-    } catch (_: Exception) {
-        false
+    fun openApp(context: Context): Boolean {
+        return try {
+            val intent = context.packageManager.getLaunchIntentForPackage(PACKAGE) ?: return false
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            true
+        } catch (_: Exception) {
+            false
+        }
     }
 
     /**
@@ -90,15 +92,17 @@ object DhizukuBridge {
      * cannot be constructed reflectively (it is an abstract class, not an interface), so the honest
      * answer there is: approve it in the Dhizuku app.
      */
-    fun requestPermission(context: Context): Boolean = try {
-        val api = apiClass() ?: return false
-        if (status(context).permissionGranted) return true
-        api.getMethod("requestPermission", Integer.TYPE).invoke(null, REQUEST_CODE)
-        true
-    } catch (_: NoSuchMethodException) {
-        false
-    } catch (_: Exception) {
-        false
+    fun requestPermission(context: Context): Boolean {
+        return try {
+            val api = apiClass() ?: return false
+            if (status(context).permissionGranted) return true
+            api.getMethod("requestPermission", Integer.TYPE).invoke(null, REQUEST_CODE)
+            true
+        } catch (_: NoSuchMethodException) {
+            false
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun apiClass(): Class<*>? = try {
@@ -108,20 +112,24 @@ object DhizukuBridge {
     }
 
     /** Wraps a system-service Binder so calls arrive as the device owner. */
-    fun binderWrapper(original: IBinder): IBinder? = try {
-        val api = apiClass() ?: return null
-        api.getMethod("binderWrapper", IBinder::class.java).invoke(null, original) as? IBinder
-    } catch (error: Throwable) {
-        Log.w(TAG, "binderWrapper failed: ${error.message}")
-        null
+    fun binderWrapper(original: IBinder): IBinder? {
+        return try {
+            val api = apiClass() ?: return null
+            api.getMethod("binderWrapper", IBinder::class.java).invoke(null, original) as? IBinder
+        } catch (error: Throwable) {
+            Log.w(TAG, "binderWrapper failed: ${error.message}")
+            null
+        }
     }
 
     /** Some Dhizuku builds can resolve a service by name directly; used when ServiceManager is closed to us. */
-    fun binderWrapperByName(name: String): IBinder? = try {
-        val api = apiClass() ?: return null
-        api.getMethod("binderWrapper", String::class.java).invoke(null, name) as? IBinder
-    } catch (_: Throwable) {
-        null
+    fun binderWrapperByName(name: String): IBinder? {
+        return try {
+            val api = apiClass() ?: return null
+            api.getMethod("binderWrapper", String::class.java).invoke(null, name) as? IBinder
+        } catch (_: Throwable) {
+            null
+        }
     }
 
     // ── hidden system services ────────────────────────────────────────────────────────────────

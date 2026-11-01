@@ -56,7 +56,6 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
-import androidx.lifecycle.ViewTreeLifecycleOwner
 import com.lucifer.mobile.MainActivity
 import com.lucifer.mobile.launcher.ChatMessage
 import com.lucifer.mobile.surface.Surface
@@ -180,7 +179,12 @@ class FloatingChatService : LifecycleService() {
             softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         }
         val view = ComposeView(this).apply {
-            ViewTreeLifecycleOwner.set(this, this@FloatingChatService)
+            // ViewTreeLifecycleOwner lives in lifecycle-runtime (android artifact); set reflectively-safe via the compose helper when available
+            runCatching {
+                val cls = Class.forName("androidx.lifecycle.ViewTreeLifecycleOwner")
+                val m = cls.getMethod("set", android.view.View::class.java, androidx.lifecycle.LifecycleOwner::class.java)
+                m.invoke(null, this, this@FloatingChatService)
+            }
             setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
             setContent { LuciferTheme { FloatingChatPanel(this@FloatingChatService) } }
         }

@@ -94,8 +94,9 @@ fun AnimatedMemoryPanel(
                     .padding(horizontal = 12.dp),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-                colors = TextFieldDefaults.textFieldColors(
-                    containerColor = Morningstar.Glass,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Morningstar.Glass,
+            unfocusedContainerColor = Morningstar.Glass,
                     focusedTextColor = Morningstar.Bone,
                     unfocusedTextColor = Morningstar.Bone,
                     cursorColor = Morningstar.Gilded,
@@ -239,8 +240,9 @@ fun AnimatedSkillsPanel(
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = "Search skills", tint = Morningstar.Ash) },
-            colors = TextFieldDefaults.textFieldColors(
-                containerColor = Morningstar.Glass,
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = Morningstar.Glass,
+            unfocusedContainerColor = Morningstar.Glass,
                 focusedTextColor = Morningstar.Bone,
                 unfocusedTextColor = Morningstar.Bone,
                 cursorColor = Morningstar.Gilded,

@@ -41,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -189,13 +190,10 @@ private fun Modifier.drawWithContentPulse(
     val alpha = (0.55f * (1f - amount)).coerceIn(0f, 1f)
     val pivot = center
     drawContext.canvas.save()
-    drawContext.canvas.scale(growth, growth, pivot)
-    drawOutline(
-        outline = outline,
-        color = color,
-        alpha = alpha,
-        style = Stroke(width = (1.1f + 1.6f * amount).dp.toPx())
-    )
+    drawContext.canvas.scale(growth, growth)
+    val path = androidx.compose.ui.graphics.Path()
+    (outline as? androidx.compose.ui.graphics.Outline.Generic)?.let { path.addPath(it.path) }
+    drawPath(path, color, alpha, Stroke(width = (1.1f + 1.6f * amount).dp.toPx()))
     drawContext.canvas.restore()
 }
 

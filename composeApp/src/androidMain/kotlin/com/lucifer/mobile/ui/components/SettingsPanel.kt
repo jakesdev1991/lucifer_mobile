@@ -62,7 +62,7 @@ import com.lucifer.mobile.net.EgressTransport
 import com.lucifer.mobile.skills.SkillSynthRuntime
 import com.lucifer.mobile.ui.effects.SigilRule
 import com.lucifer.mobile.ui.effects.glassSurface
-import com.lucifer.mobile.ui.effects.shard
+import com.lucifer.mobile.ui.theme.shard
 import com.lucifer.mobile.ui.theme.Morningstar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -337,8 +337,9 @@ fun AnimatedSettingsPanel(
                     .height(120.dp),
                 singleLine = false,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Text),
-                colors = TextFieldDefaults.textFieldColors(
-                    containerColor = Morningstar.Void,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Morningstar.Void,
+            unfocusedContainerColor = Morningstar.Void,
                     focusedTextColor = Morningstar.Bone,
                     unfocusedTextColor = Morningstar.Bone,
                     cursorColor = Morningstar.Gilded,
@@ -411,8 +412,9 @@ fun AnimatedSettingsPanel(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Text),
-                colors = TextFieldDefaults.textFieldColors(
-                    containerColor = Morningstar.Void,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Morningstar.Void,
+            unfocusedContainerColor = Morningstar.Void,
                     focusedTextColor = Morningstar.Bone,
                     unfocusedTextColor = Morningstar.Bone,
                     cursorColor = Morningstar.Info,
@@ -480,8 +482,9 @@ fun AnimatedSettingsPanel(
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Text),
-                    colors = TextFieldDefaults.textFieldColors(
-                        containerColor = Morningstar.Void,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Morningstar.Void,
+            unfocusedContainerColor = Morningstar.Void,
                         focusedTextColor = Morningstar.Bone,
                         unfocusedTextColor = Morningstar.Bone,
                         cursorColor = Morningstar.Info,
@@ -514,8 +517,9 @@ fun AnimatedSettingsPanel(
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    colors = TextFieldDefaults.textFieldColors(
-                        containerColor = Morningstar.Void,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Morningstar.Void,
+            unfocusedContainerColor = Morningstar.Void,
                         focusedTextColor = Morningstar.Bone,
                         unfocusedTextColor = Morningstar.Bone,
                         cursorColor = Morningstar.Info,
@@ -544,7 +548,8 @@ fun AnimatedSettingsPanel(
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Text),
-                    colors = TextFieldDefaults.textFieldColors(containerColor = Morningstar.Void, focusedTextColor = Morningstar.Bone, unfocusedTextColor = Morningstar.Bone, cursorColor = Morningstar.Info, focusedIndicatorColor = Morningstar.Crimson, unfocusedIndicatorColor = Color.Transparent, disabledIndicatorColor = Color.Transparent),
+                    colors = TextFieldDefaults.colors(focusedContainerColor = Morningstar.Void,
+            unfocusedContainerColor = Morningstar.Void, focusedTextColor = Morningstar.Bone, unfocusedTextColor = Morningstar.Bone, cursorColor = Morningstar.Info, focusedIndicatorColor = Morningstar.Crimson, unfocusedIndicatorColor = Color.Transparent, disabledIndicatorColor = Color.Transparent),
                     placeholder = { Text("SSH user", color = Morningstar.Whisper) }
                 )
                 Button(onClick = { onVmUserSave(vmUserText) }, colors = ButtonDefaults.buttonColors(containerColor = Morningstar.Blood, contentColor = Color.White)) { Text("SAVE USER", fontSize = 11.sp, fontFamily = Morningstar.Body) }
@@ -556,7 +561,8 @@ fun AnimatedSettingsPanel(
                     modifier = Modifier.weight(1f),
                     singleLine = true,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
-                    colors = TextFieldDefaults.textFieldColors(containerColor = Morningstar.Void, focusedTextColor = Morningstar.Bone, unfocusedTextColor = Morningstar.Bone, cursorColor = Morningstar.Info, focusedIndicatorColor = Morningstar.Crimson, unfocusedIndicatorColor = Color.Transparent, disabledIndicatorColor = Color.Transparent),
+                    colors = TextFieldDefaults.colors(focusedContainerColor = Morningstar.Void,
+            unfocusedContainerColor = Morningstar.Void, focusedTextColor = Morningstar.Bone, unfocusedTextColor = Morningstar.Bone, cursorColor = Morningstar.Info, focusedIndicatorColor = Morningstar.Crimson, unfocusedIndicatorColor = Color.Transparent, disabledIndicatorColor = Color.Transparent),
                     placeholder = { Text("Forwarded SSH port", color = Morningstar.Whisper) }
                 )
                 Button(onClick = { onVmPortSave(vmPortText) }, colors = ButtonDefaults.buttonColors(containerColor = Morningstar.Blood, contentColor = Color.White)) { Text("SAVE PORT", fontSize = 11.sp, fontFamily = Morningstar.Body) }
@@ -575,8 +581,9 @@ fun AnimatedSettingsPanel(
                 modifier = Modifier.fillMaxWidth().height(90.dp),
                 singleLine = false,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Text),
-                colors = TextFieldDefaults.textFieldColors(
-                    containerColor = Morningstar.Void,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Morningstar.Void,
+            unfocusedContainerColor = Morningstar.Void,
                     focusedTextColor = Morningstar.Bone,
                     unfocusedTextColor = Morningstar.Bone,
                     cursorColor = Morningstar.Gilded,
@@ -636,8 +643,9 @@ fun AnimatedSettingsPanel(
                         maxLines = 4,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password),
-                        colors = TextFieldDefaults.textFieldColors(
-                            containerColor = Morningstar.Void,
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Morningstar.Void,
+            unfocusedContainerColor = Morningstar.Void,
                             focusedTextColor = Morningstar.Bone,
                             unfocusedTextColor = Morningstar.Bone,
                             cursorColor = Morningstar.Info,
@@ -719,8 +727,9 @@ fun AnimatedSettingsPanel(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Uri),
-                    colors = TextFieldDefaults.textFieldColors(
-                        containerColor = Morningstar.Void,
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Morningstar.Void,
+            unfocusedContainerColor = Morningstar.Void,
                         focusedTextColor = Morningstar.Bone,
                         unfocusedTextColor = Morningstar.Bone,
                         cursorColor = Morningstar.Info,
@@ -847,8 +856,9 @@ fun AnimatedSettingsPanel(
                 onValueChange = { memoryMcpUrlText = it.take(160) },
                 modifier = Modifier.fillMaxWidth(), singleLine = true,
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Uri),
-                colors = TextFieldDefaults.textFieldColors(
-                    containerColor = Morningstar.Void, focusedTextColor = Morningstar.Bone,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Morningstar.Void,
+            unfocusedContainerColor = Morningstar.Void, focusedTextColor = Morningstar.Bone,
                     unfocusedTextColor = Morningstar.Bone, cursorColor = Morningstar.Gilded,
                     focusedIndicatorColor = Morningstar.Crimson, unfocusedIndicatorColor = Color.Transparent,
                     disabledIndicatorColor = Color.Transparent
@@ -861,8 +871,9 @@ fun AnimatedSettingsPanel(
                 modifier = Modifier.fillMaxWidth(), singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password),
-                colors = TextFieldDefaults.textFieldColors(
-                    containerColor = Morningstar.Void, focusedTextColor = Morningstar.Bone,
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Morningstar.Void,
+            unfocusedContainerColor = Morningstar.Void, focusedTextColor = Morningstar.Bone,
                     unfocusedTextColor = Morningstar.Bone, cursorColor = Morningstar.Gilded,
                     focusedIndicatorColor = Morningstar.Crimson, unfocusedIndicatorColor = Color.Transparent,
                     disabledIndicatorColor = Color.Transparent

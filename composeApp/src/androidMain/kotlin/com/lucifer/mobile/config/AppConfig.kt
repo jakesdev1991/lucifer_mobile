@@ -8,7 +8,7 @@ import java.io.File
 /**
  * Every small on-device setting, in one place.
  *
- * Before this, `files/config/*` was reached by eleven hand-rolled readers and writers: four separate
+ * Before this, `files/config/` was reached by eleven hand-rolled readers and writers: four separate
  * spellings of `vm_host.txt`, four of the memory-MCP token, three of the SSH password. Most of them
  * wrote the file directly with `FileOutputStream`, so a process death mid-write left a truncated value
  * behind — a half-written host or port that the SSH path would then trust. Some created `config/`

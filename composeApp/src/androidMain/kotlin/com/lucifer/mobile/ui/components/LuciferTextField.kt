@@ -122,8 +122,9 @@ fun LuciferMultilineTextField(
         maxLines = maxLines,
         minLines = minLines,
         textStyle = Typography.bodyMedium,
-        colors = androidx.compose.material3.TextFieldDefaults.textFieldColors(
-            containerColor = LuciferColors.Surface,
+        colors = androidx.compose.material3.TextFieldDefaults.colors(
+            focusedContainerColor = LuciferColors.Surface,
+            unfocusedContainerColor = LuciferColors.Surface,
             cursorColor = LuciferColors.Red
         ),
         enabled = enabled

@@ -1,7 +1,7 @@
 package com.lucifer.mobile.ui.components
 
 import android.content.Context
-import androidx.compose.foundation.SelectionContainer
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.sp
 import com.lucifer.mobile.omni_bridge.heartbeat.LuciferHeartbeatService
 import com.lucifer.mobile.ui.effects.SigilRule
 import com.lucifer.mobile.ui.effects.glassSurface
-import com.lucifer.mobile.ui.effects.shard
+import com.lucifer.mobile.ui.theme.shard
 import com.lucifer.mobile.ui.theme.Morningstar
 import java.io.File
 import kotlinx.coroutines.delay

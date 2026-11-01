@@ -329,8 +329,9 @@ private fun safetyLabel(safety: MoveSafety): String = when (safety) {
 }
 
 @Composable
-private fun recoveryFieldColors() = TextFieldDefaults.textFieldColors(
-    containerColor = Morningstar.Void,
+private fun recoveryFieldColors() = TextFieldDefaults.colors(
+    focusedContainerColor = Morningstar.Void,
+            unfocusedContainerColor = Morningstar.Void,
     focusedTextColor = Morningstar.Bone,
     unfocusedTextColor = Morningstar.Bone,
     cursorColor = Morningstar.Gilded,
