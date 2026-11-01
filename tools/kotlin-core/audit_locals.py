@@ -30,7 +30,6 @@ import sys
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SOURCES = [
     os.path.join(ROOT, "composeApp", "src", "androidMain", "kotlin"),
-    os.path.join(ROOT, "composeApp", "src", "commonMain", "kotlin"),
 ]
 
 DECLARATION = re.compile(r"^(\s*)(val|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?::[^=]+)?=")

@@ -44,7 +44,7 @@ object BrowserCoreTests {
         )
 
         // ── reads free, mutations confirmed ──
-        for (read in listOf(BrowserAction.NAVIGATE, BrowserAction.READ, BrowserAction.SCREENSHOT)) {
+        for (read in listOf(BrowserAction.NAVIGATE, BrowserAction.READ, BrowserAction.SCREENSHOT, BrowserAction.SCROLL)) {
             val d = BrowserPolicy.decide(read, "https://example.com")
             check("${read.name} allowed", d.allowed)
             check("${read.name} needs no confirmation", !d.needsConfirmation)
@@ -154,6 +154,23 @@ object BrowserCoreTests {
             "describe evaluate counts the characters",
             BrowserPolicy.describe(BrowserAction.EVALUATE, "abc").contains("3")
         )
+
+        // ── SSRF navigation guard ──
+        check("public host passes", BrowserPolicy.navigationRefusal("https://example.com/page") == null)
+        for (bad in listOf(
+            "https://192.168.1.1/", "https://10.0.0.5/", "https://127.0.0.1/",
+            "https://169.254.169.254/latest", "https://172.16.0.1/", "https://100.64.0.1/",
+            "https://[::1]/", "https://[fc00::1]/", "https://[fe80::1]/",
+            "http://localhost/", "https://printer.local/", "javascript:alert(1)", "intent://x"
+        )) {
+            check("navigation refuses $bad", BrowserPolicy.navigationRefusal(bad) != null)
+        }
+        check(
+            "scroll script clamps the delta",
+            BrowserPolicy.scrollScript(999_999).contains("100000") &&
+                BrowserPolicy.scrollScript(-999_999).contains("-100000")
+        )
+        check("scroll script reports SCROLLED", BrowserPolicy.scrollScript(600).contains("SCROLLED"))
 
         println()
         if (failed == 0) {

@@ -24,6 +24,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 /** Explicitly enabled foreground service. Runs one bounded planning/drafting turn,
  * then waits 30 minutes after completion before the next turn. */
@@ -93,6 +94,16 @@ class LuciferHeartbeatService : Service() {
                         }
                         Log.i(TAG, result)
                         updateNotification(result.take(160))
+                        // One offline self-benchmark step per heartbeat pass: runs at most weekly,
+                        // never records a MODEL observation, so it does not count against the
+                        // General's daily budget, and completes even with no network.
+                        if (com.lucifer.mobile.selfbench.SelfBench.isDue(applicationContext)) {
+                            com.lucifer.mobile.selfbench.SelfBench.run(applicationContext, { prompt ->
+                                // Offline answer stage: the eval set is fixed and scored locally.
+                                // No model call is made here; a blank reply scores as a fail.
+                                ""
+                            })
+                        }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
@@ -105,6 +116,39 @@ class LuciferHeartbeatService : Service() {
             }
         }
         return START_STICKY
+    }
+
+    /**
+     * The weekly offline self-check, run as one heartbeat step. It answers the shipped eval set
+     * through the no-tool answer stage only. It is skipped when not due (once per week), and it
+     * records no MODEL observation, so the General's budget never sees it.
+     */
+    private fun runSelfBenchStep() {
+        try {
+            val now = System.currentTimeMillis()
+            if (!com.lucifer.mobile.selfbench.SelfBench.isDue(applicationContext, now)) return
+            com.lucifer.mobile.selfbench.SelfBench.run(applicationContext, answer = { prompt ->
+                // The no-tool answer stage: a single direct reply, exactly what a shallow turn
+                // produces. No tools, no network, no MODEL observation recorded.
+                val llm = com.lucifer.mobile.omni_bridge.llm.NemotronClient(applicationContext)
+                runBlocking {
+                    llm.chat(
+                        listOf(
+                            "system" to "You are Lucifer in a self-check. Answer directly and honestly. " +
+                                "Do not claim to have checked anything you did not check. Do not use " +
+                                "phrases like 'guaranteed' or 'definitely'. Keep it short.",
+                            "user" to prompt
+                        ),
+                        maxTokens = 300,
+                        temperature = 0.2,
+                        requestTimeoutMs = 45_000,
+                        userInitiated = false
+                    )
+                }
+            }, now = now)
+        } catch (error: Exception) {
+            Log.w(TAG, "self-bench step skipped: ${error.message ?: "unknown"}")
+        }
     }
 
     private fun startHeartbeatForeground(cameraEnabled: Boolean) {

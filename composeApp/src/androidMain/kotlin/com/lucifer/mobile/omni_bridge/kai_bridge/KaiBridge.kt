@@ -1,174 +1,171 @@
 package com.lucifer.mobile.omni_bridge.kai_bridge
 
 import android.content.Context
+import android.content.pm.PackageManager
+import com.lucifer.mobile.privacy.EgressClass
+import com.lucifer.mobile.privacy.NetworkGuard
 import kotlinx.coroutines.Dispatchers
-import org.json.JSONObject
+import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
-// Message types for Kai sandbox communication
-sealed class KaiMessage {
-    data class WalletGenerate(val chain: String, val count: Int = 1) : KaiMessage()
-    data class WalletSign(val address: String, val data: String, val derivationPath: String? = null) : KaiMessage()
-    data class WalletBalance(val address: String, val chain: String) : KaiMessage()
-    data class BrowserNavigate(val url: String, val waitUntil: String = "networkidle") : KaiMessage()
-    data class BrowserClick(val selector: String) : KaiMessage()
-    data class BrowserScreenshot(val fullPage: Boolean = false) : KaiMessage()
-    data class BrowserEvaluate(val script: String) : KaiMessage()
-    data class LlmQuery(val prompt: String, val model: String = "nemotron-3-ultra", val maxTokens: Int = 2048) : KaiMessage()
-    data class SandboxExec(val command: String, val timeoutMs: Int = 30000) : KaiMessage()
-    data class RcodEvaluate(val stateVectors: List<FloatArray>) : KaiMessage()
-    object Ping : KaiMessage()
+/** The Kai package this bridge talks to. */
+const val KAI_PACKAGE = "com.inspiredandroid.kai"
+
+/**
+ * What a cross-app probe of the Kai package found. Every state except [PRESENT_RUNNABLE] is an
+ * honest failure mode: the bridge reports exactly which one applies instead of pretending.
+ */
+enum class KaiState {
+    /** The package is not installed. */
+    ABSENT,
+    /** Installed, but `run-as com.inspiredandroid.kai` was refused (run-as is allow-listed by the OS). */
+    RUN_AS_BLOCKED,
+    /** Installed and runnable; the sandbox answered `echo pong`. */
+    PRESENT_RUNNABLE,
+    /** Installed and runnable, but the sandbox did not answer the ping (crashed or wedged). */
+    PRESENT_UNRESPONSIVE
+}
+
+data class KaiStatus(
+    val state: KaiState,
+    val versionName: String = "",
+    val detail: String = ""
+) {
+    /** One truthful line for the Settings panel. */
+    val line: String
+        get() = when (state) {
+            KaiState.ABSENT -> "Kai: not installed"
+            KaiState.RUN_AS_BLOCKED ->
+                "Kai: installed${versionSuffix()} but run-as is blocked — the OS allow-list refuses it"
+            KaiState.PRESENT_RUNNABLE -> "Kai: installed${versionSuffix()} · run-as allowed · sandbox answers"
+            KaiState.PRESENT_UNRESPONSIVE ->
+                "Kai: installed${versionSuffix()} · run-as allowed · sandbox did not answer"
+        }
+
+    private fun versionSuffix(): String = if (versionName.isBlank()) "" else " v$versionName"
 }
 
 // Response types
 sealed class KaiResponse {
-    data class WalletGenerated(val addresses: List<String>, val privateKeys: List<String>) : KaiResponse()
-    data class WalletSigned(val signature: String, val signedData: String) : KaiResponse()
-    data class WalletBalances(val balances: Map<String, String>) : KaiResponse()
-    data class BrowserResult(val success: Boolean, val data: String, val error: String?) : KaiResponse()
-    data class LlmResponse(val text: String, val tokensUsed: Int, val latencyMs: Int) : KaiResponse()
     data class SandboxResult(val exitCode: Int, val stdout: String, val stderr: String) : KaiResponse()
-    data class RcodResult(val muValues: List<Float>, val metrics: String) : KaiResponse()
     data class Error(val message: String) : KaiResponse()
     object Pong : KaiResponse()
 }
 
-// Kai Bridge - executes via sandbox (no JNI needed)
+/**
+ * Kai Bridge — the real, honest cross-app path into the Kai package (`com.inspiredandroid.kai`).
+ *
+ * What is real: presence and version come from [PackageManager]; execution inside Kai's sandbox goes
+ * through `run-as com.inspiredandroid.kai`, which the OS only permits for allow-listed debuggable
+ * packages. When run-as is refused, the operation reports exactly that — nothing is stubbed into a
+ * fake success.
+ *
+ * What is never done: no command is executed without the caller having passed the confirmation flow,
+ * and any command that needs to reach the network is authorised by [NetworkGuard] first, so a Kai
+ * operation lands in the same egress ledger as every other socket in the app. There is no path from
+ * this bridge to an ungated connection.
+ *
+ * What this bridge deliberately no longer offers: wallet, browser-automation, LLM, and RCOD wrappers.
+ * They pointed at Python scripts inside the sandbox that nothing deploys, and the app has real paths
+ * for each (LuciferWallet, browser/InteractiveBrowser, NemotronClient); the wrappers were removed
+ * rather than shipped as stubs.
+ */
 class KaiBridge(private val context: Context) {
 
     companion object {
         private const val MAX_CAPTURE_CHARS = 1_000_000
     }
 
-    private var connected = false
+    @Volatile private var connected = false
 
-    // Initialize connection to Kai sandbox
-    suspend fun connect(): Boolean {
-        // Test sandbox connectivity
-        return try {
-            val result = execute("echo 'test'", 5000)
-            connected = result?.exitCode == 0
-            connected
-        } catch (e: Exception) {
-            connected = false
-            false
+    /** Probe presence, version, and whether run-as works. Pure read; no sandbox command runs. */
+    suspend fun probe(): KaiStatus = withContext(Dispatchers.IO) {
+        val pm = context.packageManager
+        val info = try {
+            pm.getPackageInfo(KAI_PACKAGE, 0)
+        } catch (_: PackageManager.NameNotFoundException) {
+            return@withContext KaiStatus(KaiState.ABSENT, detail = "package $KAI_PACKAGE is not installed")
+        }
+        val version = info.versionName.orEmpty()
+        // Read-only probe: `run-as <pkg> true`. If the OS refuses run-as for this package, the
+        // stderr says so and exit code is non-zero — that is the RUN_AS_BLOCKED answer, not a crash.
+        val result = execute("true", 5_000, authorizeNetwork = false)
+        when {
+            result == null -> KaiStatus(KaiState.RUN_AS_BLOCKED, version, "run-as produced no result")
+            result.exitCode != 0 && result.stderr.contains("run-as", ignoreCase = true) ->
+                KaiStatus(
+                    KaiState.RUN_AS_BLOCKED, version,
+                    "run-as refused: ${result.stderr.trim().take(200)}"
+                )
+            result.exitCode != 0 ->
+                KaiStatus(KaiState.RUN_AS_BLOCKED, version, "run-as failed: ${result.stderr.trim().take(200)}")
+            else -> {
+                // run-as works; confirm the sandbox actually answers.
+                val pong = execute("echo pong", 5_000, authorizeNetwork = false)
+                if (pong != null && pong.exitCode == 0 && pong.stdout.trim() == "pong") {
+                    connected = true
+                    KaiStatus(KaiState.PRESENT_RUNNABLE, version, "sandbox answers echo pong")
+                } else {
+                    KaiStatus(KaiState.PRESENT_UNRESPONSIVE, version, "run-as allowed but echo pong failed")
+                }
+            }
         }
     }
 
-    // Wallet operations - executed via sandbox Python scripts
-    suspend fun generateWallet(chain: String = "arbitrum", count: Int = 1): KaiResponse.WalletGenerated? {
-        if (!connected) return null
-        val script = """
-            import json, sys
-            sys.path.insert(0, '/tmp/omni_bridge/wallet')
-            from wallet.generate import generate_wallet
-            result = generate_wallet(chain=${pythonLiteral(chain)}, count=${count.coerceIn(1, 10)})
-            print(json.dumps(result))
-        """.trimIndent()
-        val result = execute(script, 10000)
-        return parseWalletGenerated(result?.stdout ?: "")
+    /**
+     * Connect = probe + require a runnable sandbox. Returns the real [KaiStatus]; the caller reads
+     * [KaiStatus.state] rather than a bare boolean, so the UI can say *why* it failed.
+     */
+    suspend fun connect(): KaiStatus {
+        val status = probe()
+        connected = status.state == KaiState.PRESENT_RUNNABLE
+        return status
     }
 
-    suspend fun signTransaction(address: String, data: String, derivationPath: String? = null): KaiResponse.WalletSigned? {
-        if (!connected) return null
-        val script = """
-            import json, sys
-            sys.path.insert(0, '/tmp/omni_bridge/wallet')
-            from wallet.sign import sign_transaction
-            result = sign_transaction(address=${pythonLiteral(address)}, data=${pythonLiteral(data)}, derivation_path=${pythonLiteral(derivationPath.orEmpty())})
-            print(json.dumps(result))
-        """.trimIndent()
-        val result = execute(script, 10000)
-        return parseWalletSigned(result?.stdout ?: "")
+    /**
+     * Read-only convenience used by the Settings health check. True only when the sandbox answered.
+     */
+    suspend fun ping(): Boolean {
+        if (!connected) return false
+        val result = execute("echo pong", 5_000, authorizeNetwork = false)
+        return result?.stdout?.trim() == "pong"
     }
 
-    suspend fun getBalance(address: String, chain: String): KaiResponse.WalletBalances? {
-        if (!connected) return null
-        val script = """
-            import json, sys
-            sys.path.insert(0, '/tmp/omni_bridge/wallet')
-            from wallet.balance import get_balance
-            result = get_balance(address=${pythonLiteral(address)}, chain=${pythonLiteral(chain)})
-            print(json.dumps(result))
-        """.trimIndent()
-        val result = execute(script, 15000)
-        return parseWalletBalances(result?.stdout ?: "")
-    }
-
-    // Browser automation - executed via sandbox Python/Playwright
-    suspend fun navigate(url: String, waitUntil: String = "networkidle"): KaiResponse.BrowserResult? {
-        if (!connected) return null
-        val script = """
-            import json, sys
-            sys.path.insert(0, '/tmp/omni_bridge/browser')
-            from browser.navigate import navigate
-            result = navigate(url=${pythonLiteral(url)}, wait_until=${pythonLiteral(waitUntil)})
-            print(json.dumps(result))
-        """.trimIndent()
-        val result = execute(script, 30000)
-        return parseBrowserResult(result?.stdout ?: "")
-    }
-
-    suspend fun click(selector: String): KaiResponse.BrowserResult? {
-        if (!connected) return null
-        val script = """
-            import json, sys
-            sys.path.insert(0, '/tmp/omni_bridge/browser')
-            from browser.click import click
-            result = click(selector=${pythonLiteral(selector)})
-            print(json.dumps(result))
-        """.trimIndent()
-        val result = execute(script, 15000)
-        return parseBrowserResult(result?.stdout ?: "")
-    }
-
-    suspend fun screenshot(fullPage: Boolean = false): KaiResponse.BrowserResult? {
-        if (!connected) return null
-        val script = """
-            import json, sys
-            sys.path.insert(0, '/tmp/omni_bridge/browser')
-            from browser.screenshot import screenshot
-            result = screenshot(full_page=$fullPage)
-            print(json.dumps(result))
-        """.trimIndent()
-        val result = execute(script, 15000)
-        return parseBrowserResult(result?.stdout ?: "")
-    }
-
-    suspend fun evaluate(script: String): KaiResponse.BrowserResult? {
-        if (!connected) return null
-        val script = """
-            import json, sys
-            sys.path.insert(0, '/tmp/omni_bridge/browser')
-            from browser.evaluate import evaluate
-            result = evaluate(script=${pythonLiteral(script)})
-            print(json.dumps(result))
-        """.trimIndent()
-        val result = execute(script, 15000)
-        return parseBrowserResult(result?.stdout ?: "")
-    }
-
-    // LLM queries - executed via sandbox with NVIDIA API
-    suspend fun queryLlm(prompt: String, model: String = "nemotron-3-ultra", maxTokens: Int = 2048): KaiResponse.LlmResponse? {
-        if (!connected) return null
-        val script = """
-            import json, sys
-            sys.path.insert(0, '/tmp/omni_bridge/llm')
-            from llm.query import query_llm
-            result = query_llm(prompt=${pythonLiteral(prompt)}, model=${pythonLiteral(model)}, max_tokens=${maxTokens.coerceIn(1, 8192)})
-            print(json.dumps(result))
-        """.trimIndent()
-        val result = execute(script, 60000)
-        return parseLlmResponse(result?.stdout ?: "")
-    }
-
-    // Sandbox execution - command is intentionally a shell command, but never re-parsed by a parent shell.
-    suspend fun execute(command: String, timeoutMs: Int = 30000): KaiResponse.SandboxResult? {
-        return kotlinx.coroutines.withContext(Dispatchers.IO) {
-            val process = Runtime.getRuntime().exec(
-                arrayOf("run-as", "com.inspiredandroid.kai", "sh", "-c", command)
+    /**
+     * Execute a command inside the Kai sandbox via `run-as`.
+     *
+     * @param authorizeNetwork when true, the command is treated as potentially network-touching and a
+     *   network authorisation is recorded in the egress ledger (against the Kai package, class
+     *   [EgressClass.UNKNOWN], because a sandbox command can egress even though the bridge itself
+     *   opens no socket). Read-only probes pass false.
+     */
+    suspend fun execute(
+        command: String,
+        timeoutMs: Int = 30000,
+        authorizeNetwork: Boolean = true
+    ): KaiResponse.SandboxResult? {
+        if (authorizeNetwork) {
+            // The bridge itself opens no socket, but a sandbox command may. Record the intent in the
+            // same ledger every other egress goes through, so the audit trail is complete.
+            NetworkGuard.authorize(
+                "https://$KAI_PACKAGE/sandbox-exec",
+                userInitiated = true,
+                expected = EgressClass.UNKNOWN
             )
+        }
+        return withContext(Dispatchers.IO) {
+            val process = try {
+                Runtime.getRuntime().exec(
+                    arrayOf("run-as", KAI_PACKAGE, "sh", "-c", command)
+                )
+            } catch (e: Exception) {
+                return@withContext KaiResponse.SandboxResult(
+                    exitCode = -1,
+                    stdout = "",
+                    stderr = "run-as could not be started: ${e.message ?: e.javaClass.simpleName}"
+                )
+            }
             val stdout = StringBuilder()
             val stderr = StringBuilder()
             val stdoutReader = drainStream(process.inputStream, stdout, "kai-stdout")
@@ -190,7 +187,12 @@ class KaiBridge(private val context: Context) {
         }
     }
 
-    private fun pythonLiteral(value: String): String = JSONObject.quote(value)
+    /**
+     * Run a read-only command in the sandbox and report honestly: a non-zero exit names the real
+     * failure (run-as blocked, command failed) — never a fabricated result.
+     */
+    suspend fun execReadOnly(command: String, timeoutMs: Int = 10_000): KaiResponse =
+        execute(command, timeoutMs, authorizeNetwork = false) ?: KaiResponse.Error("run-as produced no result")
 
     private fun drainStream(stream: java.io.InputStream, output: StringBuilder, name: String) =
         thread(name = name, isDaemon = true) {
@@ -203,187 +205,9 @@ class KaiBridge(private val context: Context) {
             }
         }
 
-    // RCOD evaluation
-    suspend fun evaluateRcod(stateVectors: List<FloatArray>): KaiResponse.RcodResult? {
-        if (!connected) return null
-        val vectorsJson = stateVectors.joinToString(",") { arr ->
-            "[${arr.joinToString(",") { it.toString() }}]"
-        }
-        val script = """
-            import json, sys
-            sys.path.insert(0, '/tmp/omni_bridge/sandbox')
-            from sandbox.rcod import evaluate_rcod
-            result = evaluate_rcod(state_vectors=$vectorsJson)
-            print(json.dumps(result))
-        """.trimIndent()
-        val result = execute(script, 10000)
-        return parseRcodResult(result?.stdout ?: "")
-    }
-
-    suspend fun ping(): Boolean {
-        if (!connected) return false
-        val result = execute("echo pong", 5000)
-        return result?.stdout?.trim() == "pong"
-    }
-
     fun disconnect() {
         connected = false
     }
 
     fun isConnected(): Boolean = connected
-
-    // ============ Response Parsers ============
-
-    private fun parseWalletGenerated(json: String): KaiResponse.WalletGenerated? {
-        return try {
-            val addresses = extractJsonArray(json, "addresses")
-            val privateKeys = extractJsonArray(json, "private_keys")
-            if (addresses.isNotEmpty()) KaiResponse.WalletGenerated(addresses, privateKeys) else null
-        } catch (e: Exception) { null }
-    }
-
-    private fun parseWalletSigned(json: String): KaiResponse.WalletSigned? {
-        return try {
-            val signature = extractJsonString(json, "signature")
-            val signedData = extractJsonString(json, "signed_data")
-            if (signature.isNotEmpty()) KaiResponse.WalletSigned(signature, signedData) else null
-        } catch (e: Exception) { null }
-    }
-
-    private fun parseWalletBalances(json: String): KaiResponse.WalletBalances? {
-        return try {
-            val balances = extractJsonObject(json, "balances")
-            if (balances.isNotEmpty()) KaiResponse.WalletBalances(balances) else null
-        } catch (e: Exception) { null }
-    }
-
-    private fun parseBrowserResult(json: String): KaiResponse.BrowserResult? {
-        return try {
-            val success = extractJsonBoolean(json, "success")
-            val data = extractJsonString(json, "data")
-            val error = extractJsonString(json, "error")
-            KaiResponse.BrowserResult(success, data, error.takeIf { it.isNotEmpty() })
-        } catch (e: Exception) { null }
-    }
-
-    private fun parseLlmResponse(json: String): KaiResponse.LlmResponse? {
-        return try {
-            val text = extractJsonString(json, "text")
-            val tokensUsed = extractJsonInt(json, "tokens_used")
-            val latencyMs = extractJsonInt(json, "latency_ms")
-            if (text.isNotEmpty()) KaiResponse.LlmResponse(text, tokensUsed, latencyMs) else null
-        } catch (e: Exception) { null }
-    }
-
-    private fun parseRcodResult(json: String): KaiResponse.RcodResult? {
-        return try {
-            val muValues = extractJsonArray(json, "mu_values").map { it.toFloat() }
-            val metrics = extractJsonString(json, "metrics")
-            KaiResponse.RcodResult(muValues, metrics)
-        } catch (e: Exception) { null }
-    }
-
-    // ============ JSON Helpers ============
-
-    private fun extractJsonString(json: String, key: String): String {
-        val pattern = "\"$key\"\\s*:\\s*\"([^\"]*)\"".toRegex()
-        return pattern.find(json)?.groupValues?.get(1) ?: ""
-    }
-
-    private fun extractJsonInt(json: String, key: String): Int {
-        val pattern = "\"$key\"\\s*:\\s*(\\d+)".toRegex()
-        return pattern.find(json)?.groupValues?.get(1)?.toIntOrNull() ?: 0
-    }
-
-    private fun extractJsonBoolean(json: String, key: String): Boolean {
-        val pattern = "\"$key\"\\s*:\\s*(true|false)".toRegex()
-        return pattern.find(json)?.groupValues?.get(1)?.toBoolean() ?: false
-    }
-
-    private fun extractJsonArray(json: String, key: String): List<String> {
-        val pattern = "\"$key\"\\s*:\\s*\\[([^\\]]*)\\]".toRegex()
-        val match = pattern.find(json)?.groupValues?.get(1) ?: ""
-        return match.split(",").map { it.trim().replace("\"", "") }.filter { it.isNotEmpty() }
-    }
-
-    private fun extractJsonObject(json: String, key: String): Map<String, String> {
-        val pattern = "\"$key\"\\s*:\\s*\\{([^\\}]*)\\}".toRegex()
-        val match = pattern.find(json)?.groupValues?.get(1) ?: ""
-        val map = mutableMapOf<String, String>()
-        for (pair in match.split(",")) {
-            val kv = pair.split(":").map { it.trim().replace("\"", "") }
-            if (kv.size == 2) map[kv[0]] = kv[1]
-        }
-        return map
-    }
 }
-
-// Wallet Bridge - simplified interface for wallet operations
-class KaiWalletBridge(
-    private val kaiBridge: KaiBridge
-) {
-
-    suspend fun initialize() {
-        kaiBridge.connect()
-    }
-
-    suspend fun generateWallet(chain: String): WalletKeypair? {
-        val result = kaiBridge.generateWallet(chain, 1)
-        return result?.let { WalletKeypair(it.addresses.first(), it.privateKeys.first(), chain) }
-    }
-
-    suspend fun loadWallet(address: String): WalletKeypair? {
-        // In production: load from keystore
-        return null
-    }
-
-    suspend fun signTransaction(txParams: Map<String, String>): String? {
-        // In production: sign via Kai sandbox
-        return null
-    }
-
-    suspend fun getBalance(address: String, token: String): String? {
-        val result = kaiBridge.getBalance(address, "ethereum")
-        return result?.balances?.get(token)
-    }
-
-    fun shutdown() {
-        kaiBridge.disconnect()
-    }
-}
-
-data class WalletKeypair(
-    val address: String,
-    val privateKey: String,
-    val chain: String
-)
-
-// Wallet data models for UI
-data class WalletInfo(
-    val address: String,
-    val chain: String,
-    val balance: String,
-    val symbol: String,
-    val usdValue: String,
-    val derivationPath: String?
-)
-
-data class BrowserSession(
-    val url: String,
-    val title: String,
-    val screenshot: String?,  // Base64 encoded
-    val timestamp: Long
-)
-
-data class LlmConversation(
-    val id: String,
-    val messages: List<LlmMessage>,
-    val model: String,
-    val timestamp: Long
-)
-
-data class LlmMessage(
-    val role: String,  // "user" | "assistant" | "system"
-    val content: String,
-    val timestamp: Long
-)

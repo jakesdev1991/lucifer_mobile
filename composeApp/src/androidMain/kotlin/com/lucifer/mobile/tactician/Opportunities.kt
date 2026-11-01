@@ -41,6 +41,13 @@ enum class Autonomy(val label: String) {
 
 enum class ProposalStatus { PROPOSED, APPROVED, REJECTED, APPLIED, EXPIRED }
 
+/**
+ * What actually happened to a proposal after it left the inbox. Recorded when the status moves to
+ * APPLIED or REJECTED/EXPIRED so learned-skill confidence reflects real results, not intentions.
+ * [APPLIED_UNDONE] means it was applied and later reversed or dismissed.
+ */
+enum class ProposalOutcome { NONE, HELPED, DISMISSED, FAILED, APPLIED_UNDONE }
+
 data class Opportunity(
     val id: String,
     val category: OpportunityCategory,
@@ -54,7 +61,11 @@ data class Opportunity(
     val createdAt: Long = System.currentTimeMillis(),
     val origin: String = "detector",
     /** Stable identity across runs so the same finding is not duplicated. */
-    val fingerprint: String = ""
+    val fingerprint: String = "",
+    /** The recorded result of this proposal, once it has been applied or rejected. */
+    val outcome: ProposalOutcome = ProposalOutcome.NONE,
+    /** When the outcome was recorded. */
+    val outcomeAt: Long = 0L
 ) {
     fun withFingerprint(): Opportunity {
         if (fingerprint.isNotBlank()) return this
@@ -74,7 +85,9 @@ data class Opportunity(
         "status" to status.name,
         "at" to createdAt,
         "origin" to origin,
-        "fp" to fingerprint
+        "fp" to fingerprint,
+        "outcome" to outcome.name,
+        "outcomeAt" to outcomeAt
     )
 
     companion object {
@@ -94,7 +107,9 @@ data class Opportunity(
                 status = ProposalStatus.entries.firstOrNull { it.name == map.str("status") } ?: ProposalStatus.PROPOSED,
                 createdAt = map.long("at"),
                 origin = map.str("origin").take(20),
-                fingerprint = map.str("fp").take(24)
+                fingerprint = map.str("fp").take(24),
+                outcome = ProposalOutcome.entries.firstOrNull { it.name == map.str("outcome") } ?: ProposalOutcome.NONE,
+                outcomeAt = map.long("outcomeAt")
             ).withFingerprint()
         }
     }
@@ -150,6 +165,19 @@ class ProposalLedger(initial: List<Opportunity> = emptyList(), private val maxEn
     fun setStatus(fingerprint: String, status: ProposalStatus): Opportunity? {
         val existing = items[fingerprint] ?: return null
         val updated = existing.copy(status = status)
+        items[fingerprint] = updated
+        return updated
+    }
+
+    /**
+     * Record what actually happened to a proposal. Only meaningful once it has left PROPOSED/APPROVED;
+     * a proposal still in the inbox has no result yet and keeps [ProposalOutcome.NONE].
+     */
+    @Synchronized
+    fun setOutcome(fingerprint: String, outcome: ProposalOutcome, now: Long = System.currentTimeMillis()): Opportunity? {
+        val existing = items[fingerprint] ?: return null
+        if (existing.status == ProposalStatus.PROPOSED || existing.status == ProposalStatus.APPROVED) return existing
+        val updated = existing.copy(outcome = outcome, outcomeAt = now)
         items[fingerprint] = updated
         return updated
     }

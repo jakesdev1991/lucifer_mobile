@@ -87,6 +87,7 @@ fun AnimatedSettingsPanel(
     shizukuAuditBusy: Boolean = false,
     shizukuStatus: String = "Checking Shizuku…",
     onKaiHealthCheck: () -> Unit = {},
+    kaiStatusLine: String = "Kai: not probed yet",
     onVmPasswordSave: (String) -> Unit = {},
     onVmHostSave: (String) -> Unit = {},
     onVmUserSave: (String) -> Unit = {},
@@ -108,6 +109,12 @@ fun AnimatedSettingsPanel(
     onLocalMemoryToggle: (Boolean) -> Unit = {},
     onLocalMemoryClear: () -> Unit = {},
     onExportBundle: () -> Unit = {},
+    allowLessonExport: Boolean = false,
+    onAllowLessonExportToggle: (Boolean) -> Unit = {},
+    onExportLessons: () -> Unit = {},
+    onImportLessons: () -> Unit = {},
+    selfbenchLine: String = "",
+    selfbenchSparkline: String = "",
     biometricStatus: String = "…",
     voiceEnabled: Boolean = true,
     knowledgeStatus: String = "…",
@@ -685,10 +692,22 @@ fun AnimatedSettingsPanel(
             ) { Text("Manage EVM Wallets") }
         }
 
-        // Kai Bridge is not deployable from this build; expose the real ping instead.
+        // Kai Bridge: the real cross-app probe (run-as into com.inspiredandroid.kai) with an honest
+        // status line — present / run-as allowed / version — instead of a bare ping.
         SettingsCard(title = "KAI BRIDGE SANDBOX", icon = { Icon(Icons.Filled.Build, contentDescription = "Kai Bridge", tint = Morningstar.Warning, modifier = Modifier.size(24.dp)) }) {
+            SystemStatusRow(
+                "Kai state",
+                kaiStatusLine,
+                when {
+                    kaiStatusLine.contains("not installed") -> Morningstar.Crimson
+                    kaiStatusLine.contains("blocked") -> Morningstar.Warning
+                    kaiStatusLine.contains("answers") -> Morningstar.Success
+                    else -> Morningstar.Ash
+                }
+            )
             Text(
-                "Checks whether the Kai sandbox is installed and responds. This does not deploy or install it.",
+                "Probes whether the Kai package (com.inspiredandroid.kai) is installed and whether the OS allows " +
+                    "run-as into its sandbox. This does not deploy or install it; when run-as is blocked the status says so.",
                 color = Morningstar.Ash,
                 fontSize = 12.sp, fontFamily = Morningstar.Body
             )
@@ -790,6 +809,59 @@ fun AnimatedSettingsPanel(
                 onClick = onExportBundle,
                 colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Color.White)
             ) { Text("EXPORT BUNDLE", fontSize = 12.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold) }
+        }
+
+        // Opt-in cross-session lesson exchange and the weekly offline self-benchmark.
+        SettingsCard(title = "LESSONS & SELF-CHECK", icon = { Icon(Icons.Filled.Psychology, contentDescription = "Lessons and self-check", tint = Morningstar.Gilded, modifier = Modifier.size(24.dp)) }) {
+            val panelContext = LocalContext.current
+            val panelScope = rememberCoroutineScope()
+            var exportAllowed by remember { mutableStateOf(allowLessonExport) }
+            var benchLine by remember { mutableStateOf(selfbenchLine) }
+            var benchSpark by remember { mutableStateOf(selfbenchSparkline) }
+            LaunchedEffect(Unit) {
+                withContext(Dispatchers.IO) {
+                    exportAllowed = com.lucifer.mobile.resilience.LessonTransfer.allowExport(panelContext)
+                    benchLine = com.lucifer.mobile.selfbench.SelfBench.summaryLine(panelContext)
+                    benchSpark = com.lucifer.mobile.selfbench.SelfBench.sparkline(panelContext)
+                }
+            }
+            Text(
+                "Resilience lessons can move to another Lucifer install only when you allow it here and pick the file yourself — nothing is ever exported automatically or sent over the network. The weekly self-check runs fully offline and never counts against the model budget.",
+                color = Morningstar.Ash, fontSize = 12.sp, fontFamily = Morningstar.Body
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            SystemStatusRow("Lesson export allowed", if (exportAllowed) "ON" else "OFF", if (exportAllowed) Morningstar.Success else Morningstar.Warning)
+            SystemStatusRow("Self-check (last 4 weeks)", if (benchSpark.isBlank()) "—" else benchSpark, Morningstar.Info)
+            SystemStatusRow("Self-check detail", benchLine.ifBlank { "no runs yet" }, Morningstar.Info)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        val turnOn = !exportAllowed
+                        panelScope.launch {
+                            withContext(Dispatchers.IO) {
+                                com.lucifer.mobile.resilience.LessonTransfer.setAllowExport(panelContext, turnOn)
+                            }
+                            exportAllowed = turnOn
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (exportAllowed) Morningstar.GlassRaised else Morningstar.SuccessDim, contentColor = Color.White)
+                ) { Text(if (exportAllowed) "DISALLOW EXPORT" else "ALLOW LESSON EXPORT", fontSize = 11.sp) }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onExportLessons,
+                    enabled = exportAllowed,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Color.White)
+                ) { Text("EXPORT LESSONS…", fontSize = 11.sp) }
+                Button(
+                    onClick = onImportLessons,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Color.White)
+                ) { Text("IMPORT LESSONS…", fontSize = 11.sp) }
+            }
         }
 
         // Always-on skill synthesis: local, bounded, and reversible from here.

@@ -37,7 +37,7 @@ mkdir -p "$OUT"
 CORE_FILES=()
 while IFS= read -r file; do
   case "$(basename "$file")" in
-    ResilienceEngine.kt) continue ;;
+    ResilienceEngine.kt|LessonTransfer.kt) continue ;;
     *) CORE_FILES+=("$file") ;;
   esac
 done < <(find "$CORE_DIR" -maxdepth 1 -name '*.kt' | sort)

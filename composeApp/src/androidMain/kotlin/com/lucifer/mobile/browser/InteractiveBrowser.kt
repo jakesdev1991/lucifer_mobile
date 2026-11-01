@@ -97,6 +97,13 @@ class InteractiveBrowser(private val context: Context) {
         val view = attach()
         view.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                // A redirect or page-initiated navigation is re-checked here too: a private-literal
+                // redirect target is refused before the WebView loads it.
+                val refusal = url?.let { BrowserPolicy.navigationRefusal(it) }
+                if (refusal != null) {
+                    view?.stopLoading()
+                    onBlocked("Blocked navigation to ${url?.take(80)}: $refusal")
+                }
                 onState(Snapshot(url = url.orEmpty(), progress = 0, canGoBack = view?.canGoBack() == true))
             }
 
@@ -123,6 +130,13 @@ class InteractiveBrowser(private val context: Context) {
                     onBlocked("Blocked a non-web link ($scheme). Lucifer does not hand you to another app.")
                     return true
                 }
+                // SSRF guard: the same rules as the read-only fetcher, applied to every navigation the
+                // page itself triggers (redirects, window.open, link clicks).
+                val refusal = BrowserPolicy.navigationRefusal(target)
+                if (refusal != null) {
+                    onBlocked("Blocked navigation to ${target.take(80)}: $refusal")
+                    return true
+                }
                 return false
             }
         }
@@ -132,6 +146,12 @@ class InteractiveBrowser(private val context: Context) {
     fun navigate(rawUrl: String, available: Boolean = true): Boolean {
         val decision = BrowserPolicy.decide(BrowserAction.NAVIGATE, rawUrl, available)
         if (decision.refused) return false
+        // SSRF/DNS-rebinding rules from the read-only fetcher apply to navigation here too.
+        val refusal = BrowserPolicy.navigationRefusal(rawUrl)
+        if (refusal != null) {
+            Log.w(TAG, "navigation refused: $refusal")
+            return false
+        }
         val url = normalize(rawUrl)
         attach().loadUrl(url)
         return true
@@ -169,6 +189,9 @@ class InteractiveBrowser(private val context: Context) {
         // evaluateJavascript returns a JSON-encoded string literal; decode it before handing it on.
         return decodeJsonString(raw).take(limit)
     }
+
+    /** Scroll the page by [deltaY] pixels. A read of layout — no confirmation needed. */
+    suspend fun scroll(deltaY: Int): String = evaluate(BrowserPolicy.scrollScript(deltaY))
 
     /**
      * Capture the rendered page. Returns null when nothing is drawn yet.

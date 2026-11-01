@@ -526,6 +526,7 @@ pass to `build/sweep/report.log`, and repeats. For a crontab:
 */30 * * * * cd /path/to/lucifer_mobile && ./scripts/cognition_sweep.sh --quiet >> /tmp/lucifer-sweep.log 2>&1
 ```
 
-**Not proven here:** the loop has never called a model, never run a tool, never shown a trace. The Kotlin
-harness (`tools/cognition-core/CognitionCoreTests.kt`) has not compiled in this workspace. Every claim in
-this document is about code as written.
+**Not proven on device:** the loop has never run on a phone, never called a model from a device, never
+run a tool, never shown a trace. The Kotlin harness compiles as part of `assembleDebug` (green in this
+workspace); `tools/cognition-core/CognitionCoreTests.kt` host-side assertions run via
+`./scripts/verify_cognition_core.sh`. Every claim in this document is about code as written.

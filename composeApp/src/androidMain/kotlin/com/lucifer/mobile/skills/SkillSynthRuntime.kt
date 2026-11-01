@@ -160,6 +160,21 @@ object SkillSynthRuntime {
         }
     }
 
+    /**
+     * The General's proposal loop closed: a proposal was applied/rejected and its real outcome is
+     * known. Feeding it here is what makes learned-skill confidence reflect real results.
+     */
+    fun learnProposalOutcome(context: Context?, fingerprint: String, category: String, title: String, outcome: String) {
+        val app = context?.applicationContext ?: return
+        if (!enabled(app)) return
+        try {
+            val now = System.currentTimeMillis()
+            persist(app, SkillSynth.learnProposalOutcome(state(app), fingerprint, category, title, outcome, now))
+        } catch (error: Exception) {
+            Log.w(TAG, "could not record the proposal outcome", error)
+        }
+    }
+
     fun skills(context: Context?): List<SynthesizedSkill> =
         context?.applicationContext?.let { state(it).skills }.orEmpty()
 

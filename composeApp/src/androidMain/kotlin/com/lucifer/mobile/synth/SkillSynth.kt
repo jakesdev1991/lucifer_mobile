@@ -172,6 +172,60 @@ object SkillSynth {
 
     // ── learning ──────────────────────────────────────────────────────
 
+    /**
+     * The General's proposal loop closed: a proposal was applied, rejected, or later found to have
+     * helped, failed, or been reversed. Feeding that back here is what makes learned-skill
+     * confidence reflect real results instead of intentions — an applied proposal that was later
+     * undone is a loss, not a win.
+     *
+     * The lesson is keyed on the proposal's own fingerprint, so the same proposal can only teach
+     * once per outcome; repeating HELPED does not inflate the counters.
+     */
+    fun learnProposalOutcome(
+        state: SynthState,
+        fingerprint: String,
+        category: String,
+        title: String,
+        outcome: String,
+        now: Long
+    ): SynthState {
+        val key = Text.signature("proposal $fingerprint $category $title".take(200), maxTokens = 8)
+        if (key.isBlank()) return state
+        val helped = when (outcome) {
+            "HELPED" -> true
+            "FAILED", "DISMISSED", "APPLIED_UNDONE" -> false
+            else -> return state
+        }
+        val verdict = SkillSafety.review(title)
+        val draft = SynthesizedSkill(
+            id = SkillIds.of(SkillKind.PROCEDURE, "proposal-outcome-$fingerprint"),
+            kind = SkillKind.PROCEDURE,
+            trigger = Text.clamp("general proposal $key", SynthLimits.MAX_TRIGGER_CHARS),
+            instruction = Text.clamp(
+                if (helped) {
+                    "The General's proposal \"${title.take(90)}\" was applied and helped — proposals like this one are worth approving."
+                } else {
+                    "The General's proposal \"${title.take(90)}\" was $outcome.lowercase() — do not assume proposals in this area pay off."
+                },
+                SynthLimits.MAX_INSTRUCTION_CHARS
+            ),
+            evidence = listOf(Text.clamp("$category proposal → $outcome", 120)),
+            wins = if (helped) 1 else 0,
+            losses = if (helped) 0 else 1,
+            createdAt = now,
+            updatedAt = now,
+            status = if (verdict.allowed) SkillStatus.CANDIDATE else SkillStatus.BLOCKED,
+            surface = "general",
+            note = if (verdict.allowed) "" else verdict.rule
+        )
+        var next = upsert(state, draft, now)
+        next = next.copy(
+            experiences = (next.experiences + Experience(now, ExperienceKind.WORKFLOW, "general", helped, title.take(80), outcome))
+                .takeLast(SynthLimits.EXPERIENCE_RING)
+        )
+        return consolidate(next, now)
+    }
+
     private fun learnCorrection(state: SynthState, pending: PendingTurn, correction: String, now: Long): SynthesizedSkill {
         val trigger = Text.signature(pending.question)
         val verdict = SkillSafety.review(correction)

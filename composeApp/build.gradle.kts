@@ -17,6 +17,18 @@ android {
         vectorDrawables.useSupportLibrary = true
         multiDexEnabled = true
         multiDexKeepProguard = file("multidex-keep.pro")
+        // Native JNI bridge (native/src/lucifer_native.cpp). Covers Pixel 8a (arm64)
+        // and the x86_64 emulator; the Kotlin side loads it in a try/catch, so a
+        // missing ABI degrades to "not loaded" instead of a startup crash.
+        ndk {
+            abiFilters += setOf("arm64-v8a", "x86_64")
+        }
+        externalNativeBuild {
+            cmake {
+                // arm64-v8a for devices, x86_64 for the emulator
+                arguments += listOf("-DANDROID_STL=c++_shared")
+            }
+        }
     }
 
     buildTypes {
@@ -72,6 +84,14 @@ android {
     sourceSets["main"].res.srcDirs("src/androidMain/res")
     sourceSets["main"].assets.srcDirs("src/androidMain/assets")
     sourceSets["main"].aidl.srcDirs("src/androidMain/aidl")
+
+    // Wire the JNI bridge: CMake builds native/CMakeLists.txt into liblucifer_native.so
+    externalNativeBuild {
+        cmake {
+            path = file("../native/CMakeLists.txt")
+            version = "3.22.1"
+        }
+    }
 
     namespace = "com.lucifer.mobile"
 }

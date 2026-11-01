@@ -45,6 +45,7 @@ object AppConfig {
     const val SKILL_SYNTH_ENABLED = "config/skill_synth_enabled.txt"
     const val EGRESS_TRANSPORT = "config/egress_transport.txt"
     const val EGRESS_PROXY = "config/egress_proxy.txt"
+    const val ALLOW_LESSON_EXPORT = "config/allow_lesson_export.txt"
 
     // ── secret settings (paths only; written via SecretStore) ────────
     const val MEMORY_MCP_TOKEN = "config/drive_memory_mcp_token.txt"

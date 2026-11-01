@@ -672,6 +672,81 @@ fun main() {
         eq(withEvidence.evidenceLine(), "o1, o2", "joined evidence")
     }
 
+    // ── proposal outcome loop ──────────────────────────────────────
+    test("proposal outcome is recorded only after the proposal left the inbox") {
+        val ledger = ProposalLedger()
+        ledger.merge(OpportunityDetector.detect(detection(callsToday = 39)))
+        val target = ledger.pending().first()
+        // While still PROPOSED, no outcome can be attached.
+        eq(ledger.setOutcome(target.fingerprint, ProposalOutcome.HELPED)?.outcome, ProposalOutcome.NONE, "proposed has no outcome")
+        ledger.setStatus(target.fingerprint, ProposalStatus.APPROVED)
+        eq(ledger.setOutcome(target.fingerprint, ProposalOutcome.HELPED)?.outcome, ProposalOutcome.NONE, "approved has no outcome yet")
+        ledger.setStatus(target.fingerprint, ProposalStatus.APPLIED)
+        val applied = ledger.setOutcome(target.fingerprint, ProposalOutcome.HELPED)
+        eq(applied?.outcome, ProposalOutcome.HELPED, "applied records outcome")
+        expect(applied!!.outcomeAt > 0L, "outcomeAt set")
+        ledger.setStatus(target.fingerprint, ProposalStatus.APPLIED)
+        ledger.setOutcome(target.fingerprint, ProposalOutcome.APPLIED_UNDONE)
+        eq(ledger.find(target.fingerprint)?.outcome, ProposalOutcome.APPLIED_UNDONE, "outcome can be revised")
+    }
+
+    test("proposal outcome round-trips through the ledger encoding") {
+        val ledger = ProposalLedger()
+        ledger.merge(OpportunityDetector.detect(detection(callsToday = 39)))
+        val target = ledger.pending().first()
+        ledger.setStatus(target.fingerprint, ProposalStatus.REJECTED)
+        ledger.setOutcome(target.fingerprint, ProposalOutcome.FAILED)
+        val decoded = ProposalLedger.decode(ledger.encode())!!
+        eq(decoded.find(target.fingerprint)?.outcome, ProposalOutcome.FAILED, "outcome survives encode/decode")
+        eq(decoded.find(target.fingerprint)?.status, ProposalStatus.REJECTED, "status survives too")
+    }
+
+    test("lesson exchange redacts credential-bearing lessons on export and dedupes on import") {
+        val good = Lesson("sig1", FailureClass.BUILD_FAILED, RecoveryKind.WAIT_AND_RETRY, ResilienceTarget.LOCAL, "gradle", true, "retry with --offline", 1000L)
+        val secret = Lesson("sig2", FailureClass.BUILD_FAILED, RecoveryKind.WAIT_AND_RETRY, ResilienceTarget.LOCAL, "curl", false, "failed with password: hunter2secret", 2000L)
+        val ledger = LearningLedger(listOf(good, secret))
+        // Host harness: install a deterministic signer so schema-2 bundles are produced.
+        com.lucifer.mobile.resilience.LessonExchange.signer = { p ->
+            com.lucifer.mobile.resilience.LessonExchange.hmacSha256Hex("host-test-key".toByteArray(), p)
+        }
+        val exported = com.lucifer.mobile.resilience.LessonExchange.export(ledger)
+        eq(exported.exported, 1, "secret lesson withheld")
+        eq(exported.droppedForSecret, 1, "drop counted")
+        eq(exported.signed, true, "export signed when a signer is installed")
+        // Importing the same bundle twice adds nothing the second time.
+        val target = LearningLedger()
+        val first = com.lucifer.mobile.resilience.LessonExchange.importInto(exported.json, target)
+        eq(first.added, 1, "one lesson added")
+        eq(first.rejected, false, "signed import accepted")
+        val second = com.lucifer.mobile.resilience.LessonExchange.importInto(exported.json, target)
+        eq(second.added, 0, "re-import adds nothing")
+        eq(second.duplicates, 1, "duplicate counted")
+        // A tampered schema-2 bundle is rejected wholesale.
+        val tampered = exported.json.replace("retry with --offline", "rm -rf /")
+        eq(com.lucifer.mobile.resilience.LessonExchange.importInto(tampered, LearningLedger()).rejected, true, "tampered signed bundle rejected")
+        // A schema-2 bundle with the sig stripped is rejected too.
+        val unsigned = exported.json.replace(Regex(""","sig":"[0-9a-f]+""""), "")
+        eq(com.lucifer.mobile.resilience.LessonExchange.importInto(unsigned, LearningLedger()).rejected, true, "unsigned schema-2 bundle rejected")
+        // A bundle carrying a credential is refused lesson-by-lesson on import too.
+        val evil = com.lucifer.mobile.resilience.LessonExchange.export(LearningLedger(listOf(secret)))
+        // The exporter already withheld it, so build a hostile bundle by hand:
+        val hostile = """{"schema":1,"kind":"lucifer-resilience-lessons","lessons":[{"k":"s","c":"BUILD_FAILED","m":"WAIT_AND_RETRY","t":"LOCAL","x":"curl","s":false,"n":"token: abcdefgh1234","at":1}]}"""
+        val into = LearningLedger()
+        val res = com.lucifer.mobile.resilience.LessonExchange.importInto(hostile, into)
+        eq(res.added, 0, "credential lesson not imported")
+        expect(res.reason.isNotBlank(), "skip reported")
+        eq(com.lucifer.mobile.resilience.LessonExchange.importInto("not json", LearningLedger()).rejected, true, "garbage rejected")
+        eq(com.lucifer.mobile.resilience.LessonExchange.importInto("{\"schema\":99}", LearningLedger()).rejected, true, "bad schema rejected")
+        // No signer installed: export falls back to unsigned schema 1, and import of schema 2 fails closed.
+        com.lucifer.mobile.resilience.LessonExchange.signer = null
+        val unsignedExport = com.lucifer.mobile.resilience.LessonExchange.export(ledger)
+        eq(unsignedExport.signed, false, "unsigned fallback when no signer")
+        eq(com.lucifer.mobile.resilience.LessonExchange.importInto(exported.json, LearningLedger()).rejected, true, "schema-2 import fails closed without a signer")
+        com.lucifer.mobile.resilience.LessonExchange.signer = { p ->
+            com.lucifer.mobile.resilience.LessonExchange.hmacSha256Hex("host-test-key".toByteArray(), p)
+        }
+    }
+
     println()
     if (failures.isEmpty()) {
         println("PASS · $passed checks")

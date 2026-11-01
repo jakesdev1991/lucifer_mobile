@@ -8,8 +8,10 @@ are — and because a capability list that flatters itself is worse than no list
 targetSdk 34, compileSdk 35. It is a **replacement home screen** that is also an assistant with four
 shell targets, a persistent memory, a self-adapting behaviour store, an opt-in background brainstormer,
 a background observer that only ever proposes, a device-owner "world", a metered Lean-4 verification
-server, and a small EVM wallet. **None of the Kotlin has been compiled in this workspace** (no JDK, no
-Android SDK); the host-side models and audits are what have actually been run. See
+server, and a small EVM wallet. The Kotlin **has** been compiled in this workspace: `:composeApp:assembleDebug`
+builds green (AGP 8.7.3, JDK 21, NDK 29.0 — see commit 88af5a9 plus the native wiring below), and the
+resulting APK installs and launches on the emulator (API 35, `emulator-5554`) with the JNI library
+`liblucifer_native.so` packaged for arm64-v8a and x86_64. See
 [Verification status](#verification-status).
 
 ---
@@ -345,9 +347,17 @@ have been a quieter lie. The `rcod` name survives only in `git log`.
 Still genuinely absent: SMS/contacts/calendar/alarm integration (no such permissions), no notification
 listener, no camera control outside the heartbeat, no wallet send/export, and no `VpnService` of its
 own (Tor is Orbot's, reached over its SOCKS port). `native/lucifer_native.cpp` (197 lines, JNI + unix
-sockets) exists but `System.loadLibrary` is commented out in the active source. `KaiBridge` is a ping
-with stubs; no deployment is wired. The `commonMain` tree and `androidMain/kotlin.backup` are stale and
-uncompiled.
+sockets) is now **wired**: `composeApp/build.gradle.kts` declares `externalNativeBuild` against
+`native/CMakeLists.txt` (abiFilters arm64-v8a + x86_64), so `assembleDebug` compiles
+`liblucifer_native.so` into the APK, and `LuciferApplication` loads it in a try/catch
+(`nativeLibraryLoaded`) and calls `nativeInit`/`nativeShutdown`. The native library is lifecycle
+logging only — the former Kai/wallet/browser/LLM/sandbox JNI placeholders were deleted (the Kotlin
+side declared no `external fun` for them, so they were dead code in the APK). `KaiBridge` is a real
+`run-as com.inspiredandroid.kai` execution path with honest failure states (ABSENT /
+RUN_AS_BLOCKED / PRESENT_RUNNABLE / PRESENT_UNRESPONSIVE); its wallet/browser/LLM wrapper stubs
+were removed. The `commonMain` tree, `androidMain/kotlin.backup`, and `MainActivity.kt.bak` were
+**deleted** on feature/lucifer-full-buildout: they were uncompiled, unreferenced, and every file
+differed from the live tree.
 
 ---
 
@@ -388,19 +398,23 @@ Run in this workspace, just now:
 | `./scripts/verify_cognition_core.sh` | **PASS · 176 + 21 + 11 + 9 + 13 + 9 Kotlin checks + 200-run loop fuzz** + 49 static claims |
 | `./scripts/verify_synth_core.sh` | **PASS · 128 spec checks + 28 Kotlin checks** |
 | `./scripts/verify_verification_core.sh` | **PASS · 32 + 23 Kotlin checks** + adapter type-check |
+| `./gradlew :composeApp:assembleDebug --no-daemon` | **BUILD SUCCESSFUL · 2m31s** — CMake builds `liblucifer_native.so` (arm64-v8a, x86_64) into the APK; `adb install` on `emulator-5554` (API 35) succeeds and the app launches |
 
-**Compiled and executed on the host, not on a device.** A JDK (`jdk4py`) and `kotlin-compiler` (npm)
-were installed into this sandbox, so every harness now compiles the real logic and runs it: the counts
-above are executed checks, not reviews, and the first compile found five defects that no static check
-had seen — an unescaped-quote syntax error in `CognitionCore.kt`, a loop guard that skipped its own
-observation check, a preference the synthesizer learned and then discarded, `div)` accepted as a CSS
-selector, and three harness/stub signatures that had drifted from the code they stand in for.
+**Compiled, packaged, and launched on an emulator in this workspace.** JDK 21 (`jdk-21.0.12.1`),
+Android SDK + NDK 29.0.14206865 and CMake 3.22.1 are installed under
+`/home/jake/android-build-tools/android-sdk`. `./gradlew :composeApp:assembleDebug --no-daemon`
+**BUILD SUCCESSFUL** (commit 88af5a9 plus the native wiring): CMake compiles
+`native/src/lucifer_native.cpp` into `liblucifer_native.so` for **arm64-v8a and x86_64**, R8 minifies,
+and the APK contains both `.so` files. `adb install -r` on `emulator-5554` (Android 15, API 35,
+x86_64) reports **Success** and `am start` launches `LauncherActivity`; the JNI library loads via the
+try/catch in `LuciferApplication` (`nativeLibraryLoaded`). The host-side harness counts above are
+executed checks; the five defects they surfaced were real compile/runtime bugs.
 
-**Still not verified anywhere:** there is no Gradle, Android SDK, emulator or phone in this workspace, so
-no Gradle build has run, no lint or APK was produced, and nothing has been executed on a device — the
-whole UI, the Shizuku DHCP path, VM SSH pinning, the overlay chat, the heartbeat camera, the Lean server's
-service wrapper, the World actions, and any real Tor circuit. The single biggest open item (P0 in the
-audit) is unchanged: give CI a JDK 17 + SDK and run `:composeApp:assembleDebug`.
+**Still not verified anywhere:** no physical Pixel 8a is attached in this workspace, so on-device
+behaviour (Shizuku ADB-shell vs root, Dhizuku owner calls, the VM SSH pinning path, the overlay chat
+over Termux, the heartbeat camera path, the Lean server's service wrapper, the World actions, and any
+real Tor circuit) has not been executed on hardware. The emulator run covers process start and native
+load only — not those device-only paths.
 
 Two smaller caveats worth carrying: the harnesses are **host logic + type-check**, so they prove the rules
 and signatures, not behaviour; and the Python mirrors prove the *spec* the Kotlin is supposed to implement,
