@@ -61,19 +61,28 @@ jobs:
           LUCIFER_REQUIRE_ANDROID_JAR: "1"
         # `--quiet` prints one line per harness, which is the right amount for a passing run and not
         # enough for a failing one: the reason is inside a harness's own output, and reading it means
-        # downloading a log. The failing lines are republished as annotations, which appear on the diff.
+        # downloading a log. So the totals and the tail go to the step summary (visible in the UI without a
+        # download), and the failing lines are republished as annotations.
         run: |
           set -o pipefail
-          if ./scripts/verify_all.sh --quiet 2>&1 | tee /tmp/verify.log; then
+          status=0
+          ./scripts/verify_all.sh --quiet 2>&1 | tee /tmp/verify.log || status=$?
+          {
+            echo "### verify_all.sh"
+            echo ""
+            echo '```'
+            tail -n 30 /tmp/verify.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ $status -eq 0 ]]; then
             exit 0
           fi
-          status=$?
           echo "::group::verify_all.sh output"
           cat /tmp/verify.log
           echo "::endgroup::"
           # One annotation per failing harness or compiler error, capped so a broken build cannot produce
           # thousands of them.
-          grep -nE "^(FAILED|failed:|PASS [0-9]+ .*FAIL [1-9])|error:" /tmp/verify.log | head -25 | \
+          grep -E "^(FAILED|failed:|PASS [0-9]+ .*FAIL [1-9])|error:" /tmp/verify.log | head -25 | \
             while IFS= read -r line; do echo "::error::$line"; done
           exit $status
 
@@ -102,4 +111,18 @@ jobs:
           # The runner exports ANDROID_HOME; scripts/android_surface.sh finds
           # $ANDROID_HOME/platforms/android-<compileSdk>/android.jar from it.
           LUCIFER_REQUIRE_ANDROID_JAR: "1"
-        run: ./scripts/verify_all.sh --quiet
+        # Same totals-on-the-summary treatment as the required job, so an opt-in run is as readable.
+        run: |
+          set -o pipefail
+          status=0
+          ./scripts/verify_all.sh --quiet 2>&1 | tee /tmp/verify.log || status=$?
+          {
+            echo "### verify_all.sh (opt-in, strict)"
+            echo ""
+            echo '```'
+            tail -n 30 /tmp/verify.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          [[ $status -eq 0 ]] || grep -E "^(FAILED|failed:)|error:" /tmp/verify.log | head -25 | \
+            while IFS= read -r line; do echo "::error::$line"; done
+          exit $status
