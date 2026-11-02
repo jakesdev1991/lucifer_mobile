@@ -19,7 +19,7 @@ import java.net.URL
  * loop as read-only `lean_audit.*` tools. Every call goes through [EgressHttp], so it lands in the
  * egress ledger like any other network read.
  */
-class LeanAuditMcpClient(private val context: Context) {
+class LeanAuditMcpClient(private val context: Context) : com.lucifer.mobile.cognition.LeanAuditBridge {
     companion object {
         private const val TAG = "LeanAuditMCP"
         private val URL_FILE get() = AppConfig.LEAN_AUDIT_MCP_URL
@@ -35,6 +35,12 @@ class LeanAuditMcpClient(private val context: Context) {
             "lean_explain_failure", "lean_verify_claim", "lean_audit_report"
         )
     }
+
+    /** The loop's view of this client. @see com.lucifer.mobile.cognition.LeanAuditBridge */
+    override val toolNames: List<String> get() = TOOL_NAMES
+
+    override suspend fun call(serverTool: String, arguments: JSONObject): String =
+        callTool(serverTool, arguments)
 
     /** The MCP tool name as exposed to the cognition loop, or null for unknown names. */
     fun cognitionToolName(tool: String): String? =

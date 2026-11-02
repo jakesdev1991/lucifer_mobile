@@ -308,6 +308,12 @@ require "$DIAGNOSTICS" "OutputBoundary.diagnosis(" \
   "a model diagnosis is gated, because a diagnosis is prose even when it arrives as a struct"
 require "$BOUNDARY" "fun clarification(" "the boundary is one object, not a rule copied per caller"
 # Point 5 of the review: the trace must not print the model talking to itself.
+# The Lean-audit tool is refused when no bridge is supplied, so a mis-wiring must be visible here rather
+# than looking like a tool the model chose not to use.
+require "$ENGINE" "LeanAuditMcpClient(appContext)" \
+  "the engine wires the real Lean-audit client into the toolbox"
+require "$RUNNER" "the Lean audit bridge was not configured in this build" \
+  "an unwired bridge is refused by name, not silently skipped"
 require "$RUNNER" "fun reasoning(): String?" \
   "model reasoning is retained for the trace panel and kept out of the rendered trace"
 if grep -qE 'append\(if \(thought\.isBlank\(\)\)' "$RUNNER"; then

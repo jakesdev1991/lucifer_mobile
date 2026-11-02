@@ -258,7 +258,13 @@ class ToEReasoningEngine(
         val outcome = CognitionRunner.run(
             goal = input,
             planner = cognitionPlanner,
-            toolbox = AndroidCognitionTools.toolbox(appContext),
+            // The Lean-audit client is wired here, once, because the loop deliberately knows nothing about
+            // it beyond the bridge. Forgetting this line does not disable the tool silently: the loop
+            // refuses the call and the trace says the bridge was not configured.
+            toolbox = AndroidCognitionTools.toolbox(
+                appContext,
+                com.lucifer.mobile.verification.LeanAuditMcpClient(appContext)
+            ),
             confirmedTools = confirmedTools,
             budget = budget,
             onStep = onStep,
