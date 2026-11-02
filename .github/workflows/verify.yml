@@ -74,6 +74,10 @@ jobs:
             tail -n 30 /tmp/verify.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          # The totals as a notice, not just in the summary: a review could not confirm the pass/skip
+          # numbers because they lived in a downloadable log. An annotation is part of the API.
+          totals="$(grep -E '^PASS [0-9]+ ' /tmp/verify.log | tail -n 1)"
+          [[ -n "$totals" ]] && echo "::notice title=verify_all.sh::$totals"
           if [[ $status -eq 0 ]]; then
             exit 0
           fi
@@ -123,6 +127,8 @@ jobs:
             tail -n 30 /tmp/verify.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          totals="$(grep -E '^PASS [0-9]+ ' /tmp/verify.log | tail -n 1)"
+          [[ -n "$totals" ]] && echo "::notice title=verify_all.sh (opt-in)::$totals"
           [[ $status -eq 0 ]] || grep -E "^(FAILED|failed:)|error:" /tmp/verify.log | head -25 | \
             while IFS= read -r line; do echo "::error::$line"; done
           exit $status
