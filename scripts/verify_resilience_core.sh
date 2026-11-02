@@ -62,8 +62,24 @@ if [[ ${#CORE_FILES[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# The diagnosis sink is model prose, so the pure core now calls the output gate. Those three cognition
+# files are pure Kotlin (no android imports) and are compiled from source here rather than stubbed —
+# a stub of the gate would let this harness pass while the real gate did something else.
+GATE_FILES=(
+  "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/cognition/CognitionCore.kt"
+  "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/cognition/AnswerAudit.kt"
+  "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/cognition/OutputGate.kt"
+  "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/cognition/OutputBoundary.kt"
+)
+for file in "${GATE_FILES[@]}"; do
+  if grep -qE '^import android\.' "$file"; then
+    echo "  FAILED  ${file##*/} imports Android, so it cannot belong to a pure-core compile" >&2
+    exit 1
+  fi
+done
+
 echo "== compile + run pure core checks =="
-"$KOTLINC_BIN" "${CORE_FILES[@]}" "$HARNESS" -d "$OUT/resilience-tests.jar" -nowarn
+"$KOTLINC_BIN" "${CORE_FILES[@]}" "${GATE_FILES[@]}" "$HARNESS" -d "$OUT/resilience-tests.jar" -nowarn
 
 STDLIB="$(dirname "$(command -v "$KOTLINC_BIN")")/../lib/kotlin-stdlib.jar"
 if [[ -f "$STDLIB" ]]; then
@@ -79,6 +95,7 @@ android_surface_report "$STUBS"
 # `files/config/` path is named once in AppConfig) and nothing else. This is the first time
 # LessonTransfer.kt has been compiled by anything — it was excluded from this check by name as well.
 "$KOTLINC_BIN" ${JAR_ARGS[@]+"${JAR_ARGS[@]}"} "${SURFACE[@]}" \
-  "${CORE_FILES[@]}" "${ADAPTER_FILES[@]}" "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/config/AppConfig.kt" \
+  "${CORE_FILES[@]}" "${ADAPTER_FILES[@]}" "${GATE_FILES[@]}" \
+  "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/config/AppConfig.kt" \
   -d "$OUT/engine-check" -nowarn
 echo "adapter type-check passed (the Android/JVM surface only)"

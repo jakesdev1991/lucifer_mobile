@@ -94,15 +94,33 @@ data class StepRecord(
         return "$call $mark$detail"
     }
 
+    /**
+     * The line a person reads. It says **what ran and whether it worked** — never the model's own
+     * reasoning.
+     *
+     * That is a deliberate narrowing. `thought` is unverified prose: the model's account of why it is
+     * about to do something, written before the thing was done and never checked. It was being printed
+     * into "What I established" and into the blocked-answer text, which meant a turn whose final draft the
+     * gate had *withheld* still showed the reader paragraphs of the model talking to itself. The gate
+     * covers the answer; it was never going to cover a thought that leaked through the trace.
+     *
+     * [reasoning] keeps it for the diagnostics panel, where it is labelled as the model's own account and
+     * is not mistaken for a finding.
+     */
     fun render(): String = buildString {
         append("${index + 1}. ")
-        append(if (thought.isBlank()) "(no stated reason)" else thought)
-        if (call != null) {
-            append(" → ").append(call.render())
-            append(if (result?.ok == true) " ✓" else " ✗")
+        if (call == null) {
+            append("answered from ")
+            append(if (result == null) "the draft" else (result.detail.ifBlank { "what was collected" }).take(120))
+        } else {
+            append(call.render())
+            append(if (result?.ok == true) " ✓" else if (result == null) " …" else " ✗")
             if (result?.ok == false && result.detail.isNotBlank()) append(" (").append(result.detail.take(80)).append(")")
         }
     }
+
+    /** The model's own account of its reasoning, for the trace panel only. Never part of an answer. */
+    fun reasoning(): String? = thought.takeIf { it.isNotBlank() }
 }
 
 /** Everything the caller needs to render an answer, a trace, and the truth about how it was reached. */
@@ -327,14 +345,18 @@ object CognitionRunner {
 
         // ── the draft, or an honest account of why there is not one ──
         var answer = draft?.trim().orEmpty()
-        val deviceRead = trace.any { record ->
+        // A tool that *ran* is not a tool that *succeeded*. This used to count every attempt, so a failed
+        // `device_info` call suppressed `UNVERIFIED_DEVICE_CLAIM` and made the footer claim "including a
+        // device read" — the loop granted itself the grounding it had just watched fail to arrive.
+        val succeeded = trace.filter { it.result?.ok == true }
+        val deviceRead = succeeded.any { record ->
             tools.firstOrNull { it.id == record.call?.tool }?.effect == SideEffect.DEVICE_READ
         }
         var effectiveObservations = observations
 
         if (answer.isNotBlank()) {
-            val effects = trace.mapNotNull { rec -> tools.firstOrNull { it.id == rec.call?.tool }?.effect }
-            val usedTools = trace.mapNotNull { it.call?.tool }
+            val effects = succeeded.mapNotNull { rec -> tools.firstOrNull { it.id == rec.call?.tool }?.effect }
+            val usedTools = succeeded.mapNotNull { it.call?.tool }
             var check = AnswerAudit.audit(goal, answer, effectiveObservations, effects, usedTools)
             if (check.blocked) {
                 val repaired = try {

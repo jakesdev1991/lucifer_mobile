@@ -179,18 +179,25 @@ object OutputGate {
      * evidence would flag a grounded answer as ungrounded — the loop's evidence does not survive as a
      * string list. Carrying the verdict is the honest option; honouring it here is defence in depth, not
      * decoration: if a future change lets a blocked draft out of the runner, this refuses it anyway.
+     *
+     * A carried verdict with warnings is `ANNOTATED`, not `PASS`. That distinction was missing and it
+     * mattered: the runner's footer said "N caveat(s) below" and this returned the text without them, so
+     * the reader was told to look for a disclosure that never arrived. An unfulfilled promise to disclose
+     * is worse than silence, because it reads as diligence.
      */
-    fun carried(text: String, audit: AnswerAudit.Result): Verdict =
+    fun carried(text: String, audit: AnswerAudit.Result): Verdict {
         if (audit.blocked) {
-            Verdict(
+            return Verdict(
                 decision = Decision.BLOCKED,
                 text = null,
                 audit = audit,
                 attempts = 1,
                 note = "withheld at the boundary: the loop's own audit had blocked it"
             )
-        } else {
-            Verdict(
+        }
+        val warnings = audit.warnings
+        if (warnings.isEmpty()) {
+            return Verdict(
                 decision = Decision.PASS,
                 text = text,
                 audit = audit,
@@ -198,6 +205,18 @@ object OutputGate {
                 note = "already reviewed in the loop"
             )
         }
+        // The footer already points down at these; if the text ends with one, do not stack a second.
+        val disclosed = if (text.contains("Gate: shown with")) text
+        else text.trimEnd() + "\n\n" + disclosure(warnings)
+        return Verdict(
+            decision = Decision.ANNOTATED,
+            text = disclosed,
+            audit = audit,
+            attempts = 1,
+            note = "carried with ${warnings.size} caveat(s) attached: " +
+                warnings.joinToString("; ") { it.code.lowercase() }
+        )
+    }
 
     /**
      * The caveat block appended to an annotated reply. It names the codes *and* the first sentence of

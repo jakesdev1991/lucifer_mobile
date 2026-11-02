@@ -57,6 +57,16 @@ while IFS= read -r file; do
   fi
 done < <(find "$RESILIENCE_DIR" -maxdepth 1 -name '*.kt' | sort)
 
+# `Diagnostics.kt` is pure Kotlin but its model diagnoses are gated, so the resilience core now depends on
+# the cognition gate. Compiled from source here, for the same reason the skills stack is: a stub of our own
+# gate would let this harness pass while the shipped gate did something else.
+CORE_FILES+=(
+  "$SRC/cognition/CognitionCore.kt"
+  "$SRC/cognition/AnswerAudit.kt"
+  "$SRC/cognition/OutputGate.kt"
+  "$SRC/cognition/OutputBoundary.kt"
+)
+
 echo "== compile + run agent ecosystem checks =="
 "$KOTLINC_BIN" "${CORE_FILES[@]}" "$AGENTS_DIR"/*.kt "$TACTICIAN_DIR"/*.kt "$HARNESS" \
   -d "$OUT/agents-tests.jar" -nowarn
@@ -83,6 +93,5 @@ android_surface_report "$STUBS"
 "$KOTLINC_BIN" ${JAR_ARGS[@]+"${JAR_ARGS[@]}"} "${SURFACE[@]}" "${CORE_FILES[@]}" "$AGENTS_DIR"/*.kt "$TACTICIAN_DIR"/*.kt \
   "$ADAPTER_DIR"/*.kt "$SRC/omni_bridge/heartbeat/HeartbeatService.kt" \
   "$SRC/config/AppConfig.kt" "$SRC/synth"/*.kt "$SRC/skills/SkillSynthRuntime.kt" \
-  "$SRC/cognition/OutputGate.kt" "$SRC/cognition/AnswerAudit.kt" "$SRC/cognition/CognitionCore.kt" \
   -d "$OUT/adapters-check" -nowarn
 echo "adapter type-check passed (the Android/JVM surface only; UI and runtime unverified)"

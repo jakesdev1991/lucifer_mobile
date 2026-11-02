@@ -19,6 +19,20 @@ object AnswerAudit {
 
     const val MIN_ANSWER_CHARS = 12
 
+    /**
+     * When "no observations" stops being unremarkable.
+     *
+     * A short conversational reply to a short question needs no disclaimer — "hello" is not a claim about
+     * the world. A paragraph written in answer to a real question, with nothing consulted, is recollection
+     * wearing the clothes of a finding, and it used to pass silently whenever none of the keyword rules
+     * happened to fire. That was the gap: the rules caught *how* a claim was phrased, not *that* nothing
+     * stood behind it.
+     */
+    const val SUBSTANTIVE_GOAL_CHARS = 40
+
+    /** @see SUBSTANTIVE_GOAL_CHARS */
+    const val SUBSTANTIVE_ANSWER_CHARS = 160
+
     /** The tool whose results are allowed to ground a citation. Named once; the catalogue owns the id. */
     const val CORPUS_TOOL = "corpus_search"
 
@@ -105,6 +119,18 @@ object AnswerAudit {
         val hasObservations = observations.any { it.isNotBlank() }
         val deviceObserved = toolEffects.any { it == SideEffect.DEVICE_READ }
         val outwardObserved = toolEffects.any { it == SideEffect.NETWORK_READ }
+
+        if (!hasObservations &&
+            goal.trim().length > SUBSTANTIVE_GOAL_CHARS &&
+            text.length > SUBSTANTIVE_ANSWER_CHARS
+        ) {
+            findings += Finding(
+                "UNSOURCED",
+                Severity.WARNING,
+                "nothing was consulted this turn, so this is the model's own recollection — it may be " +
+                    "right, but nothing here checked it"
+            )
+        }
 
         if (hasObservations && !overlaps(text, observationText)) {
             findings += Finding(

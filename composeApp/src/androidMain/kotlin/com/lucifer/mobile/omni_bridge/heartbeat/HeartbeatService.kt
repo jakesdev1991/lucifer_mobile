@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.lucifer.mobile.agents.android.ObservationBus
 import com.lucifer.mobile.agents.android.PromptStore
+import com.lucifer.mobile.cognition.OutputGate
 import com.lucifer.mobile.data.browser.LuciferBrowser
 import com.lucifer.mobile.omni_bridge.llm.NemotronClient
 import com.lucifer.mobile.memory.LocalConversationMemory
@@ -33,7 +34,7 @@ class HeartbeatSessionEngine(context: Context) {
     private val root = File(appContext.filesDir, "heartbeat")
     private val prompts = PromptStore(appContext)
 
-    suspend fun runSession(cameraJpeg: ByteArray? = null): String = withContext(Dispatchers.IO) {
+    suspend fun runSession(cameraJpeg: ByteArray? = null): SessionOutcome = withContext(Dispatchers.IO) {
         val sessionContext = currentCoroutineContext()
         sessionContext.ensureActive()
         root.mkdirs()
@@ -96,78 +97,134 @@ class HeartbeatSessionEngine(context: Context) {
         sessionContext.ensureActive()
         if (response.startsWith("[LLM]")) {
             recordFailure(response)
-            return@withContext "Heartbeat session skipped: ${response.take(240)}"
+            return@withContext SessionOutcome(
+                HeartbeatSessionState.SAFE_STOP,
+                "Heartbeat session skipped: ${response.take(240)}"
+            )
         }
 
         val parsed = extractJson(response)
-        val title = parsed?.optString("title")?.trim()?.take(120).orEmpty().ifBlank { "Heartbeat draft" }
         val importance = (parsed?.optInt("importance", 0) ?: 0).coerceIn(0, 100)
         val status = parsed?.optString("status")?.uppercase()?.takeIf { it in setOf("IDEA", "IN_PROGRESS", "PARKED") } ?: "IDEA"
-        val summary = parsed?.optString("summary")?.take(1_000).orEmpty()
-        val reasoning = parsed?.optString("reasoning")?.take(1_500).orEmpty()
-        // The heartbeat is the one route that writes model prose without going through
-        // `ToEReasoningEngine.reason`, so it misses the output gate by construction. It is also the route
-        // where nobody asked for the text: the session decided on its own to write something the owner
-        // will read later as a draft. That is exactly where an unfounded paragraph does the most damage,
-        // so the draft passes the same gate and a blocked one is withheld rather than filed.
-        val rawDeliverable = parsed?.optString("deliverable_markdown")?.take(12_000).orEmpty()
-            .ifBlank { response.take(12_000) }
-        // No observations exist by definition — nothing was consulted — so confidence can only be LOW and
-        // the gate annotates rather than pretends. `EMPTY` and `THIN` are the blockers that matter here.
-        val gate = com.lucifer.mobile.cognition.OutputGate.gate(
-            goal = prompt.take(2_000),
-            draft = rawDeliverable,
-            evidence = com.lucifer.mobile.cognition.OutputGate.Evidence.NONE
-        )
-        val deliverable = gate.text ?: com.lucifer.mobile.cognition.OutputGate.refusal(gate)
-        if (gate.blocked) {
-            Log.w(TAG, "heartbeat draft withheld by the output gate: ${gate.note}")
-        }
-        val nextStep = parsed?.optString("next_step")?.take(500).orEmpty()
-        val timestamp = System.currentTimeMillis()
-        val slug = title.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').take(48).ifBlank { "draft" }
-        val artifact = File(root, "${timestamp}_${slug}.md")
-        val markdown = buildString {
-            appendLine("# $title")
+
+        // ── the draft, as the reader will see it ──────────────────────────────────────────────
+        // Every prose field was previously gated *or not* depending on which line you read: the
+        // deliverable went through the gate, while title, summary, reasoning and next_step were
+        // interpolated into the same file unexamined, and summary/next_step were also copied into long-term
+        // memory. A gate that covers one of the five paragraphs in a document is a gate on the document's
+        // formatting, not on its content.
+        //
+        // So the unit of review is the **document**, not a field: everything the model wrote is composed
+        // first and judged once, in the order the reader meets it. Whatever passes is what gets written,
+        // verbatim — which is why the file is built from `gate.text` rather than reassembled from fields
+        // after the fact.
+        val title = parsed?.optString("title")?.trim()?.take(120).orEmpty()
+        val summary = parsed?.optString("summary")?.take(1_000).orEmpty().trim()
+        val reasoning = parsed?.optString("reasoning")?.take(1_500).orEmpty().trim()
+        val nextStep = parsed?.optString("next_step")?.take(500).orEmpty().trim()
+        val deliverable = (parsed?.optString("deliverable_markdown")?.take(12_000).orEmpty()
+            .ifBlank { response.take(12_000) }).trim()
+
+        val composed = buildString {
+            appendLine("# " + title.ifBlank { "Heartbeat draft" })
             appendLine()
             appendLine("- Importance: $importance/100")
             appendLine("- Status: $status")
-            appendLine("- Session: $timestamp")
             appendLine()
             if (summary.isNotBlank()) appendLine("## Summary\n\n$summary\n")
             if (reasoning.isNotBlank()) appendLine("## Priority rationale\n\n$reasoning\n")
             appendLine("## Draft deliverable\n\n$deliverable\n")
             if (nextStep.isNotBlank()) appendLine("## Suggested next step\n\n$nextStep\n")
-            appendLine("---\nGenerated locally by an opted-in Lucifer heartbeat session. No external action was executed.")
+        }.trimEnd()
+
+        // Nothing was consulted — the session ran offline by construction, and public research is untrusted
+        // text rather than an observation — so the gate is told `NONE` and annotates rather than pretends.
+        val gate = OutputGate.gate(
+            goal = prompt.take(2_000),
+            draft = composed,
+            evidence = OutputGate.Evidence.NONE
+        )
+
+        // ── a withheld draft is not filed ─────────────────────────────────────────────────────
+        // The previous revision wrote a Markdown file containing the refusal, which sounds harmless and
+        // was not: `readRecentSessions` feeds prior artifacts back into the next prompt, so a refusal
+        // would have been read as a prior idea, and the ledger kept a title and summary the gate had
+        // rejected. Withholding means *nothing* the model wrote survives the session.
+        if (gate.blocked) {
+            Log.w(TAG, "heartbeat draft withheld by the output gate: ${gate.note}")
+            val withheld = JSONObject().apply {
+                put("timestamp", System.currentTimeMillis())
+                put("sessionId", "${System.currentTimeMillis()}")
+                put("state", HeartbeatSessionState.WITHHELD.name)
+                put("status", "WITHHELD")
+                put("importance", importance)
+                put("cameraIncluded", cameraJpeg != null)
+                put("artifact", "")
+                put("gateDecision", gate.decision.name)
+                put("gateNote", gate.note)
+                put("gateBlocked", true)
+            }
+            File(root, "sessions.jsonl").appendText(withheld.toString() + "\n")
+            File(root, "latest.json").writeText(withheld.toString())
+            ObservationBus.record(
+                appContext, ObservationKind.HEARTBEAT,
+                "heartbeat session produced a draft the output gate withheld",
+                detail = gate.note.take(300),
+                source = "heartbeat", tags = listOf("withheld")
+            )
+            return@withContext SessionOutcome(
+                HeartbeatSessionState.WITHHELD,
+                "Session withheld: ${gate.note}"
+            )
         }
+
+        val approved = gate.text ?: return@withContext SessionOutcome(
+            HeartbeatSessionState.SAFE_STOP,
+            "Session stopped: the gate returned no text and no decision."
+        )
+
+        // Deterministic chrome only: this footer is written here, not by the model, so it is not gated —
+        // and it is appended *after* review so it cannot mask a finding at the end of the draft.
+        val timestamp = System.currentTimeMillis()
+        val markdown = approved.trimEnd() +
+            "\n\n---\nGenerated locally by an opted-in Lucifer heartbeat session. No external action was executed."
+
+        // The filename derives from the *approved* title line, so a rejected title cannot name a file.
+        val shownTitle = approved.lineSequence()
+            .firstOrNull { it.startsWith("# ") }?.removePrefix("# ")?.trim()?.take(120)
+            ?.ifBlank { null } ?: "Heartbeat draft"
+        val slug = shownTitle.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').take(48).ifBlank { "draft" }
+        val artifact = File(root, "${timestamp}_${slug}.md")
         artifact.writeText(markdown)
 
         val record = JSONObject().apply {
             put("timestamp", timestamp)
             put("sessionId", "$timestamp")
             put("state", HeartbeatSessionState.COMMITTED.name)
-            put("title", title)
+            put("title", shownTitle)
             put("importance", importance)
             put("status", status)
             put("cameraIncluded", cameraJpeg != null)
-            put("summary", summary)
-            put("nextStep", nextStep)
             put("artifact", artifact.name)
             put("gateDecision", gate.decision.name)
             put("gateNote", gate.note)
-            put("gateBlocked", gate.blocked)
+            put("gateBlocked", false)
         }
         File(root, "sessions.jsonl").appendText(record.toString() + "\n")
         File(root, "latest.json").writeText(record.toString())
+
+        // Memory gets what the gate approved, not the raw fields. It used to receive `summary` and
+        // `nextStep` directly, so a caveated turn left an uncaveated finding behind that outlived the
+        // caveat — the one place a warning cannot follow the text it was attached to.
         localMemory.rememberFinding(
-            "Heartbeat project: $title",
-            "Importance $importance/100; status $status. $summary Next step: $nextStep",
+            "Heartbeat project: $shownTitle",
+            approved.take(1_200),
             importance = importance
         )
         ObservationBus.record(
             appContext, ObservationKind.HEARTBEAT,
-            "heartbeat session: $title (importance $importance)",
-            detail = summary.take(300),
+            "heartbeat session: $shownTitle (importance $importance)",
+            detail = approved.take(300),
             source = "heartbeat", tags = listOf(status.lowercase())
         )
         if (cameraJpeg != null) {
@@ -178,8 +235,11 @@ class HeartbeatSessionEngine(context: Context) {
                 source = "heartbeat", tags = listOf("consented")
             )
         }
-        Log.i(TAG, "session saved: ${artifact.name} priority=$importance status=$status")
-        "Session complete: $title · importance $importance · $status · saved to ${artifact.name}"
+        Log.i(TAG, "session saved: ${artifact.name} priority=$importance status=$status gate=${gate.decision}")
+        SessionOutcome(
+            HeartbeatSessionState.COMMITTED,
+            "Session complete: $shownTitle \u00b7 importance $importance \u00b7 $status \u00b7 saved to ${artifact.name}"
+        )
     }
 
     private suspend fun gatherPublicResearch(): String {
@@ -262,6 +322,23 @@ enum class HeartbeatSessionState {
     /** The draft was produced and written to the private heartbeat directory. */
     COMMITTED,
 
+    /**
+     * The draft was produced and **withheld** by the output gate. Nothing the model wrote was written to
+     * disk, copied into memory, or fed to the next session's prompt; only this state and the gate's own
+     * note survive.
+     */
+    WITHHELD,
+
     /** No new work permitted; the session recorded a failure and stopped. */
     SAFE_STOP
 }
+
+/**
+ * What one session actually did.
+ *
+ * This is a type rather than a string because the caller used to infer `COMMITTED` from the *shape of the
+ * message* — it recorded a commit for every return value that was not an exception, including a skipped
+ * session and (in the previous revision) a withheld draft. The transition log said work had been filed
+ * when nothing had.
+ */
+data class SessionOutcome(val state: HeartbeatSessionState, val message: String)

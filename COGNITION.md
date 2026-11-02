@@ -221,15 +221,35 @@ A withheld reply is not remembered: the turn window is written by `reason` with 
 actually saw, so the next question cannot treat "I will not show you that" as something Lucifer
 established.
 
-#### The other route that writes prose
+#### Every sink, named
 
-The heartbeat calls the model directly and files a Markdown draft the owner reads later — it never passes
-through `reason`. It is gated by the same object: the draft goes through `OutputGate.gate` before the file
-is written, a blocked draft is replaced by the refusal rather than filed, and every session record now
-carries `gateDecision`, `gateNote` and `gateBlocked` so a withheld draft is auditable instead of
-invisible. Everything else that reaches the model — the skill composer, the tactician, recovery planning —
-consumes *parsed* structure (an `AgentDraft`, a proposal ledger, a diagnosed failure class), not prose
-shown as an answer.
+`reason()` was never the whole boundary. A reply funnel covers the answers and misses everything that is
+model prose without being an answer, and each of those was individually argued to be "just a field" — which
+is true of how it is *used* and false of how it is *read*. The boundary is therefore stated once, as a
+table, so a new sink has to be added to it deliberately rather than discovered later by someone reading a
+file it leaks through.
+
+| Sink | Reaches a person as | Crosses the boundary? | What happens when it cannot be shown |
+|---|---|---|---|
+| `reason()` final answer (chat, launcher, overlay, workflow step) | an answer | **yes**, `OutputGate.gate` | refusal; the draft is not quoted |
+| Deep-loop reply returned to the boundary | an answer | **yes**, `OutputGate.carried` — warnings are appended, not promised | refusal |
+| Heartbeat artifact (`files/heartbeat/*.md`) | a document read later | **yes**, the **whole document** in one call | nothing is written: no file, no memory row, no ledger prose; the session records `WITHHELD` |
+| Heartbeat title / summary / next step, as they enter `sessions.jsonl` and long-term memory | context for the next session, and a memory the user can recall | **only through the gate's output** — the record and the memory entry are built from the approved text | — |
+| Router clarification (`ChatRoute.Clarify.message`) — launcher (printed **and spoken**), floating chat, both chat screens | a question | **yes**, `OutputBoundary.clarification` | a neutral question written by us |
+| `TerminalAction.explanation` (confirmation dialog, "[UNDERSTOOD]" line) | the description of an action | **yes**, `OutputBoundary.actionExplanation` | neutral description — the **action is still offered for confirmation**, because the dialog is the safety control and must not be capturable by a bad sentence |
+| Workflow plan summary and reflection assessment | a paragraph above a plan | **yes**, `OutputBoundary.planSummary` | neutral summary; the steps are listed as before |
+| Resilience diagnosis (root cause, hypotheses, moves) | the explanation of a failure | **yes**, `OutputBoundary.diagnosis`, judged *against the observations* | the deterministic diagnosis, which is derived from the evidence and so cannot be ungrounded |
+| Trace lines (`StepRecord.render`/`brief`) | what ran, and whether it worked | **no prose** — the rendering was narrowed to tool, status and result detail; the model's `thought` is no longer printed anywhere in a transcript | reasoning is kept as `StepRecord.reasoning()` for the diagnostics panel only |
+| Workflow steps, recovery moves, skill mandates | an instruction the loop will act on, origin-labelled `MODEL` | **not gated**, deliberately: gating the wording of a command is not a truth check, and a step is executed through the confirmation boundary rather than believed | — |
+| Web research briefs | fetched evidence, cited and redacted | **not gated**: nothing in it is model-generated | — |
+| Deterministic capability answers (`Surface` records) | an answer | bypass, `OutputGate.deterministic` — and the harness pins which call sites may use it | — |
+
+Two consequences worth stating plainly. First, `SessionOutcome` exists because the service used to infer
+"committed" from the *shape of the message*: it recorded `COMMITTED` for any run that did not throw,
+including a skipped session and a withheld draft, so the transition log claimed work had been filed when
+nothing had. Second, a blocked heartbeat no longer leaves a file at all. The earlier revision wrote the
+refusal into the artifact, which sounds harmless and was not: `readRecentSessions` feeds prior artifacts
+back into the next prompt, so a filed refusal would have been read by the next session as a prior idea.
 
 #### What the gate does not do
 
@@ -237,6 +257,13 @@ It is **heuristic**. It does not establish factual correctness, and no host-side
 establishes is narrower and still worth having: that the reply is not empty or a stub, that it was built
 on something the run actually observed when observations exist, and that it does not claim certainty or
 device knowledge it has not earned.
+
+Its blind spot was narrower than that and is now closed by labelling rather than by pretending to more
+power: a substantive answer written with **nothing consulted** used to pass silently whenever none of the
+keyword rules happened to fire. It now carries `UNSOURCED` — "this is recollection, nothing here checked
+it" — with thresholds (>40-character question, >160-character answer) so that small talk is not
+interrogated. That is a disclosure, not a check. The reply may still be wrong; the reader is told nobody
+looked.
 
 The audit engine's *structured* verifier in `verification/` is a different instrument aimed at a different
 object: `StatementGates` judges formal Lean declarations (placeholders, vacuity, name-versus-statement,

@@ -421,7 +421,10 @@ turns a missing jar into a failure instead of a quiet downgrade.
 with no check at all — is audited at the boundary like the deep loop always was. A blocked draft is
 withheld and replaced by a refusal that names the objection; warnings ride along in the text as a
 `Gate: shown with N caveat(s)` block. The heartbeat's self-initiated drafts, which call the model
-directly, pass the same gate before the file is written. **This is heuristic grounding, not verification of
+directly, pass the same gate as a **whole document** before anything is written — and a blocked one is not
+filed at all: no artifact, no memory row, no ledger prose, just a `WITHHELD` session record. Router
+clarifications (including the one the launcher speaks), confirmation explanations, workflow summaries and
+recovery diagnoses cross the same boundary; COGNITION.md §6.1 states every sink and what it degrades to. **This is heuristic grounding, not verification of
 truth**: it can tell whether an answer was built on something the loop observed, not whether it is
 correct, and the structured Lean verifier in `verification/` judges formal statements rather than English
 prose — it cannot be pointed at a chat reply and made to answer that question. See

@@ -196,8 +196,8 @@ echo "== 2h. every reply passes the output gate =="
 # council path that used to ship whatever the model wrote. It is pure Kotlin, so unlike the Android
 # adapters it needs no SDK and no fixtures — it is simply executed.
 if [[ "$have_kotlin" -eq 1 ]]; then
-  if "$KOTLINC_BIN" "$CORE/OutputGate.kt" "$CORE/AnswerAudit.kt" "$CORE/CognitionCore.kt" \
-      "$GATE_HARNESS" -d "$OUT/gate-tests.jar" -nowarn; then
+  if "$KOTLINC_BIN" "$CORE/OutputGate.kt" "$CORE/AnswerAudit.kt" "$CORE/OutputBoundary.kt" \
+      "$CORE/CognitionCore.kt" "$GATE_HARNESS" -d "$OUT/gate-tests.jar" -nowarn; then
     if [[ -f "$STDLIB" ]]; then
       java -cp "$OUT/gate-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.OutputGateTestsKt || status=1
     else
@@ -277,10 +277,45 @@ require "$ENGINE" "if (!verdict.blocked) rememberTurn(input, shown)" \
 HEARTBEAT="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/omni_bridge/heartbeat/HeartbeatService.kt"
 require "$HEARTBEAT" "OutputGate.gate(" \
   "a self-initiated heartbeat draft passes the gate before it is filed for the owner to read"
-require "$HEARTBEAT" "val deliverable = gate.text ?: com.lucifer.mobile.cognition.OutputGate.refusal(gate)" \
-  "a blocked heartbeat draft is withheld, and the refusal takes its place in the file"
-require "$HEARTBEAT" 'put("gateBlocked", gate.blocked)' \
+require "$HEARTBEAT" "if (gate.blocked) {" \
+  "a blocked heartbeat draft takes a different path from a shown one"
+require "$HEARTBEAT" "HeartbeatSessionState.WITHHELD" \
+  "the blocked path is a withholding state, not a file containing a refusal"
+require "$HEARTBEAT" "val approved = gate.text ?:" \
+  "what is written is the text the gate approved, not the fields reassembled"
+require "$HEARTBEAT" "put(\"gateBlocked\", false)" \
   "the verdict is recorded, so a withheld draft is auditable instead of invisible"
+# The refusal must not become an artifact: `readRecentSessions` feeds prior artifacts back into the next
+# prompt, so a filed refusal would be read as a prior idea by the following session.
+if awk '/if \(gate.blocked\)/,/^        }$/' "$HEARTBEAT" | grep -q "writeText(markdown)\|\.writeText(approved"; then
+  echo "  FAILED  the withheld branch still writes the draft to disk" >&2
+  status=1
+else
+  echo "  ok    nothing is written to the heartbeat directory when the gate blocks"
+fi
+# Every other sink that shows model prose has to go through the boundary, and these are the pins that say so.
+BOUNDARY="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/cognition/OutputBoundary.kt"
+ROUTER="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/launcher/NaturalLanguageRouter.kt"
+WORKFLOW="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/workflows/WorkflowEngine.kt"
+DIAGNOSTICS="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/resilience/Diagnostics.kt"
+require "$ROUTER" "OutputBoundary.clarification(" \
+  "a model-written clarifying question is gated at the router, where all four of its sinks read it"
+require "$ROUTER" "OutputBoundary.actionExplanation(" \
+  "the line above a command awaiting confirmation is gated too"
+require "$WORKFLOW" "OutputBoundary.planSummary(" \
+  "a model-written plan summary and reflection go through the boundary"
+require "$DIAGNOSTICS" "OutputBoundary.diagnosis(" \
+  "a model diagnosis is gated, because a diagnosis is prose even when it arrives as a struct"
+require "$BOUNDARY" "fun clarification(" "the boundary is one object, not a rule copied per caller"
+# Point 5 of the review: the trace must not print the model talking to itself.
+require "$RUNNER" "fun reasoning(): String?" \
+  "model reasoning is retained for the trace panel and kept out of the rendered trace"
+if grep -qE 'append\(if \(thought\.isBlank\(\)\)' "$RUNNER"; then
+  echo "  FAILED  CognitionRunner.render() still prints the model's private thought" >&2
+  status=1
+else
+  echo "  ok    a rendered step shows what ran, not what the model was thinking"
+fi
 
 if grep -qE "^[[:space:]]*return (answer|buildString)" "$ENGINE"; then
   echo "  FAILED  a bare return in ToEReasoningEngine bypasses the gate" >&2
