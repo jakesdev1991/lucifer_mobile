@@ -49,7 +49,13 @@ object SkillSynth {
         answer: String,
         surface: String,
         now: Long,
-        skillIds: List<String> = emptyList()
+        skillIds: List<String> = emptyList(),
+        /**
+         * Optional reward in [-1, 1] computed by the *caller* from observed facts — e.g. the
+         * pre-answer audit of a deep run. Null for an ordinary turn. Recorded on the CHAT
+         * experience only; it never changes scores, promotion or what is injected.
+         */
+        reward: Double? = null
     ): SynthState {
         val asked = Text.clamp(question, SynthLimits.MAX_QUESTION_CHARS)
         if (asked.isBlank()) return state
@@ -61,7 +67,10 @@ object SkillSynth {
             skillIds = skillIds.distinct().take(8)
         )
         // ok=true here means "an answer was produced", not "it was right"; the verdict decides that.
-        val experience = Experience(now, ExperienceKind.CHAT, surface, ok = true, question = asked)
+        val experience = Experience(
+            now, ExperienceKind.CHAT, surface, ok = true, question = asked,
+            reward = reward?.coerceIn(-1.0, 1.0)
+        )
         return state.copy(
             pending = pending,
             experiences = (state.experiences + experience).takeLast(SynthLimits.EXPERIENCE_RING),
@@ -96,6 +105,16 @@ object SkillSynth {
         var next = state
         var scored = 0
         var learned: SynthesizedSkill? = null
+        // Reward for the feedback event, derived from the *user's* verdict — never from anything
+        // the model said about its own answer. A correction is the strongest negative signal, a
+        // compliment a weak positive one, a repeated question a negative, and silence no signal.
+        val feedbackReward = when (feedback) {
+            Feedback.CORRECTION -> -1.0
+            Feedback.PRAISE -> 0.5
+            Feedback.DIRECTIVE -> 0.0
+            Feedback.NONE -> if (Text.sameQuestion(pending.question, text) &&
+                now - pending.at <= SynthLimits.REPEAT_WINDOW_MS) -0.5 else null
+        }
 
         when (feedback) {
             Feedback.CORRECTION -> {
@@ -122,6 +141,18 @@ object SkillSynth {
         }
 
         next = learned?.let { upsert(next, it, now) } ?: next
+        // Record the feedback event itself, with its reward, so the ring keeps the verdict that
+        // actually happened rather than only the lesson drawn from it.
+        if (feedbackReward != null) {
+            next = next.copy(
+                experiences = (next.experiences + Experience(
+                    now, ExperienceKind.CHAT, pending.surface, ok = feedbackReward >= 0.0,
+                    question = pending.question.take(SynthLimits.MAX_QUESTION_CHARS),
+                    detail = "feedback=${feedback.name.lowercase()}",
+                    reward = feedbackReward
+                )).takeLast(SynthLimits.EXPERIENCE_RING)
+            )
+        }
         next = clearPending(next, now)
         return Outcome(
             state = consolidate(next, now),
@@ -171,6 +202,60 @@ object SkillSynth {
     }
 
     // ── learning ──────────────────────────────────────────────────────
+
+    /**
+     * The General's proposal loop closed: a proposal was applied, rejected, or later found to have
+     * helped, failed, or been reversed. Feeding that back here is what makes learned-skill
+     * confidence reflect real results instead of intentions — an applied proposal that was later
+     * undone is a loss, not a win.
+     *
+     * The lesson is keyed on the proposal's own fingerprint, so the same proposal can only teach
+     * once per outcome; repeating HELPED does not inflate the counters.
+     */
+    fun learnProposalOutcome(
+        state: SynthState,
+        fingerprint: String,
+        category: String,
+        title: String,
+        outcome: String,
+        now: Long
+    ): SynthState {
+        val key = Text.signature("proposal $fingerprint $category $title".take(200), maxTokens = 8)
+        if (key.isBlank()) return state
+        val helped = when (outcome) {
+            "HELPED" -> true
+            "FAILED", "DISMISSED", "APPLIED_UNDONE" -> false
+            else -> return state
+        }
+        val verdict = SkillSafety.review(title)
+        val draft = SynthesizedSkill(
+            id = SkillIds.of(SkillKind.PROCEDURE, "proposal-outcome-$fingerprint"),
+            kind = SkillKind.PROCEDURE,
+            trigger = Text.clamp("general proposal $key", SynthLimits.MAX_TRIGGER_CHARS),
+            instruction = Text.clamp(
+                if (helped) {
+                    "The General's proposal \"${title.take(90)}\" was applied and helped — proposals like this one are worth approving."
+                } else {
+                    "The General's proposal \"${title.take(90)}\" was $outcome.lowercase() — do not assume proposals in this area pay off."
+                },
+                SynthLimits.MAX_INSTRUCTION_CHARS
+            ),
+            evidence = listOf(Text.clamp("$category proposal → $outcome", 120)),
+            wins = if (helped) 1 else 0,
+            losses = if (helped) 0 else 1,
+            createdAt = now,
+            updatedAt = now,
+            status = if (verdict.allowed) SkillStatus.CANDIDATE else SkillStatus.BLOCKED,
+            surface = "general",
+            note = if (verdict.allowed) "" else verdict.rule
+        )
+        var next = upsert(state, draft, now)
+        next = next.copy(
+            experiences = (next.experiences + Experience(now, ExperienceKind.WORKFLOW, "general", helped, title.take(80), outcome))
+                .takeLast(SynthLimits.EXPERIENCE_RING)
+        )
+        return consolidate(next, now)
+    }
 
     private fun learnCorrection(state: SynthState, pending: PendingTurn, correction: String, now: Long): SynthesizedSkill {
         val trigger = Text.signature(pending.question)

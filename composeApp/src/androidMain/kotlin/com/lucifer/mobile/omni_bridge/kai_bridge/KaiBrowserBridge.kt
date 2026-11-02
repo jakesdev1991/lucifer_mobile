@@ -1,83 +1,52 @@
 package com.lucifer.mobile.omni_bridge.kai_bridge
 
-import android.content.Context
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.channels.Channel
-
-// Browser Bridge - simplified interface for browser operations
+/**
+ * Browser Bridge — honest status only.
+ *
+ * The Kai sandbox has no wired Playwright/browser automation in this build (the old code pointed at
+ * `/tmp/omni_bridge/browser/` python scripts, which nothing deploys — see ADVERSARIAL_REVIEW.md). Rather than
+ * pretend, every action reports the real state: if run-as is blocked, the error says exactly that.
+ *
+ * The app's own JS-capable browser is `browser/InteractiveBrowser` (WebView), reached from the
+ * Browser panel's INTERACTIVE mode — not through this bridge.
+ */
 class KaiBrowserBridge(
     private val kaiBridge: KaiBridge
 ) {
-
     suspend fun initialize() {
         kaiBridge.connect()
     }
 
-    suspend fun navigate(url: String): BrowserResult {
-        val result = kaiBridge.navigate(url)
-        return result?.let {
-            BrowserResult(
-                url = url,
-                text = it.data,
-                success = it.success,
-                error = it.error ?: ""
-            )
-        } ?: BrowserResult(url = url, success = false, error = "Not connected")
-    }
+    private fun unavailable(): BrowserResult = BrowserResult(
+        success = false,
+        error = "Kai browser automation is not wired in this build; use the Browser panel's INTERACTIVE mode (WebView)"
+    )
 
-    suspend fun click(selector: String): ClickResult {
-        val result = kaiBridge.click(selector)
-        return result?.let {
-            ClickResult(success = it.success, error = it.error ?: "", newUrl = it.data)
-        } ?: ClickResult(success = false, error = "Not connected")
-    }
+    suspend fun navigate(url: String): BrowserResult = unavailable()
 
-    suspend fun typeText(selector: String, text: String): TypeResult {
-        val result = kaiBridge.evaluate("document.querySelector('$selector').value = '$text'; true")
-        return result?.let {
-            TypeResult(success = it.success, error = it.error ?: "")
-        } ?: TypeResult(success = false, error = "Not connected")
-    }
+    suspend fun click(selector: String): ClickResult = ClickResult(
+        success = false,
+        error = "Kai browser automation is not wired in this build; the WebView path in the Browser panel is the interactive one"
+    )
 
-    suspend fun getContent(): BrowserResult {
-        val result = kaiBridge.evaluate("document.body.innerText")
-        return result?.let {
-            BrowserResult(
-                url = "",
-                text = it.data,
-                success = it.success,
-                error = it.error ?: ""
-            )
-        } ?: BrowserResult(success = false, error = "Not connected")
-    }
+    suspend fun typeText(selector: String, text: String): TypeResult = TypeResult(
+        success = false,
+        error = "Kai browser automation is not wired in this build; no text was typed anywhere"
+    )
 
-    suspend fun evaluate(script: String): EvaluateResult {
-        val result = kaiBridge.evaluate(script)
-        return result?.let {
-            EvaluateResult(success = it.success, result = it.data, error = it.error ?: "")
-        } ?: EvaluateResult(success = false, error = "Not connected")
-    }
+    suspend fun getContent(): BrowserResult = unavailable()
 
-    suspend fun screenshot(fullPage: Boolean = false): String? {
-        val result = kaiBridge.screenshot(fullPage)
-        return result?.data
-    }
+    suspend fun evaluate(script: String): EvaluateResult = EvaluateResult(
+        success = false,
+        error = "Kai browser automation is not wired in this build; no script was run"
+    )
 
-    suspend fun getCookies(): Map<String, String> {
-        val result = kaiBridge.evaluate("document.cookie")
-        val cookieStr = result?.data ?: ""
-        return cookieStr.split("; ").associate {
-            val parts = it.split("=")
-            parts[0] to parts.getOrElse(1) { "" }
-        }
-    }
+    suspend fun screenshot(fullPage: Boolean = false): String? = null
 
-    suspend fun setCookies(cookies: Map<String, String>): Boolean {
-        // In production: set cookies via browser automation
-        return true
-    }
+    /** Cookies belong to the WebView path, not to a cross-app sandbox; never exported. */
+    suspend fun getCookies(): Map<String, String> = emptyMap()
+
+    suspend fun setCookies(cookies: Map<String, String>): Boolean = false
 
     fun close() {
         kaiBridge.disconnect()

@@ -5,7 +5,11 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Android NDK toolchain
+# Android NDK toolchain. When built via AGP externalNativeBuild, AGP supplies the
+# toolchain file and ANDROID_NDK itself (ANDROID_TOOLCHAIN is defined), so the
+# standalone-detection block below must not run — re-setting CMAKE_TOOLCHAIN_FILE
+# after project() breaks the AGP-driven configure.
+if(NOT DEFINED ANDROID_TOOLCHAIN)
 if(ANDROID_NDK)
     set(CMAKE_ANDROID_NDK ${ANDROID_NDK})
 elseif(DEFINED ENV{ANDROID_NDK_HOME})
@@ -14,6 +18,7 @@ elseif(DEFINED ENV{ANDROID_NDK_ROOT})
     set(CMAKE_ANDROID_NDK $ENV{ANDROID_NDK_ROOT})
 else()
     message(WARNING "ANDROID_NDK not set. Set ANDROID_NDK_HOME or ANDROID_NDK_ROOT env var, or pass -DANDROID_NDK=/path/to/ndk")
+endif()
 endif()
 
 if(CMAKE_ANDROID_NDK)
@@ -38,9 +43,11 @@ if(CMAKE_ANDROID_NDK)
     set(CMAKE_INSTALL_PREFIX ${TERMUX_PREFIX})
 endif()
 
-# Build shared library
+# Build shared library. Paths are relative to this CMakeLists.txt so the file
+# works both standalone (cmake -S native -B build) and via AGP externalNativeBuild,
+# which invokes CMake with this directory as the source dir.
 add_library(lucifer_native SHARED
-    lucifer_native.cpp
+    src/lucifer_native.cpp
 )
 
 target_include_directories(lucifer_native PUBLIC

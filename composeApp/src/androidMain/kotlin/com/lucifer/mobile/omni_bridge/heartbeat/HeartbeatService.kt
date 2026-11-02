@@ -105,8 +105,24 @@ class HeartbeatSessionEngine(context: Context) {
         val status = parsed?.optString("status")?.uppercase()?.takeIf { it in setOf("IDEA", "IN_PROGRESS", "PARKED") } ?: "IDEA"
         val summary = parsed?.optString("summary")?.take(1_000).orEmpty()
         val reasoning = parsed?.optString("reasoning")?.take(1_500).orEmpty()
-        val deliverable = parsed?.optString("deliverable_markdown")?.take(12_000).orEmpty()
+        // The heartbeat is the one route that writes model prose without going through
+        // `ToEReasoningEngine.reason`, so it misses the output gate by construction. It is also the route
+        // where nobody asked for the text: the session decided on its own to write something the owner
+        // will read later as a draft. That is exactly where an unfounded paragraph does the most damage,
+        // so the draft passes the same gate and a blocked one is withheld rather than filed.
+        val rawDeliverable = parsed?.optString("deliverable_markdown")?.take(12_000).orEmpty()
             .ifBlank { response.take(12_000) }
+        // No observations exist by definition — nothing was consulted — so confidence can only be LOW and
+        // the gate annotates rather than pretends. `EMPTY` and `THIN` are the blockers that matter here.
+        val gate = com.lucifer.mobile.cognition.OutputGate.gate(
+            goal = prompt.take(2_000),
+            draft = rawDeliverable,
+            evidence = com.lucifer.mobile.cognition.OutputGate.Evidence.NONE
+        )
+        val deliverable = gate.text ?: com.lucifer.mobile.cognition.OutputGate.refusal(gate)
+        if (gate.blocked) {
+            Log.w(TAG, "heartbeat draft withheld by the output gate: ${gate.note}")
+        }
         val nextStep = parsed?.optString("next_step")?.take(500).orEmpty()
         val timestamp = System.currentTimeMillis()
         val slug = title.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').take(48).ifBlank { "draft" }
@@ -128,6 +144,8 @@ class HeartbeatSessionEngine(context: Context) {
 
         val record = JSONObject().apply {
             put("timestamp", timestamp)
+            put("sessionId", "$timestamp")
+            put("state", HeartbeatSessionState.COMMITTED.name)
             put("title", title)
             put("importance", importance)
             put("status", status)
@@ -135,6 +153,9 @@ class HeartbeatSessionEngine(context: Context) {
             put("summary", summary)
             put("nextStep", nextStep)
             put("artifact", artifact.name)
+            put("gateDecision", gate.decision.name)
+            put("gateNote", gate.note)
+            put("gateBlocked", gate.blocked)
         }
         File(root, "sessions.jsonl").appendText(record.toString() + "\n")
         File(root, "latest.json").writeText(record.toString())
@@ -212,7 +233,10 @@ class HeartbeatSessionEngine(context: Context) {
         try {
             root.mkdirs()
             File(root, "sessions.jsonl").appendText(
-                JSONObject().put("timestamp", System.currentTimeMillis()).put("status", "ERROR")
+                JSONObject().put("timestamp", System.currentTimeMillis())
+                    .put("sessionId", "${System.currentTimeMillis()}")
+                    .put("state", HeartbeatSessionState.SAFE_STOP.name)
+                    .put("status", "ERROR")
                     .put("summary", message.take(240)).toString() + "\n"
             )
         } catch (_: Exception) { }
@@ -221,4 +245,23 @@ class HeartbeatSessionEngine(context: Context) {
     private companion object {
         const val TAG = "HeartbeatSession"
     }
+}
+
+/**
+ * The explicit lifecycle states of one heartbeat session, a subset of the spec's state machine that
+ * fits what this service actually does: it observes, plans one draft, and commits it to the
+ * private ledger. There is no EXECUTE state here by design — the heartbeat never executes anything
+ * (CAPABILITIES.md §5: it "never executes a generated command, posts, submits, deploys, messages
+ * anyone, spends"). A session that cannot even produce a draft is recorded as SAFE_STOP, which
+ * permits no further work until the owner restarts the service.
+ */
+enum class HeartbeatSessionState {
+    /** Research/ledger gathered, prompt composed. */
+    OBSERVED,
+
+    /** The draft was produced and written to the private heartbeat directory. */
+    COMMITTED,
+
+    /** No new work permitted; the session recorded a failure and stopped. */
+    SAFE_STOP
 }

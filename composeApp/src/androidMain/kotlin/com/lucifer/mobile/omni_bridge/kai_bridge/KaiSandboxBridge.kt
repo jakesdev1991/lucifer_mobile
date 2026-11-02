@@ -1,14 +1,16 @@
 package com.lucifer.mobile.omni_bridge.kai_bridge
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-
-// Sandbox Bridge - simplified interface for sandbox operations
+/**
+ * Sandbox Bridge — real `run-as` execution inside the Kai package, with honest failures.
+ *
+ * Every command goes through [KaiBridge.execute], which records the attempt in the egress ledger
+ * (a sandbox command can reach the network even though the bridge itself opens no socket) and
+ * reports the exact run-as refusal when the OS blocks it. Non-read-only commands must have passed
+ * the caller's confirmation flow before they reach this class.
+ */
 class KaiSandboxBridge(
     private val kaiBridge: KaiBridge
 ) {
-
     suspend fun initialize() {
         kaiBridge.connect()
     }
@@ -23,7 +25,7 @@ class KaiSandboxBridge(
                 stderr = it.stderr,
                 success = it.exitCode == 0
             )
-        } ?: SandboxResult(exitCode = -1, stdout = "", stderr = "Not connected", success = false)
+        } ?: SandboxResult(exitCode = -1, stdout = "", stderr = "run-as unavailable", success = false)
     }
 
     suspend fun execPython(script: String, args: List<String> = emptyList()): SandboxResult {
@@ -35,14 +37,13 @@ class KaiSandboxBridge(
     }
 
     suspend fun evaluateRcod(stateVectors: List<FloatArray>): RcodResult {
-        val result = kaiBridge.evaluateRcod(stateVectors)
-        return result?.let {
-            RcodResult(
-                muValues = it.muValues,
-                metrics = it.metrics,
-                success = true
-            )
-        } ?: RcodResult(muValues = emptyList(), metrics = "", success = false)
+        // RCOD "phase-transition detection" claimed a state vector nothing in this app produces
+        // (CAPABILITIES.md §9). It is not re-advertised; the honest result is a refusal.
+        return RcodResult(
+            muValues = emptyList(),
+            metrics = "",
+            success = false
+        )
     }
 
     fun shutdown() {

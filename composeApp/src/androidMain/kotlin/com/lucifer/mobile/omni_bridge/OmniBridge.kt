@@ -3,7 +3,6 @@ package com.lucifer.mobile.omni_bridge
 import com.lucifer.mobile.data.wallet.LuciferWallet
 import com.lucifer.mobile.data.browser.LuciferBrowser
 import com.lucifer.mobile.data.llm.LuciferLLM
-import com.lucifer.mobile.data.sandbox.LuciferSandbox
 import com.lucifer.mobile.omni_bridge.kai_bridge.KaiBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,7 +30,8 @@ class OmniBridge(
     val wallet: LuciferWallet = LuciferWallet(context)
     val browser: LuciferBrowser = LuciferBrowser(context)
     val llm: LuciferLLM = LuciferLLM(context)
-    val sandbox: LuciferSandbox = LuciferSandbox(context)
+    val sandbox: com.lucifer.mobile.data.sandbox.LuciferSandbox =
+        com.lucifer.mobile.data.sandbox.LuciferSandbox(context)
     val kaiBridge: KaiBridge = KaiBridge(context)
 
     fun initialize() {
@@ -40,9 +40,6 @@ class OmniBridge(
             wallet.initialize()
             browser.initialize()
             llm.initialize()
-            sandbox.initialize()
-
-            // Initialize Kai bridge
             kaiBridge.connect()
 
             _health.value = HealthStatus.HEALTHY
@@ -62,6 +59,9 @@ class OmniBridge(
         val response = llm.generate(listOf(com.lucifer.mobile.data.llm.LLMMessage(role = "user", content = prompt)))
         return if (response.success) response.content else "Error: ${response.error}"
     }
+
+    /** The sandbox component (Kai run-as bridge). */
+    val sandboxComponent: com.lucifer.mobile.data.sandbox.LuciferSandbox get() = sandbox
 
     suspend fun executeInSandbox(command: String): SandboxResult {
         val result = sandbox.execute(command)
@@ -120,42 +120,47 @@ class OmniBridge(
     }
 
     suspend fun executeSandboxOperation(operation: SandboxOperation): SandboxResult {
+        val bridge = KaiBridge(context)
         return when (operation) {
             is SandboxOperation.Execute -> {
-                val result = sandbox.execute(operation.command, operation.args)
+                val result = bridge.execute(
+                    if (operation.args.isEmpty()) operation.command
+                    else "${operation.command} ${operation.args.joinToString(" ")}"
+                )
                 SandboxResult(
-                    success = result.success,
-                    stdout = result.stdout,
-                    stderr = result.stderr,
-                    exitCode = result.exitCode
+                    success = result != null && result.exitCode == 0,
+                    stdout = result?.stdout.orEmpty(),
+                    stderr = result?.stderr.orEmpty(),
+                    exitCode = result?.exitCode ?: -1
                 )
             }
             is SandboxOperation.Python -> {
-                val result = sandbox.execPython(operation.script, operation.args)
+                val result = bridge.execute("python3 -c ${shellQuote(operation.script)}${operation.args.joinToString(" ") { " " + shellQuote(it) }}")
                 SandboxResult(
-                    success = result.success,
-                    stdout = result.stdout,
-                    stderr = result.stderr,
-                    exitCode = result.exitCode
+                    success = result != null && result.exitCode == 0,
+                    stdout = result?.stdout.orEmpty(),
+                    stderr = result?.stderr.orEmpty(),
+                    exitCode = result?.exitCode ?: -1
                 )
             }
             is SandboxOperation.Node -> {
-                val result = sandbox.execNode(operation.script, operation.args)
+                val result = bridge.execute("node -e ${shellQuote(operation.script)}${operation.args.joinToString(" ") { " " + shellQuote(it) }}")
                 SandboxResult(
-                    success = result.success,
-                    stdout = result.stdout,
-                    stderr = result.stderr,
-                    exitCode = result.exitCode
+                    success = result != null && result.exitCode == 0,
+                    stdout = result?.stdout.orEmpty(),
+                    stderr = result?.stderr.orEmpty(),
+                    exitCode = result?.exitCode ?: -1
                 )
             }
         }
     }
 
+    private fun shellQuote(value: String): String = "'${value.replace("'", "'\\''")}'"
+
     fun shutdown() {
         wallet.shutdown()
         browser.shutdown()
         llm.shutdown()
-        sandbox.shutdown()
         _health.value = HealthStatus.SHUTDOWN
         scope.launch { _events.emit(OmniEvent.SHUTDOWN) }
     }

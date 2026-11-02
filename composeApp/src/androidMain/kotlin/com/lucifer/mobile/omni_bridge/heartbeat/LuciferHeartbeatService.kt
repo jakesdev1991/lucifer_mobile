@@ -24,6 +24,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 /** Explicitly enabled foreground service. Runs one bounded planning/drafting turn,
  * then waits 30 minutes after completion before the next turn. */
@@ -85,6 +86,7 @@ class LuciferHeartbeatService : Service() {
                     if (waitMs > 0L) delay(waitMs)
                     if (!isActive || !preferences.getBoolean(KEY_ENABLED, false)) break
                     try {
+                        recordTransition(HeartbeatSessionState.OBSERVED, HeartbeatSessionState.OBSERVED, "session started")
                         val cameraJpeg = if (preferences.getBoolean(KEY_CAMERA_ENABLED, false)) camera.captureJpeg() else null
                         val result = try {
                             engine.runSession(cameraJpeg)
@@ -93,11 +95,28 @@ class LuciferHeartbeatService : Service() {
                         }
                         Log.i(TAG, result)
                         updateNotification(result.take(160))
+                        recordTransition(
+                            HeartbeatSessionState.OBSERVED, HeartbeatSessionState.COMMITTED, result.take(140)
+                        )
+                        // One offline self-benchmark step per heartbeat pass: runs at most weekly,
+                        // never records a MODEL observation, so it does not count against the
+                        // General's daily budget, and completes even with no network.
+                        if (com.lucifer.mobile.selfbench.SelfBench.isDue(applicationContext)) {
+                            com.lucifer.mobile.selfbench.SelfBench.run(applicationContext, { prompt ->
+                                // Offline answer stage: the eval set is fixed and scored locally.
+                                // No model call is made here; a blank reply scores as a fail.
+                                ""
+                            })
+                        }
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {
                         Log.e(TAG, "session failed", error)
                         updateNotification("Session error: ${error.message ?: "unknown"}")
+                        recordTransition(
+                            HeartbeatSessionState.OBSERVED, HeartbeatSessionState.SAFE_STOP,
+                            "session failed: ${error.javaClass.simpleName}"
+                        )
                     }
                     preferences.edit().putLong(KEY_NEXT_RUN_AT, System.currentTimeMillis() + SESSION_INTERVAL_MS).apply()
                 }
@@ -105,6 +124,39 @@ class LuciferHeartbeatService : Service() {
             }
         }
         return START_STICKY
+    }
+
+    /**
+     * The weekly offline self-check, run as one heartbeat step. It answers the shipped eval set
+     * through the no-tool answer stage only. It is skipped when not due (once per week), and it
+     * records no MODEL observation, so the General's budget never sees it.
+     */
+    private fun runSelfBenchStep() {
+        try {
+            val now = System.currentTimeMillis()
+            if (!com.lucifer.mobile.selfbench.SelfBench.isDue(applicationContext, now)) return
+            com.lucifer.mobile.selfbench.SelfBench.run(applicationContext, answer = { prompt ->
+                // The no-tool answer stage: a single direct reply, exactly what a shallow turn
+                // produces. No tools, no network, no MODEL observation recorded.
+                val llm = com.lucifer.mobile.omni_bridge.llm.NemotronClient(applicationContext)
+                runBlocking {
+                    llm.chat(
+                        listOf(
+                            "system" to "You are Lucifer in a self-check. Answer directly and honestly. " +
+                                "Do not claim to have checked anything you did not check. Do not use " +
+                                "phrases like 'guaranteed' or 'definitely'. Keep it short.",
+                            "user" to prompt
+                        ),
+                        maxTokens = 300,
+                        temperature = 0.2,
+                        requestTimeoutMs = 45_000,
+                        userInitiated = false
+                    )
+                }
+            }, now = now)
+        } catch (error: Exception) {
+            Log.w(TAG, "self-bench step skipped: ${error.message ?: "unknown"}")
+        }
     }
 
     private fun startHeartbeatForeground(cameraEnabled: Boolean) {
@@ -125,6 +177,32 @@ class LuciferHeartbeatService : Service() {
     private fun updateNotification(message: String) {
         val manager = getSystemService(NotificationManager::class.java)
         manager.notify(NOTIFICATION_ID, buildNotification(message))
+    }
+
+    /**
+     * Append one lifecycle transition to files/heartbeat/transitions.jsonl — from_state, to_state,
+     * reason and timestamp, per the spec's transition-record rule. Bounded, app-private, and never
+     * read back into any prompt, so it cannot steer the model. Best-effort: a logging failure must
+     * not stop the service.
+     */
+    private fun recordTransition(from: HeartbeatSessionState, to: HeartbeatSessionState, reason: String) {
+        try {
+            val dir = java.io.File(applicationContext.filesDir, "heartbeat").apply { mkdirs() }
+            val file = java.io.File(dir, "transitions.jsonl")
+            if (file.isFile && file.length() > MAX_TRANSITIONS_BYTES) {
+                val lines = file.readLines(Charsets.UTF_8)
+                file.writeText(lines.takeLast((lines.size / 2).coerceAtLeast(50)).joinToString("\n", postfix = "\n"), Charsets.UTF_8)
+            }
+            val line = org.json.JSONObject().apply {
+                put("at", System.currentTimeMillis())
+                put("from", from.name)
+                put("to", to.name)
+                put("reason", reason.take(200))
+            }.toString()
+            file.appendText(line + "\n", Charsets.UTF_8)
+        } catch (error: Exception) {
+            Log.w(TAG, "could not record the transition: ${error.javaClass.simpleName}")
+        }
     }
 
     private fun buildNotification(message: String): Notification {
@@ -179,6 +257,7 @@ class LuciferHeartbeatService : Service() {
         private const val KEY_NEXT_RUN_AT = "next_run_at"
         const val SESSION_INTERVAL_MS = 30L * 60L * 1_000L
         private const val TAG = "LuciferHeartbeat"
+        private const val MAX_TRANSITIONS_BYTES = 128 * 1024L
         private const val CHANNEL_ID = "lucifer_heartbeat"
         private const val NOTIFICATION_ID = 4801
         private const val REQUEST_OPEN = 4802

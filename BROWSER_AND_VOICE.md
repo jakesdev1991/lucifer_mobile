@@ -1,10 +1,10 @@
 # Browser, voice, and the rest of the list
 
-**Date:** 2026-10-30
-**State:** every item on the four-bullet list is either wired or withdrawn. Nothing in this document has
-been compiled or run on a device — there is no JDK, kotlinc, Gradle or Android SDK in this workspace, so
-**no Kotlin here has been compiled, no APK exists, and no WebView has rendered a page.** What did run is
-the host-side verification, and it is named per section.
+**Date:** 2026-10-30 (updated 2026-11-01)
+**State:** every item on the four-bullet list is either wired or withdrawn. `assembleDebug` is green in
+this workspace (JDK 17, AGP 8.3, Android SDK 35), so the Kotlin here **has** been compiled and an APK
+exists; no WebView has rendered a page on a device. What ran is the host-side verification, named per
+section.
 
 ---
 

@@ -272,6 +272,16 @@ require "$ENGINE" "return OutputGate.gate(" \
   "the single-pass council answer is audited at the boundary — this path shipped unchecked before"
 require "$ENGINE" "if (!verdict.blocked) rememberTurn(input, shown)" \
   "a refusal is not remembered as an answer Lucifer established"
+# The heartbeat is the only other route that writes model prose a person reads, and it calls the model
+# directly. It is gated by the same object rather than by a copy of the rules.
+HEARTBEAT="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/omni_bridge/heartbeat/HeartbeatService.kt"
+require "$HEARTBEAT" "OutputGate.gate(" \
+  "a self-initiated heartbeat draft passes the gate before it is filed for the owner to read"
+require "$HEARTBEAT" "val deliverable = gate.text ?: com.lucifer.mobile.cognition.OutputGate.refusal(gate)" \
+  "a blocked heartbeat draft is withheld, and the refusal takes its place in the file"
+require "$HEARTBEAT" 'put("gateBlocked", gate.blocked)' \
+  "the verdict is recorded, so a withheld draft is auditable instead of invisible"
+
 if grep -qE "^[[:space:]]*return (answer|buildString)" "$ENGINE"; then
   echo "  FAILED  a bare return in ToEReasoningEngine bypasses the gate" >&2
   grep -nE "^[[:space:]]*return (answer|buildString)" "$ENGINE" | sed 's/^/        /' >&2

@@ -45,12 +45,16 @@ mkdir -p "$OUT"
 
 # The resilience package is a shared dependency (JSON helper, redaction, lesson ledger). Its Android
 # adapter pulls in the whole app, so it is excluded here.
+# Same rule as verify_resilience_core.sh: an `android.` import makes a file an adapter, not core. The
+# name list this replaces missed LessonExchange.kt and the core compile broke on it.
 CORE_FILES=()
+ADAPTER_FILES=()
 while IFS= read -r file; do
-  case "$(basename "$file")" in
-    ResilienceEngine.kt) continue ;;
-    *) CORE_FILES+=("$file") ;;
-  esac
+  if grep -qE '^import android\.' "$file"; then
+    ADAPTER_FILES+=("$file")
+  else
+    CORE_FILES+=("$file")
+  fi
 done < <(find "$RESILIENCE_DIR" -maxdepth 1 -name '*.kt' | sort)
 
 echo "== compile + run agent ecosystem checks =="
@@ -67,7 +71,18 @@ fi
 echo
 echo "== type-check the Android adapters =="
 android_surface_report "$STUBS"
+# `TacticianRunner` reaches SkillSynthRuntime, which needs the config/synth/skills stack. Those are
+# compiled from source, not stubbed: the hand-written `com.lucifer.mobile.skills.SkillSynthRuntime` stub
+# had only `learnProcedure`, so main's new `learnProposalOutcome` call broke the type-check — the same
+# drift that made the privilege stubs lie, in Lucifer's own package this time. Real sources cannot drift
+# from themselves.
+# Only the resilience *core* comes along. Its adapters (ResilienceEngine, LessonTransfer) reach the
+# launcher, the terminal and flows, which this harness has no stubs for and no need of — the resilience
+# harness type-checks them against the right surface. Keeping them out here is what keeps this compile
+# about agents.
 "$KOTLINC_BIN" ${JAR_ARGS[@]+"${JAR_ARGS[@]}"} "${SURFACE[@]}" "${CORE_FILES[@]}" "$AGENTS_DIR"/*.kt "$TACTICIAN_DIR"/*.kt \
   "$ADAPTER_DIR"/*.kt "$SRC/omni_bridge/heartbeat/HeartbeatService.kt" \
+  "$SRC/config/AppConfig.kt" "$SRC/synth"/*.kt "$SRC/skills/SkillSynthRuntime.kt" \
+  "$SRC/cognition/OutputGate.kt" "$SRC/cognition/AnswerAudit.kt" "$SRC/cognition/CognitionCore.kt" \
   -d "$OUT/adapters-check" -nowarn
 echo "adapter type-check passed (the Android/JVM surface only; UI and runtime unverified)"

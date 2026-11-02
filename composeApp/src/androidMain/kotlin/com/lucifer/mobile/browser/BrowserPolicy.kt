@@ -34,7 +34,10 @@ enum class BrowserAction(val label: String) {
     TYPE("type"),
 
     /** Run a script in the page. Arbitrary by definition. */
-    EVALUATE("evaluate")
+    EVALUATE("evaluate"),
+
+    /** Scroll the page. A read of layout; no data leaves the device. */
+    SCROLL("scroll")
 }
 
 /** Why a decision came out the way it did, in words that can be shown to a person. */
@@ -126,7 +129,7 @@ object BrowserPolicy {
         }
 
         return when (action) {
-            BrowserAction.NAVIGATE, BrowserAction.READ, BrowserAction.SCREENSHOT ->
+            BrowserAction.NAVIGATE, BrowserAction.READ, BrowserAction.SCREENSHOT, BrowserAction.SCROLL ->
                 BrowserDecision(true, false)
             BrowserAction.CLICK -> BrowserDecision(
                 true,
@@ -208,6 +211,114 @@ object BrowserPolicy {
         BrowserAction.CLICK -> "Click `${target.trim().take(120)}`"
         BrowserAction.TYPE -> "Type ${target.length} characters into the focused field"
         BrowserAction.EVALUATE -> "Run a ${target.length}-character script in the page"
+        BrowserAction.SCROLL -> "Scroll the page by ${target.trim().take(40)} pixels"
         else -> action.label
+    }
+
+    // ── SSRF / DNS-rebinding guard for WebView navigation ───────────
+    //
+    // A WebView resolves DNS itself, so the read-only fetcher's resolve-then-check cannot be reused
+    // here directly. The defence that survives is: only public-looking hostnames are allowed, IP
+    // literals in private/reserved ranges are refused, and every navigation (including redirects and
+    // page-initiated ones) is re-checked in shouldOverrideUrlLoading/onPageStarted. DNS rebinding is
+    // still possible in principle against a hostile authoritative server; that is why this mode is
+    // refused under Tor without a system VPN and is never the default.
+
+    /**
+     * True when [host] is an IP literal in a private, loopback, link-local, CGNAT, or reserved range.
+     * Mirrors the literal check in `data/browser/LuciferBrowser`.
+     */
+    fun isPrivateLiteral(host: String): Boolean {
+        val h = host.trim('[', ']').lowercase()
+        if (h.contains(':')) {
+            if (h == "::" || h == "::1") return true
+            val first = h.substringBefore(':', "")
+            if (first.length >= 2) {
+                val byte = first.take(2).toIntOrNull(16) ?: return true
+                if ((byte and 0xfe) == 0xfc) return true // ULA fc00::/7
+                if (first.startsWith("fe8") || first.startsWith("fe9") ||
+                    first.startsWith("fea") || first.startsWith("feb")
+                ) return true // link-local fe80::/10
+            }
+            return false
+        }
+        if (!isIpv4Literal(h)) return false
+        val parts = h.split('.')
+        if (parts.size != 4) return true
+        val octets = parts.map { it.toIntOrNull() ?: return true }
+        val a = octets[0]
+        val b = octets[1]
+        if (a == 10 || a == 127 || a == 0) return true
+        if (a == 192 && b == 168) return true
+        if (a == 172 && b in 16..31) return true
+        if (a == 169 && b == 254) return true
+        if (a == 100 && b in 64..127) return true // CGNAT 100.64.0.0/10
+        return a >= 240
+    }
+
+    /** Strict IPv4 literal test (four decimal octets, no leading-zero tricks beyond single digits). */
+    fun isIpv4Literal(host: String): Boolean {
+        val parts = host.split('.')
+        if (parts.size != 4) return false
+        return parts.all { p -> p.isNotEmpty() && p.length <= 3 && p.all(Char::isDigit) && p.toInt() <= 255 }
+    }
+
+    /**
+     * True when [host] is a bare or bracketed IPv6 literal.
+     *
+     * The brackets matter: `navigationRefusal` deliberately keeps them on a bracketed URL so the range
+     * check sees the address, and this test used to reject `"[::1]"` for containing `[`. That made
+     * `if (isIpv4Literal(host) || isIpv6Literal(host))` skip the private-range check entirely, so
+     * `https://[::1]/`, `https://[fc00::1]/` and `https://[fe80::1]/` were navigable — a loopback or
+     * link-local target the WebView would happily fetch. The Python mirror in `tools/browser-core`
+     * tested `":" in host` instead, so it never saw the hole; the Kotlin harness did.
+     */
+    fun isIpv6Literal(host: String): Boolean {
+        val h = host.trim('[', ']')
+        return h.contains(':') && h.all { it.isDigit() || it.isLetter() || it == ':' || it == '.' }
+    }
+
+    /**
+     * Decide whether a WebView navigation target is acceptable. Only http/https with a public-looking
+     * host pass; private IP literals and local/internal names are refused before the WebView resolves
+     * anything. Returns null when the URL is acceptable.
+     */
+    fun navigationRefusal(rawUrl: String): String? {
+        val trimmed = rawUrl.trim()
+        if (trimmed.length > MAX_URL_CHARS) return "That URL is too long for the browser."
+        val lower = trimmed.lowercase()
+        if (lower.startsWith("javascript:") || lower.startsWith("data:") ||
+            lower.startsWith("file:") || lower.startsWith("blob:") || lower.startsWith("intent:")
+        ) {
+            return "Only http and https pages can be opened."
+        }
+        val scheme = trimmed.substringBefore("://").lowercase()
+        if (scheme != "http" && scheme != "https") return "Only http and https pages can be opened."
+        val rest = trimmed.substringAfter("://")
+        var host = rest.substringBefore('/').substringBefore('?').substringBefore('#')
+        // A port colon is fine on a hostname; a bracketed IPv6 literal keeps its brackets so the
+        // literal test below sees the address, not "[".
+        host = if (host.startsWith("[")) {
+            host.substringBefore(']') + "]"
+        } else {
+            host.substringBefore(':')
+        }
+        host = host.trimEnd('.').lowercase()
+        if (host.isBlank()) return "That URL has no host."
+        if (host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal") ||
+            host.endsWith(".lan") || host == "localhost"
+        ) {
+            return "Local and internal hosts are not allowed."
+        }
+        if (isIpv4Literal(host) || isIpv6Literal(host)) {
+            if (isPrivateLiteral(host)) return "Private and reserved network addresses are not allowed."
+        }
+        return null
+    }
+
+    /** JavaScript that scrolls by [deltaY] pixels. */
+    fun scrollScript(deltaY: Int): String {
+        val d = deltaY.coerceIn(-100_000, 100_000)
+        return "(function(){window.scrollBy(0,$d);return 'SCROLLED';})()"
     }
 }

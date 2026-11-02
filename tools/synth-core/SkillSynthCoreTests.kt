@@ -332,6 +332,28 @@ fun main() {
         expect(state.experiences.any { it.kind == ExperienceKind.COMMAND }, "the command is in the ring")
     }
 
+    test("a proposal outcome feeds a win or a loss keyed on the proposal fingerprint") {
+        var state = SynthState()
+        state = SkillSynth.learnProposalOutcome(state, "fp123", "SKILL", "Add a disk skill", "HELPED", NOW)
+        val win = state.skills.single()
+        expectEq(win.kind, SkillKind.PROCEDURE, "proposal outcome is a procedure")
+        expectEq(win.wins, 1, "helped is a win")
+        expectEq(win.losses, 0, "no loss")
+        // Same fingerprint, opposite outcome: the same skill id, so it accumulates as a loss.
+        state = SkillSynth.learnProposalOutcome(state, "fp123", "SKILL", "Add a disk skill", "APPLIED_UNDONE", NOW + 1)
+        val revised = state.skills.single()
+        expectEq(revised.wins, 1, "win kept")
+        expectEq(revised.losses, 1, "undone counts as a loss")
+        // An unknown outcome string teaches nothing.
+        val before = state.skills.size
+        state = SkillSynth.learnProposalOutcome(state, "fp123", "SKILL", "Add a disk skill", "MAYBE", NOW + 2)
+        expectEq(state.skills.size, before, "unknown outcome ignored")
+        // A different fingerprint is a different lesson.
+        state = SkillSynth.learnProposalOutcome(state, "fp999", "AGENT", "Merge idle agents", "FAILED", NOW + 3)
+        expectEq(state.skills.size, 2, "distinct fingerprint is a new skill")
+        expect(state.experiences.any { it.kind == ExperienceKind.WORKFLOW && it.surface == "general" }, "workflow experience recorded")
+    }
+
     test("forget is immediate and total") {
         val one = skill()
         val state = SynthState(skills = listOf(one), pending = null)

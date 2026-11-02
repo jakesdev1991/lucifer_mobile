@@ -10,4 +10,5 @@ package android.content
 open class Context {
     open val applicationContext: Context get() = this
     open val filesDir: java.io.File get() = java.io.File("/tmp/lucifer-files")
+    open val contentResolver: ContentResolver get() = ContentResolver()
 }

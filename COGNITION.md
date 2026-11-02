@@ -221,6 +221,32 @@ A withheld reply is not remembered: the turn window is written by `reason` with 
 actually saw, so the next question cannot treat "I will not show you that" as something Lucifer
 established.
 
+#### The other route that writes prose
+
+The heartbeat calls the model directly and files a Markdown draft the owner reads later — it never passes
+through `reason`. It is gated by the same object: the draft goes through `OutputGate.gate` before the file
+is written, a blocked draft is replaced by the refusal rather than filed, and every session record now
+carries `gateDecision`, `gateNote` and `gateBlocked` so a withheld draft is auditable instead of
+invisible. Everything else that reaches the model — the skill composer, the tactician, recovery planning —
+consumes *parsed* structure (an `AgentDraft`, a proposal ledger, a diagnosed failure class), not prose
+shown as an answer.
+
+#### What the gate does not do
+
+It is **heuristic**. It does not establish factual correctness, and no host-side check does. What it
+establishes is narrower and still worth having: that the reply is not empty or a stub, that it was built
+on something the run actually observed when observations exist, and that it does not claim certainty or
+device knowledge it has not earned.
+
+The audit engine's *structured* verifier in `verification/` is a different instrument aimed at a different
+object: `StatementGates` judges formal Lean declarations (placeholders, vacuity, name-versus-statement,
+parity) and the MCP server around it can only check what has been elaborated on a Lean host, with a key.
+It cannot read an English paragraph and decide whether it is true, and wiring it to the reply path would
+not make it able to. What it *can* do is the thing this gate deliberately leaves alone: take a claim the
+owner wants proved, check the proof, and report `GATED — awaiting human validation` rather than an answer.
+Connecting the two would mean asking the model for a formal statement instead of prose, which is a
+feature to design on purpose, not a gate to bolt on.
+
 ---
 
 ## 7. Triage: not every message deserves eight steps
@@ -569,6 +595,7 @@ pass to `build/sweep/report.log`, and repeats. For a crontab:
 */30 * * * * cd /path/to/lucifer_mobile && ./scripts/cognition_sweep.sh --quiet >> /tmp/lucifer-sweep.log 2>&1
 ```
 
-**Not proven here:** the loop has never called a model, never run a tool, never shown a trace. The Kotlin
-harness (`tools/cognition-core/CognitionCoreTests.kt`) has not compiled in this workspace. Every claim in
-this document is about code as written.
+**Not proven on device:** the loop has never run on a phone, never called a model from a device, never
+run a tool, never shown a trace. The Kotlin harness compiles as part of `assembleDebug` (green in this
+workspace); `tools/cognition-core/CognitionCoreTests.kt` host-side assertions run via
+`./scripts/verify_cognition_core.sh`. Every claim in this document is about code as written.

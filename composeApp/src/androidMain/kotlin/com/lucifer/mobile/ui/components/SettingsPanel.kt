@@ -54,6 +54,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lucifer.mobile.diagnostics.AndroidPlatformDiagnostics
+import com.lucifer.mobile.awareness.AwarenessSurfaces
+import com.lucifer.mobile.awareness.NotificationStore
 import com.lucifer.mobile.privacy.NetworkGuard
 import com.lucifer.mobile.privacy.PlayClassifier
 import com.lucifer.mobile.privacy.PlayEnvironmentProbe
@@ -87,6 +89,7 @@ fun AnimatedSettingsPanel(
     shizukuAuditBusy: Boolean = false,
     shizukuStatus: String = "Checking Shizuku…",
     onKaiHealthCheck: () -> Unit = {},
+    kaiStatusLine: String = "Kai: not probed yet",
     onVmPasswordSave: (String) -> Unit = {},
     onVmHostSave: (String) -> Unit = {},
     onVmUserSave: (String) -> Unit = {},
@@ -108,6 +111,12 @@ fun AnimatedSettingsPanel(
     onLocalMemoryToggle: (Boolean) -> Unit = {},
     onLocalMemoryClear: () -> Unit = {},
     onExportBundle: () -> Unit = {},
+    allowLessonExport: Boolean = false,
+    onAllowLessonExportToggle: (Boolean) -> Unit = {},
+    onExportLessons: () -> Unit = {},
+    onImportLessons: () -> Unit = {},
+    selfbenchLine: String = "",
+    selfbenchSparkline: String = "",
     biometricStatus: String = "…",
     voiceEnabled: Boolean = true,
     knowledgeStatus: String = "…",
@@ -468,6 +477,149 @@ fun AnimatedSettingsPanel(
             )
         }
 
+        // ── AWARENESS · SYSTEM LOG (own UID only) ──
+        SettingsCard(title = "SYSTEM LOG · OWN APP ONLY", icon = { Icon(Icons.Filled.Info, contentDescription = "System log", tint = Morningstar.Info, modifier = Modifier.size(24.dp)) }) {
+            var logBusy by remember { mutableStateOf(false) }
+            var logText by remember { mutableStateOf("Not loaded yet.") }
+            Text(
+                AwarenessSurfaces.systemLogHonesty,
+                color = Morningstar.Warning, fontSize = 11.sp, fontFamily = Morningstar.Body
+            )
+            Button(
+                onClick = {
+                    logBusy = true
+                    diagnosticsScope.launch {
+                        logText = try {
+                            val lines = withContext(Dispatchers.IO) {
+                                AwarenessSurfaces.ownLogcatViaShizuku(context, 200)
+                            }
+                            if (lines == null) "Shizuku not granted — cannot read even our own log buffer via shell. Start Shizuku and grant Lucifer access first."
+                            else lines.take(200).joinToString("\n").ifBlank { "No log lines recorded for our UID yet." }
+                        } catch (error: Exception) {
+                            "[ERROR] ${error.message ?: "log read failed"}"
+                        }
+                        logBusy = false
+                    }
+                },
+                enabled = !logBusy,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (logBusy) "READING OWN LOG…" else "READ OWN LOGCAT (SHIZUKU)") }
+            Text(
+                logText,
+                modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).verticalScroll(rememberScrollState()),
+                color = Morningstar.Bone, fontFamily = Morningstar.MonoTail, fontSize = 10.sp
+            )
+        }
+
+        // ── AWARENESS · NOTIFICATIONS (opt-in listener) ──
+        SettingsCard(title = "NOTIFICATIONS · OPT-IN LISTENER", icon = { Icon(Icons.Filled.Psychology, contentDescription = "Notifications", tint = Morningstar.Gilded, modifier = Modifier.size(24.dp)) }) {
+            var notifStatus by remember { mutableStateOf("Checking…") }
+            var notifEntries by remember { mutableStateOf(listOf<NotificationStore.Entry>()) }
+            var notifRevision by remember { mutableStateOf(0) }
+            LaunchedEffect(notifRevision) {
+                withContext(Dispatchers.IO) {
+                    notifStatus = NotificationStore.statusLine(context)
+                    notifEntries = NotificationStore.snapshot()
+                }
+            }
+            Text(
+                "Lucifer can see notification titles only if YOU enable it in Settings > Special app access > " +
+                    "Notification access — the app cannot turn this on itself. When enabled, it records package + " +
+                    "title + timestamp only, kept in memory, never sent anywhere.",
+                color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body
+            )
+            Text(notifStatus, color = Morningstar.Gilded, fontSize = 10.sp, fontFamily = Morningstar.MonoTail)
+            Button(
+                onClick = { AwarenessSurfaces.openNotificationListenerSettings(context); notifRevision++ },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("OPEN NOTIFICATION ACCESS SETTINGS") }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { NotificationStore.clear(); notifRevision++ },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
+                ) { Text("CLEAR ALL", fontSize = 10.sp, fontFamily = Morningstar.Body) }
+                Button(
+                    onClick = { notifRevision++ },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
+                ) { Text("REFRESH", fontSize = 10.sp, fontFamily = Morningstar.Body) }
+            }
+            if (notifEntries.isNotEmpty()) {
+                notifEntries.take(30).forEach { entry ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "${entry.packageName} · ${entry.title.ifBlank { "(no title)" }} · ${entry.timestamp}",
+                            color = Morningstar.Bone, fontSize = 10.sp, fontFamily = Morningstar.MonoTail,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            "ACK",
+                            color = Morningstar.Info, fontSize = 10.sp, fontFamily = Morningstar.Body,
+                            modifier = Modifier.clickable { NotificationStore.ack(entry.timestamp); notifRevision++ }
+                        )
+                    }
+                }
+            } else {
+                Text("No notifications recorded.", color = Morningstar.Whisper, fontSize = 10.sp, fontFamily = Morningstar.Body)
+            }
+        }
+
+        // ── AWARENESS · OWN-UID TRAFFIC ──
+        SettingsCard(title = "DIAGNOSTICS · OWN TRAFFIC BYTES", icon = { Icon(Icons.Filled.Wifi, contentDescription = "Traffic", tint = Morningstar.Success, modifier = Modifier.size(24.dp)) }) {
+            var trafficText by remember { mutableStateOf("Not read yet.") }
+            var trafficBusy by remember { mutableStateOf(false) }
+            Text(
+                "Byte counters for Lucifer's own UID only (TrafficStats, since boot, all networks). " +
+                    "This is not a packet capture: full pcap needs root and is NOT attempted.",
+                color = Morningstar.Warning, fontSize = 11.sp, fontFamily = Morningstar.Body
+            )
+            Button(
+                onClick = {
+                    trafficBusy = true
+                    diagnosticsScope.launch {
+                        trafficText = withContext(Dispatchers.IO) { AwarenessSurfaces.ownTraffic().render() }
+                        trafficBusy = false
+                    }
+                },
+                enabled = !trafficBusy,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text(if (trafficBusy) "READING…" else "READ OWN-UID TRAFFIC") }
+            Text(
+                trafficText,
+                modifier = Modifier.fillMaxWidth(),
+                color = Morningstar.Bone, fontFamily = Morningstar.MonoTail, fontSize = 10.sp
+            )
+        }
+
+        // ── AWARENESS · EMAIL (mailto only) ──
+        SettingsCard(title = "EMAIL · SYSTEM MAIL APP ONLY", icon = { Icon(Icons.Filled.Share, contentDescription = "Email", tint = Morningstar.Info, modifier = Modifier.size(24.dp)) }) {
+            var mailNote by remember { mutableStateOf("Not sent yet.") }
+            Text(
+                "Lucifer stores no mail credentials and talks to no mail server. EMAIL opens your system default " +
+                    "mail app with a mailto: intent. If no mail app is installed, this reports NOT CONFIGURED honestly.",
+                color = Morningstar.Ash, fontSize = 11.sp, fontFamily = Morningstar.Body
+            )
+            Button(
+                onClick = {
+                    val result = AwarenessSurfaces.composeEmail(
+                        context,
+                        to = "",
+                        subject = "Lucifer Mobile — feedback",
+                        body = ""
+                    )
+                    mailNote = if (result.launched) "Mail app opened via mailto:. " + result.note
+                    else "NOT CONFIGURED — " + result.note
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("COMPOSE EMAIL (MAILTO:)") }
+            Text(mailNote, color = Morningstar.Gilded, fontSize = 10.sp, fontFamily = Morningstar.MonoTail)
+        }
+
         // VM SSH Password
         SettingsCard(title = "VM SSH PASSWORD", icon = { Icon(Icons.Filled.Wifi, contentDescription = "VM SSH", tint = Morningstar.Success, modifier = Modifier.size(24.dp)) }) {
             Row(
@@ -685,10 +837,22 @@ fun AnimatedSettingsPanel(
             ) { Text("Manage EVM Wallets") }
         }
 
-        // Kai Bridge is not deployable from this build; expose the real ping instead.
+        // Kai Bridge: the real cross-app probe (run-as into com.inspiredandroid.kai) with an honest
+        // status line — present / run-as allowed / version — instead of a bare ping.
         SettingsCard(title = "KAI BRIDGE SANDBOX", icon = { Icon(Icons.Filled.Build, contentDescription = "Kai Bridge", tint = Morningstar.Warning, modifier = Modifier.size(24.dp)) }) {
+            SystemStatusRow(
+                "Kai state",
+                kaiStatusLine,
+                when {
+                    kaiStatusLine.contains("not installed") -> Morningstar.Crimson
+                    kaiStatusLine.contains("blocked") -> Morningstar.Warning
+                    kaiStatusLine.contains("answers") -> Morningstar.Success
+                    else -> Morningstar.Ash
+                }
+            )
             Text(
-                "Checks whether the Kai sandbox is installed and responds. This does not deploy or install it.",
+                "Probes whether the Kai package (com.inspiredandroid.kai) is installed and whether the OS allows " +
+                    "run-as into its sandbox. This does not deploy or install it; when run-as is blocked the status says so.",
                 color = Morningstar.Ash,
                 fontSize = 12.sp, fontFamily = Morningstar.Body
             )
@@ -790,6 +954,59 @@ fun AnimatedSettingsPanel(
                 onClick = onExportBundle,
                 colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Color.White)
             ) { Text("EXPORT BUNDLE", fontSize = 12.sp, fontFamily = Morningstar.Body, fontWeight = FontWeight.Bold) }
+        }
+
+        // Opt-in cross-session lesson exchange and the weekly offline self-benchmark.
+        SettingsCard(title = "LESSONS & SELF-CHECK", icon = { Icon(Icons.Filled.Psychology, contentDescription = "Lessons and self-check", tint = Morningstar.Gilded, modifier = Modifier.size(24.dp)) }) {
+            val panelContext = LocalContext.current
+            val panelScope = rememberCoroutineScope()
+            var exportAllowed by remember { mutableStateOf(allowLessonExport) }
+            var benchLine by remember { mutableStateOf(selfbenchLine) }
+            var benchSpark by remember { mutableStateOf(selfbenchSparkline) }
+            LaunchedEffect(Unit) {
+                withContext(Dispatchers.IO) {
+                    exportAllowed = com.lucifer.mobile.resilience.LessonTransfer.allowExport(panelContext)
+                    benchLine = com.lucifer.mobile.selfbench.SelfBench.summaryLine(panelContext)
+                    benchSpark = com.lucifer.mobile.selfbench.SelfBench.sparkline(panelContext)
+                }
+            }
+            Text(
+                "Resilience lessons can move to another Lucifer install only when you allow it here and pick the file yourself — nothing is ever exported automatically or sent over the network. The weekly self-check runs fully offline and never counts against the model budget.",
+                color = Morningstar.Ash, fontSize = 12.sp, fontFamily = Morningstar.Body
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            SystemStatusRow("Lesson export allowed", if (exportAllowed) "ON" else "OFF", if (exportAllowed) Morningstar.Success else Morningstar.Warning)
+            SystemStatusRow("Self-check (last 4 weeks)", if (benchSpark.isBlank()) "—" else benchSpark, Morningstar.Info)
+            SystemStatusRow("Self-check detail", benchLine.ifBlank { "no runs yet" }, Morningstar.Info)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        val turnOn = !exportAllowed
+                        panelScope.launch {
+                            withContext(Dispatchers.IO) {
+                                com.lucifer.mobile.resilience.LessonTransfer.setAllowExport(panelContext, turnOn)
+                            }
+                            exportAllowed = turnOn
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (exportAllowed) Morningstar.GlassRaised else Morningstar.SuccessDim, contentColor = Color.White)
+                ) { Text(if (exportAllowed) "DISALLOW EXPORT" else "ALLOW LESSON EXPORT", fontSize = 11.sp) }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onExportLessons,
+                    enabled = exportAllowed,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Color.White)
+                ) { Text("EXPORT LESSONS…", fontSize = 11.sp) }
+                Button(
+                    onClick = onImportLessons,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Color.White)
+                ) { Text("IMPORT LESSONS…", fontSize = 11.sp) }
+            }
         }
 
         // Always-on skill synthesis: local, bounded, and reversible from here.

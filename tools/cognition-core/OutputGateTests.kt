@@ -238,6 +238,25 @@ fun main() {
         expectEq(OutputGate.MAX_ATTEMPTS, 2, "the bound the loop also uses")
     }
 
+    test("a self-initiated draft with nothing consulted is annotated, not trusted") {
+        // The heartbeat generates without observing anything: no tools, no corpus. The gate can still
+        // hold the draft to its word — an unqualified certainty claim has earned nothing here.
+        val draft = "Your device will definitely benefit from this reorganization, and I have verified it."
+        val verdict = OutputGate.gate(goal = "write one local draft", draft = draft)
+        expect(verdict.blocked.not(), "an ungrounded paragraph is a caveat, not a blocker")
+        expectEq(verdict.decision, OutputGate.Decision.ANNOTATED, "it is shown with its caveats")
+        expect(verdict.text!!.contains("overclaim"), "and the overclaim is named")
+    }
+
+    test("a heartbeat draft that is only a stub is withheld") {
+        val verdict = OutputGate.gate(
+            goal = "A user explicitly enabled a recurring, visible heartbeat session. Return one JSON object.",
+            draft = "ok"
+        )
+        expect(verdict.blocked, "a two-letter deliverable is not a draft")
+        expectEq(verdict.text, null, "and it never reaches the file")
+    }
+
     println()
     if (failures > 0) {
         println("OUTPUT GATE FAILED · $failures of $checks")

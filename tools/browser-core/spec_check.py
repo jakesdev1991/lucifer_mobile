@@ -40,7 +40,7 @@ MAX_SELECTOR_CHARS = 300
 MAX_TYPE_CHARS = 2000
 MAX_SCRIPT_CHARS = 4000
 
-READS = ("NAVIGATE", "READ", "SCREENSHOT")
+READS = ("NAVIGATE", "READ", "SCREENSHOT", "SCROLL")
 MUTATORS = ("CLICK", "TYPE", "EVALUATE")
 
 
@@ -149,6 +149,81 @@ def type_script(selector: str, text: str) -> str:
             "if(!el){return 'NO_MATCH';}el.focus();el.value=" + js_string(text) + ";"
             "el.dispatchEvent(new Event('input',{bubbles:true}));"
             "el.dispatchEvent(new Event('change',{bubbles:true}));return 'TYPED';})()")
+
+
+def scroll_script(delta_y: int) -> str:
+    d = max(-100000, min(100000, delta_y))
+    return f"(function(){{window.scrollBy(0,{d});return 'SCROLLED';}})()"
+
+
+def is_ipv4_literal(host: str) -> bool:
+    parts = host.split(".")
+    if len(parts) != 4:
+        return False
+    for p in parts:
+        if not p or len(p) > 3 or not p.isdigit() or int(p) > 255:
+            return False
+    return True
+
+
+def is_private_literal(host: str) -> bool:
+    h = host.strip("[]").lower()
+    if ":" in h:
+        if h in ("::", "::1"):
+            return True
+        first = h.split(":", 1)[0]
+        if len(first) >= 2:
+            try:
+                byte = int(first[:2], 16)
+            except ValueError:
+                return True
+            if (byte & 0xFE) == 0xFC:
+                return True
+            if first[:3].lower() in ("fe8", "fe9", "fea", "feb"):
+                return True
+        return False
+    if not is_ipv4_literal(h):
+        return False
+    a, b, *_ = [int(x) for x in h.split(".")]
+    if a in (10, 127, 0):
+        return True
+    if a == 192 and b == 168:
+        return True
+    if a == 172 and 16 <= b <= 31:
+        return True
+    if a == 169 and b == 254:
+        return True
+    if a == 100 and 64 <= b <= 127:
+        return True
+    return a >= 240
+
+
+def navigation_refusal(raw_url: str):
+    trimmed = raw_url.strip()
+    if len(trimmed) > MAX_URL_CHARS:
+        return "too long"
+    lower = trimmed.lower()
+    for scheme in ("javascript:", "data:", "file:", "blob:", "intent:"):
+        if lower.startswith(scheme):
+            return "scheme"
+    scheme = trimmed.split("://", 1)[0].lower()
+    if scheme not in ("http", "https"):
+        return "scheme"
+    rest = trimmed.split("://", 1)[1] if "://" in trimmed else ""
+    host = rest.split("/")[0].split("?")[0].split("#")[0]
+    # A port colon is fine on a hostname; a bracketed IPv6 literal keeps its brackets for the test.
+    if host.startswith("["):
+        host = host.split("]")[0] + "]"
+    else:
+        host = host.split(":")[0]
+    host = host.rstrip(".").lower()
+    if not host:
+        return "no host"
+    if host == "localhost" or any(host.endswith(s) for s in (".localhost", ".local", ".internal", ".lan")):
+        return "local host"
+    if (is_ipv4_literal(host) or ":" in host) and is_private_literal(host):
+        return "private literal"
+    return None
 
 
 # ── cases ────────────────────────────────────────────────────────────
@@ -276,7 +351,7 @@ def case_drift() -> None:
         check(f"drift: {name} is {value}",
               f"const val {name} = {plain}" in body or f"const val {name} = {underscored}" in body)
 
-    for action in ("NAVIGATE", "READ", "SCREENSHOT", "CLICK", "TYPE", "EVALUATE"):
+    for action in ("NAVIGATE", "READ", "SCREENSHOT", "SCROLL", "CLICK", "TYPE", "EVALUATE"):
         check(f"drift: {action} still exists", f"{action}(" in body)
     for scheme in ("javascript:", "data:", "file:", "blob:"):
         check(f"drift: {scheme} is still refused", scheme in body)
@@ -297,11 +372,25 @@ def case_drift() -> None:
               "ledger" in kt.lower())
 
 
+def case_ssrf() -> None:
+    check("public https host is allowed", navigation_refusal("https://example.com/page") is None)
+    check("public http host is allowed", navigation_refusal("http://example.com") is None)
+    for bad in ("https://192.168.1.1/", "https://10.0.0.5/", "https://127.0.0.1/",
+                "https://169.254.169.254/latest", "https://172.16.0.1/", "https://100.64.0.1/",
+                "https://[::1]/", "https://[fc00::1]/", "https://[fe80::1]/",
+                "http://localhost/", "https://printer.local/", "javascript:alert(1)",
+                "data:text/html,x", "intent://x"):
+        check(f"navigation refuses {bad}", navigation_refusal(bad) is not None)
+    check("scroll script clamps the delta", "100000" in scroll_script(999999) and "-100000" in scroll_script(-999999))
+    check("scroll script reports SCROLLED", "SCROLLED" in scroll_script(600))
+
+
 def main() -> int:
     case_availability()
     case_actions()
     case_selectors()
     case_js_escaping()
+    case_ssrf()
     case_drift()
 
     for line in failures:

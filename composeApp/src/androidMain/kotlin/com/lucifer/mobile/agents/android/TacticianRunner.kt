@@ -12,6 +12,7 @@ import com.lucifer.mobile.tactician.Opportunity
 import com.lucifer.mobile.tactician.McpToolProposals
 import com.lucifer.mobile.tactician.OpportunityCategory
 import com.lucifer.mobile.tactician.ProposalLedger
+import com.lucifer.mobile.tactician.ProposalOutcome
 import com.lucifer.mobile.tactician.ProposalStatus
 import com.lucifer.mobile.tactician.TacticianEngine
 import com.lucifer.mobile.tactician.TacticianReport
@@ -158,6 +159,7 @@ class TacticianRunner(private val context: Context) {
                 ?: return PromptSaveResult(false, "Could not write the draft to app-private storage.")
             ledger.setStatus(fingerprint, ProposalStatus.APPLIED)
             collector.writeLedger(ledger.encode())
+            recordOutcome(fingerprint, ProposalOutcome.HELPED)
             ObservationBus.record(
                 appContext, ObservationKind.MCP,
                 "read-only MCP tool draft written: ${draft.name}",
@@ -175,6 +177,7 @@ class TacticianRunner(private val context: Context) {
             if (result.saved) {
                 ledger.setStatus(fingerprint, ProposalStatus.APPLIED)
                 collector.writeLedger(ledger.encode())
+                recordOutcome(fingerprint, ProposalOutcome.HELPED)
             }
             return result
         }
@@ -187,7 +190,35 @@ class TacticianRunner(private val context: Context) {
         val status = if (expire) ProposalStatus.EXPIRED else ProposalStatus.REJECTED
         ledger.setStatus(fingerprint, status)
         collector.writeLedger(ledger.encode())
+        // A rejected or expired proposal teaches the synthesizer that this kind of proposal did not
+        // pay off — the outcome loop closes here as well as on APPLIED.
+        recordOutcome(fingerprint, if (expire) ProposalOutcome.DISMISSED else ProposalOutcome.FAILED)
         return PromptSaveResult(true, "${proposal.title} ${status.name.lowercase()}.")
+    }
+
+    /**
+     * Record the real-world outcome of a proposal and feed it to SkillSynth, so learned-skill
+     * confidence reflects what actually happened. [outcome] HELPED counts as a win for the
+     * proposal's lesson; FAILED/DISMISSED/APPLIED_UNDONE count as losses.
+     */
+    fun recordOutcome(fingerprint: String, outcome: ProposalOutcome): PromptSaveResult {
+        val ledger = ledger()
+        val proposal = ledger.find(fingerprint) ?: return PromptSaveResult(false, "That proposal no longer exists.")
+        val updated = ledger.setOutcome(fingerprint, outcome) ?: return PromptSaveResult(false, "That proposal has no result yet.")
+        collector.writeLedger(ledger.encode())
+        try {
+            com.lucifer.mobile.skills.SkillSynthRuntime.learnProposalOutcome(
+                appContext, fingerprint, proposal.category.name, proposal.title, outcome.name
+            )
+        } catch (error: Exception) {
+            Log.w(TAG, "could not feed proposal outcome to SkillSynth", error)
+        }
+        ObservationBus.record(
+            appContext, ObservationKind.AGENT_RUN,
+            "proposal outcome: ${proposal.title.take(60)} → ${outcome.name}",
+            source = "general", tags = listOf("outcome")
+        )
+        return PromptSaveResult(true, "Recorded ${outcome.name.lowercase()} for ${proposal.title.take(60)}.")
     }
 
     fun clearResolved(): PromptSaveResult {

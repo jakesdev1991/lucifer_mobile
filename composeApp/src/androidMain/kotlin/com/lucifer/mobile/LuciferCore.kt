@@ -3,14 +3,18 @@ package com.lucifer.mobile
 import android.content.Context
 import com.lucifer.mobile.data.wallet.LuciferWallet
 import com.lucifer.mobile.data.browser.LuciferBrowser
-import com.lucifer.mobile.data.llm.LuciferLLM
-import com.lucifer.mobile.data.sandbox.LuciferSandbox
-import com.lucifer.mobile.omni_bridge.OmniBridge
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 
+/**
+ * Process-wide handles to Lucifer's real capabilities.
+ *
+ * Only the paths that have a live consumer are kept: the egress-gated browser and the wallet.
+ * The old `llm` / `sandbox` / `omniBridge` members were removed — nothing in the app called them,
+ * and each one constructed a whole Kai bridge chain for no reason. LLM access goes through
+ * `omni_bridge/llm/NemotronClient` directly; sandbox access goes through `kai_bridge/KaiBridge`.
+ */
 object LuciferCore {
 
     @Volatile
@@ -23,9 +27,6 @@ object LuciferCore {
 
     val wallet: LuciferWallet by lazy { LuciferWallet(context!!) }
     val browser: LuciferBrowser by lazy { LuciferBrowser(context!!) }
-    val llm: LuciferLLM by lazy { LuciferLLM(context!!) }
-    val sandbox: LuciferSandbox by lazy { LuciferSandbox(context!!) }
-    val omniBridge: OmniBridge by lazy { OmniBridge(context!!) }
 
     val scope: CoroutineScope by lazy {
         _job = Job()
@@ -37,12 +38,8 @@ object LuciferCore {
 
         context = ctx
 
-        // Initialize core systems
         wallet.initialize()
         browser.initialize()
-        llm.initialize()
-        sandbox.initialize()
-        omniBridge.initialize()
 
         _initialized = true
     }

@@ -166,6 +166,7 @@ class MainActivity : ComponentActivity() {
                 var pendingRecoveryMove by remember { mutableStateOf<RecoveryMove?>(null) }
                 var voiceEnabled by remember { mutableStateOf(loadVoiceEnabled()) }
                 var settingsToast by remember { mutableStateOf<String?>(null) }
+                var kaiStatus by remember { mutableStateOf("Kai: not probed yet") }
                 // The last deep reasoning run, kept so the Skills tab can show how an answer was reached
                 // rather than only what it said.
                 var cognitionSummary by remember { mutableStateOf("") }
@@ -348,6 +349,37 @@ class MainActivity : ComponentActivity() {
                             val result = ExportBundle.write(this@MainActivity, uri)
                             withContext(Dispatchers.Main) {
                                 settingsToast = result.getOrElse { "Export failed: ${it.message ?: "unknown error"}" }
+                            }
+                        }
+                    }
+                }
+
+                // Lesson exchange: export goes through the system SAF picker and is gated by the
+                // Settings toggle; import goes through the file picker. Both are fully offline.
+                val lessonExportLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.CreateDocument("application/json")
+                ) { uri ->
+                    if (uri == null) {
+                        settingsToast = "Lesson export cancelled — nothing was written."
+                    } else {
+                        scope.launch(Dispatchers.IO) {
+                            val result = com.lucifer.mobile.resilience.LessonTransfer.exportLessons(this@MainActivity, uri)
+                            withContext(Dispatchers.Main) {
+                                settingsToast = result.getOrElse { "Lesson export failed: ${it.message ?: "unknown error"}" }
+                            }
+                        }
+                    }
+                }
+                val lessonImportLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.OpenDocument()
+                ) { uri ->
+                    if (uri == null) {
+                        settingsToast = "Lesson import cancelled — nothing was read."
+                    } else {
+                        scope.launch(Dispatchers.IO) {
+                            val result = com.lucifer.mobile.resilience.LessonTransfer.importLessons(this@MainActivity, uri)
+                            withContext(Dispatchers.Main) {
+                                settingsToast = result.getOrElse { "Lesson import failed: ${it.message ?: "unknown error"}" }
                             }
                         }
                     }
@@ -1312,6 +1344,14 @@ class MainActivity : ComponentActivity() {
                                                     .format(java.util.Date())
                                                 exportLauncher.launch("lucifer-export-$stamp.json")
                                             },
+                                            onExportLessons = {
+                                                val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
+                                                    .format(java.util.Date())
+                                                lessonExportLauncher.launch("lucifer-lessons-$stamp.json")
+                                            },
+                                            onImportLessons = {
+                                                lessonImportLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+                                            },
                                             shizukuStatus = shizukuStatus.message,
                                             onShizukuRequest = {
                                                 settingsToast = if (ShizukuAccess.requestPermission()) {
@@ -1354,12 +1394,23 @@ class MainActivity : ComponentActivity() {
                                             shizukuAuditBusy = shizukuAuditBusy,
                                             onKaiHealthCheck = {
                                                 scope.launch(Dispatchers.IO) {
-                                                    val connected = KaiBridge(this@MainActivity).connect()
+                                                    val status = KaiBridge(this@MainActivity).connect()
                                                     withContext(Dispatchers.Main) {
-                                                        settingsToast = if (connected) "Kai sandbox responds to ping." else "Kai sandbox unavailable — install the Kai package and its sandbox first."
+                                                        kaiStatus = status.line
+                                                        settingsToast = when (status.state) {
+                                                            com.lucifer.mobile.omni_bridge.kai_bridge.KaiState.PRESENT_RUNNABLE ->
+                                                                "Kai sandbox responds to ping."
+                                                            com.lucifer.mobile.omni_bridge.kai_bridge.KaiState.ABSENT ->
+                                                                "Kai package is not installed."
+                                                            com.lucifer.mobile.omni_bridge.kai_bridge.KaiState.RUN_AS_BLOCKED ->
+                                                                "Kai installed but run-as is blocked by the OS allow-list."
+                                                            com.lucifer.mobile.omni_bridge.kai_bridge.KaiState.PRESENT_UNRESPONSIVE ->
+                                                                "Kai run-as allowed but the sandbox did not answer."
+                                                        }
                                                     }
                                                 }
                                             },
+                                            kaiStatusLine = kaiStatus,
                                             onVmPasswordSave = { saveVmPassword(it) },
                                             onVmUserSave = { user ->
                                                 if (saveVmUser(user)) { savedVmUser = user.trim(); settingsToast = "VM SSH user saved." }

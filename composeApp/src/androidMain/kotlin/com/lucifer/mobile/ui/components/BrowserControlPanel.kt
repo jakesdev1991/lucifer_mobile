@@ -337,6 +337,15 @@ private fun ColumnScope.InteractiveBrowserPane(
             },
             colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
         ) { Text("READ", fontSize = 11.sp) }
+        Button(
+            onClick = {
+                scope.launch {
+                    interactive.scroll(600)
+                    onStatusLine("Scrolled down 600px.")
+                }
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
+        ) { Text("SCROLL", fontSize = 11.sp) }
     }
 
     // The escape hatch, kept behind the same sheet. A script can do anything the page can do, which

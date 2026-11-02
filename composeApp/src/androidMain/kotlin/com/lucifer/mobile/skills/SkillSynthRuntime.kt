@@ -134,6 +134,16 @@ object SkillSynthRuntime {
 
     /** Record the answer that was just produced, attributed to the block that was rendered for it. */
     fun recordAnswer(context: Context?, question: String, answer: String, surface: String) {
+        recordAnswer(context, question, answer, surface, reward = null)
+    }
+
+    /**
+     * As above, with an optional reward in [-1, 1] computed by the caller from observed facts —
+     * for a deep run, the pre-answer [com.lucifer.mobile.cognition.AnswerAudit]: confidence HIGH
+     * with no warnings is +0.5, a blocked draft is -1.0, anything else 0.0. Stored on the CHAT
+     * experience only; it never changes promotion or what is injected into a prompt.
+     */
+    fun recordAnswer(context: Context?, question: String, answer: String, surface: String, reward: Double?) {
         val app = context?.applicationContext ?: return
         if (!enabled(app)) return
         val now = System.currentTimeMillis()
@@ -142,7 +152,7 @@ object SkillSynthRuntime {
             ?.block?.skillIds
             .orEmpty()
         try {
-            persist(app, SkillSynth.recordAnswer(state(app), question, answer, surface, now, ids))
+            persist(app, SkillSynth.recordAnswer(state(app), question, answer, surface, now, ids, reward))
         } catch (error: Exception) {
             Log.w(TAG, "could not record the answer", error)
         }
@@ -157,6 +167,21 @@ object SkillSynthRuntime {
             persist(app, SkillSynth.learnProcedure(state(app), failureClass, target, tactic, worked, now))
         } catch (error: Exception) {
             Log.w(TAG, "could not record the recovery outcome", error)
+        }
+    }
+
+    /**
+     * The General's proposal loop closed: a proposal was applied/rejected and its real outcome is
+     * known. Feeding it here is what makes learned-skill confidence reflect real results.
+     */
+    fun learnProposalOutcome(context: Context?, fingerprint: String, category: String, title: String, outcome: String) {
+        val app = context?.applicationContext ?: return
+        if (!enabled(app)) return
+        try {
+            val now = System.currentTimeMillis()
+            persist(app, SkillSynth.learnProposalOutcome(state(app), fingerprint, category, title, outcome, now))
+        } catch (error: Exception) {
+            Log.w(TAG, "could not record the proposal outcome", error)
         }
     }
 

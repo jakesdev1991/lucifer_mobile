@@ -1,43 +1,32 @@
 package com.lucifer.mobile.data.llm
 
 import android.content.Context
-import com.lucifer.mobile.omni_bridge.kai_bridge.KaiLLMBridge
-import com.lucifer.mobile.omni_bridge.kai_bridge.KaiBridge
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import com.lucifer.mobile.omni_bridge.llm.NemotronClient
 
-class LuciferLLM {
+/**
+ * LuciferLLM — the app's model path, egress-gated.
+ *
+ * Prompts go to [NemotronClient], which is the only LLM route and opens its socket through
+ * `privacy/EgressHttp` (recorded in the egress ledger as MODEL). The Kai sandbox is not used for
+ * prompts.
+ */
+class LuciferLLM(context: Context) {
 
-    private val kaiBridge: KaiLLMBridge
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val client = NemotronClient(context.applicationContext)
 
-    constructor(context: Context) {
-        val bridge = KaiBridge(context)
-        this.kaiBridge = KaiLLMBridge(bridge)
-    }
-
-    fun initialize() {
-        scope.launch {
-            kaiBridge.initialize()
-        }
-    }
+    fun initialize() { /* NemotronClient is connection-per-request; nothing to warm */ }
 
     suspend fun generate(messages: List<LLMMessage>): LLMResponse {
         val prompt = messages.joinToString("\n") { "${it.role}: ${it.content}" }
-        val result = kaiBridge.query(prompt)
-        return LLMResponse(
-            success = result.success,
-            content = result.content,
-            tokensUsed = result.tokensUsed,
-            latencyMs = result.latencyMs,
-            error = result.error
-        )
+        return try {
+            val text = client.chat(listOf("user" to prompt))
+            LLMResponse(content = text, success = true, error = "")
+        } catch (e: Exception) {
+            LLMResponse(content = "", success = false, error = e.message ?: "model call failed")
+        }
     }
 
-    fun shutdown() {
-        kaiBridge.shutdown()
-    }
+    fun shutdown() { /* stateless client; nothing to release */ }
 }
 
 data class LLMMessage(

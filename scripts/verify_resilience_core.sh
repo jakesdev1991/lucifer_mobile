@@ -38,14 +38,29 @@ fi
 
 mkdir -p "$OUT"
 
-# Everything in the resilience package except the Android adapter is pure Kotlin.
+# "Pure core" is decided by what a file imports, not by a list of names. A file that imports `android.`
+# is an adapter: it cannot compile without the Android surface, so it belongs to the type-check below,
+# not to this one. The list this replaces named ResilienceEngine.kt, then also LessonTransfer.kt, and
+# still missed LessonExchange.kt — the same drift, twice. Deriving it means a new adapter cannot break
+# the core compile, and a core file that quietly gains an Android import fails here instead of silently
+# moving itself out of the checked set.
 CORE_FILES=()
+ADAPTER_FILES=()
 while IFS= read -r file; do
-  case "$(basename "$file")" in
-    ResilienceEngine.kt) continue ;;
-    *) CORE_FILES+=("$file") ;;
-  esac
+  if grep -qE '^import android\.' "$file"; then
+    ADAPTER_FILES+=("$file")
+  else
+    CORE_FILES+=("$file")
+  fi
 done < <(find "$CORE_DIR" -maxdepth 1 -name '*.kt' | sort)
+
+echo "== 0. what is core and what is an adapter =="
+echo "  core     : $(printf '%s ' "${CORE_FILES[@]##*/}")"
+echo "  adapters : $(printf '%s ' "${ADAPTER_FILES[@]##*/}")"
+if [[ ${#CORE_FILES[@]} -eq 0 ]]; then
+  echo "  FAILED  every file in resilience/ imports Android — the pure core has disappeared" >&2
+  exit 1
+fi
 
 echo "== compile + run pure core checks =="
 "$KOTLINC_BIN" "${CORE_FILES[@]}" "$HARNESS" -d "$OUT/resilience-tests.jar" -nowarn
@@ -60,5 +75,10 @@ fi
 echo
 echo "== type-check the Android adapter =="
 android_surface_report "$STUBS"
-"$KOTLINC_BIN" ${JAR_ARGS[@]+"${JAR_ARGS[@]}"} "${SURFACE[@]}" "${CORE_FILES[@]}" "$CORE_DIR/ResilienceEngine.kt" -d "$OUT/engine-check" -nowarn
+# The adapters are compiled with the core they sit on, the config package they read through (every
+# `files/config/` path is named once in AppConfig) and nothing else. This is the first time
+# LessonTransfer.kt has been compiled by anything — it was excluded from this check by name as well.
+"$KOTLINC_BIN" ${JAR_ARGS[@]+"${JAR_ARGS[@]}"} "${SURFACE[@]}" \
+  "${CORE_FILES[@]}" "${ADAPTER_FILES[@]}" "$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/config/AppConfig.kt" \
+  -d "$OUT/engine-check" -nowarn
 echo "adapter type-check passed (the Android/JVM surface only)"

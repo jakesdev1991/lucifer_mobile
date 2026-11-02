@@ -65,6 +65,16 @@ class JSONObject {
         parsed.forEach { (key, value) -> values[key as String] = value }
     }
 
+    /**
+     * `JSONObject(Map)` — present in the platform's org.json (verified against the API 35 android.jar:
+     * the class carries a `(Ljava/util/Map;)V` constructor). `CognitionLedger` uses it to write the
+     * cognitive-heuristics block, which broke this harness when that call was added and the stub had
+     * only the string constructor.
+     */
+    constructor(copyFrom: Map<*, *>) {
+        copyFrom.forEach { (key, value) -> values[key as String] = value }
+    }
+
     fun put(key: String, value: Any?): JSONObject {
         values[key] = normalise(value)
         return this
