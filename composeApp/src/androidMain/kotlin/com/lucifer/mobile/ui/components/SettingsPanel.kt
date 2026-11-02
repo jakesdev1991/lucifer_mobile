@@ -105,6 +105,12 @@ fun AnimatedSettingsPanel(
     onMemoryMcpSave: (String, String) -> Unit = { _, _ -> },
     onMemoryMcpTest: () -> Unit = {},
     onMemoryMcpRemove: () -> Unit = {},
+    savedLeanAuditMcpUrl: String = "",
+    leanAuditMcpStatus: String = "DISABLED",
+    leanAuditMcpTokenConfigured: Boolean = false,
+    onLeanAuditMcpSave: (String, String) -> Unit = { _, _ -> },
+    onLeanAuditMcpTest: () -> Unit = {},
+    onLeanAuditMcpRemove: () -> Unit = {},
     localMemoryEnabled: Boolean = true,
     localMemoryCount: Int = 0,
     localMemoryBytes: Long = 0L,
@@ -181,6 +187,8 @@ fun AnimatedSettingsPanel(
     var knowledgeUrlText by remember { mutableStateOf(savedKnowledgeUrl) }
     var memoryMcpUrlText by remember { mutableStateOf(savedMemoryMcpUrl) }
     var memoryMcpTokenText by remember { mutableStateOf("") }
+    var leanAuditMcpUrlText by remember { mutableStateOf(savedLeanAuditMcpUrl) }
+    var leanAuditMcpTokenText by remember { mutableStateOf("") }
     var vmHostText by remember { mutableStateOf(savedVmHost) }
     var vmUserText by remember { mutableStateOf(savedVmUser) }
     var vmPortText by remember { mutableStateOf(savedVmPort.toString()) }
@@ -1111,6 +1119,68 @@ fun AnimatedSettingsPanel(
                 ) { Text("SAVE LOCAL MCP") }
                 Button(
                     onClick = { onMemoryMcpRemove(); memoryMcpUrlText = ""; memoryMcpTokenText = "" },
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Warning)
+                ) { Text("REMOVE") }
+            }
+        }
+
+        // Read-only Lean 4 proof-audit MCP from the same-device Termux server.
+        SettingsCard(title = "LEAN AUDIT MCP", icon = { Icon(Icons.Filled.Psychology, contentDescription = "Lean audit MCP", tint = Morningstar.Gilded, modifier = Modifier.size(24.dp)) }) {
+            Text(
+                "Exposes the same-device Termux Lean-audit MCP (FastMCP, pinned Lean 4.32.0) to the cognition loop as read-only lean_audit.* tools: lean_check, lean_axioms, lean_audit_corpus, lean_explain_failure, lean_verify_claim, lean_audit_report. Every call is recorded in the egress ledger; if Termux is stopped, the loop skips it.",
+                color = Morningstar.Ash, fontSize = 12.sp, fontFamily = Morningstar.Body
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            SystemStatusRow("Lean Audit MCP", leanAuditMcpStatus, when {
+                leanAuditMcpStatus.startsWith("CONNECTED") -> Morningstar.Success
+                leanAuditMcpStatus.startsWith("CONFIGURED") -> Morningstar.Warning
+                leanAuditMcpStatus.startsWith("NOT CONNECTED") -> Morningstar.Crimson
+                else -> Morningstar.Ash
+            })
+            SystemStatusRow("Bearer token", if (leanAuditMcpTokenConfigured) "ENCRYPTED IN ANDROID KEYSTORE" else "NOT SAVED", if (leanAuditMcpTokenConfigured) Morningstar.Success else Morningstar.Warning)
+            TextField(
+                value = leanAuditMcpUrlText,
+                onValueChange = { leanAuditMcpUrlText = it.take(160) },
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Uri),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Morningstar.Void,
+            unfocusedContainerColor = Morningstar.Void, focusedTextColor = Morningstar.Bone,
+                    unfocusedTextColor = Morningstar.Bone, cursorColor = Morningstar.Gilded,
+                    focusedIndicatorColor = Morningstar.Crimson, unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent
+                ),
+                placeholder = { Text("http://127.0.0.1:8931/mcp", color = Morningstar.Whisper) }
+            )
+            TextField(
+                value = leanAuditMcpTokenText,
+                onValueChange = { leanAuditMcpTokenText = it.take(256) },
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Morningstar.Void,
+            unfocusedContainerColor = Morningstar.Void, focusedTextColor = Morningstar.Bone,
+                    unfocusedTextColor = Morningstar.Bone, cursorColor = Morningstar.Gilded,
+                    focusedIndicatorColor = Morningstar.Crimson, unfocusedIndicatorColor = Color.Transparent,
+                    disabledIndicatorColor = Color.Transparent
+                ),
+                placeholder = { Text("Paste the Termux bearer token (leave blank to keep saved token)", color = Morningstar.Whisper) }
+            )
+            Text("The endpoint is restricted to localhost / 127.0.0.1 on port 8931. The token is never stored in plaintext by Lucifer.", color = Morningstar.Ash, fontSize = 10.sp, fontFamily = Morningstar.Body)
+            Button(
+                onClick = onLeanAuditMcpTest,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Bone)
+            ) { Text("TEST LEAN AUDIT MCP CONNECTION") }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { onLeanAuditMcpSave(leanAuditMcpUrlText, leanAuditMcpTokenText); leanAuditMcpTokenText = "" },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Morningstar.Crimson, contentColor = Color.White)
+                ) { Text("SAVE LEAN AUDIT MCP") }
+                Button(
+                    onClick = { onLeanAuditMcpRemove(); leanAuditMcpUrlText = ""; leanAuditMcpTokenText = "" },
                     colors = ButtonDefaults.buttonColors(containerColor = Morningstar.GlassRaised, contentColor = Morningstar.Warning)
                 ) { Text("REMOVE") }
             }

@@ -13,6 +13,7 @@ import com.lucifer.mobile.surface.Surface
 import com.lucifer.mobile.surface.SurfaceFacts
 import com.lucifer.mobile.surface.SurfaceKnowledge
 import com.lucifer.mobile.surface.SurfaceRuntime
+import com.lucifer.mobile.verification.LeanAuditMcpClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -22,6 +23,7 @@ import kotlinx.coroutines.withTimeout
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import org.json.JSONObject
 
 /**
  * The loop itself: think → act → observe → think, until it can answer or the budget says stop.
@@ -457,9 +459,18 @@ object AndroidCognitionTools {
     const val PAGE = ToolCatalogue.PAGE
     const val CALCULATE = ToolCatalogue.CALCULATE
     const val RESEARCH = ToolCatalogue.RESEARCH
+    const val LEAN_AUDIT = "lean_audit"
 
     /** The catalogue lives in the pure core so the prompt, the toolbox and the answer cannot drift. */
-    fun specs(): List<ToolSpec> = ToolCatalogue.specs()
+    fun specs(): List<ToolSpec> = ToolCatalogue.specs() + ToolSpec(
+        LEAN_AUDIT,
+        "run a read-only Lean 4 proof audit on the same-device Termux MCP " +
+            "(lean_audit.<tool>: check|axioms|audit_corpus|explain_failure|verify_claim|audit_report) " +
+            "with JSON arguments",
+        SideEffect.NONE,
+        "lean_audit.<tool> {\"json\":\"args\"}",
+        1_200
+    )
 
     fun toolbox(context: Context): CognitionToolbox {
         val app = context.applicationContext
@@ -549,6 +560,28 @@ object AndroidCognitionTools {
                         } catch (error: Exception) {
                             ToolResult.failed("research failed: ${error.javaClass.simpleName}")
                         }
+                    }
+
+                    LEAN_AUDIT -> {
+                        // The model names the server tool in the argument: lean_audit.lean_check {"code": "..."}
+                        val raw = call.argument.trim()
+                        val dot = raw.indexOf('.')
+                        val mcpTool = if (dot > 0) raw.substring(0, dot) else null
+                        val serverTool = mcpTool?.let { LeanAuditMcpClient.TOOL_NAMES.firstOrNull { name -> "lean_audit.$name" == it } }
+                        if (serverTool == null) {
+                            return@withContext ToolResult.refused(
+                                "unknown lean_audit tool; use one of: " +
+                                    LeanAuditMcpClient.TOOL_NAMES.joinToString(", ") { "lean_audit.$it" }
+                            )
+                        }
+                        val jsonPart = raw.substring(dot + 1).trim()
+                        val args = try {
+                            if (jsonPart.startsWith("{")) JSONObject(jsonPart) else JSONObject()
+                        } catch (error: Exception) {
+                            return@withContext ToolResult.failed("arguments must be a JSON object (${error.javaClass.simpleName})")
+                        }
+                        val result = LeanAuditMcpClient(app).callTool(serverTool, args)
+                        ToolResult.ok(result.take(8_000), "via lean-audit MCP (egress ledger)")
                     }
 
                     else -> ToolResult.refused("no tool named ${call.tool}")
