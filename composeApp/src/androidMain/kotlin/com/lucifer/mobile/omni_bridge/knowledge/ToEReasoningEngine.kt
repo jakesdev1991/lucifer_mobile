@@ -2,12 +2,14 @@ package com.lucifer.mobile.omni_bridge.knowledge
 
 import android.content.Context
 import com.lucifer.mobile.cognition.AndroidCognitionTools
+import com.lucifer.mobile.cognition.AnswerAudit
 import com.lucifer.mobile.cognition.CognitionLedger
 import com.lucifer.mobile.cognition.CognitionOutcome
 import com.lucifer.mobile.cognition.CognitionRunner
 import com.lucifer.mobile.cognition.CognitionTriage
 import com.lucifer.mobile.cognition.DepthDirective
 import com.lucifer.mobile.cognition.NemotronCognitionPlanner
+import com.lucifer.mobile.cognition.OutputGate
 import com.lucifer.mobile.cognition.Termination
 import com.lucifer.mobile.omni_bridge.four_horsemen.FourHorsemenOrchestrator
 import com.lucifer.mobile.memory.LocalConversationMemory
@@ -57,6 +59,15 @@ class ToEReasoningEngine(
     var lastCognition: CognitionOutcome? = null
         private set
 
+    /**
+     * The gate's verdict on the last reply, whether or not it was shown. A withheld answer leaves a null
+     * [CognitionOutcome] but a verdict here, so the panel can say *why* nothing appeared instead of
+     * showing an empty transcript.
+     */
+    @Volatile
+    var lastGate: com.lucifer.mobile.cognition.OutputGate.Verdict? = null
+        private set
+
     init {
         // Warm the embedded index at startup — instant intuition, no I/O wait later.
         Thread {
@@ -99,11 +110,37 @@ class ToEReasoningEngine(
         onStep: ((com.lucifer.mobile.cognition.StepRecord) -> Unit)? = null,
         budget: com.lucifer.mobile.cognition.LoopBudget = com.lucifer.mobile.cognition.LoopBudget()
     ): String {
+        // One door. Every route below — the deterministic surface answer, the deep loop, the single-pass
+        // council — returns a Verdict rather than a String, and only a verdict with text gets out. This
+        // used to be three bare `return answer`s, which meant the council path (most turns) shipped
+        // whatever the model wrote with no check at all, while the deep path alone audited itself.
+        val verdict = gateDraft(input, surface, onStep, budget)
+        lastGate = verdict
+        val shown = verdict.text ?: OutputGate.refusal(verdict)
+        // The turn window is written here and only here, with the text the user actually saw. A withheld
+        // reply is not a remembered answer — putting the refusal in the window would let the next question
+        // treat "I will not show you that" as something Lucifer established — and a deep turn is not
+        // recorded twice just because it passed through this method on its way out.
+        if (!verdict.blocked) rememberTurn(input, shown)
+        return shown
+    }
+
+    /**
+     * Produce a reply and put it through [OutputGate]. Private so the only public way out of this class
+     * is [reason], and so a caller cannot reach an ungated draft.
+     */
+    private suspend fun gateDraft(
+        input: String,
+        surface: Surface,
+        onStep: ((com.lucifer.mobile.cognition.StepRecord) -> Unit)?,
+        budget: com.lucifer.mobile.cognition.LoopBudget
+    ): OutputGate.Verdict {
         // A capability question is still a turn: the next "and in the overlay?" needs to know what was
         // already said here, or it is answered as if the conversation had just started.
         SurfaceRuntime.answerIfAboutSurface(appContext, input, surface)?.let { answer ->
-            rememberTurn(input, answer)
-            return answer
+            // Read out of the surface registry, not generated, so it is grounded by construction and is
+            // not audited as if a model had guessed it.
+            return OutputGate.deterministic(answer)
         }
 
         // Before the single-pass council: is this a question that needs work, and does the work succeed?
@@ -116,16 +153,21 @@ class ToEReasoningEngine(
         val triage = CognitionTriage.assess(question, AndroidCognitionTools.specs().size)
         if (triage.deep || directive.forced) {
             val outcome = try {
-                deepReason(question, surface, onStep = onStep, budget = budget)
+                deepReason(question, surface, onStep = onStep, budget = budget, remember = false)
             } catch (error: Exception) {
                 null
             }
             if (outcome != null && outcome.concluded && outcome.stop.termination == Termination.ANSWERED) {
-                return buildString {
-                    append(outcome.answer)
-                    append("\n\n")
-                    append(outcome.confidenceLine)
-                }
+                return OutputGate.carried(
+                    text = buildString {
+                        append(outcome.answer)
+                        append("\n\n")
+                        append(outcome.confidenceLine)
+                    },
+                    // The runner audited this draft and withheld it if it stayed blocked, so the verdict
+                    // travels with the text instead of being recomputed from evidence that is gone.
+                    audit = outcome.audit
+                )
             }
         }
 
@@ -160,10 +202,10 @@ class ToEReasoningEngine(
         val offlineMemory = if (deliberation.startsWith("Council offline")) {
             try { localMemory.search(input) } catch (_: Exception) { "" }
         } else ""
-        // Every answered turn is remembered, not only the deep ones. The deep path records inside
-        // deepReason (it can run for a minute before it answers); these two paths are the single-pass
-        // council and the offline-memory answer, which used to leave "and why?" with no context at all
-        // while the self-description promised the previous two turns were in view.
+        // The council and the offline-memory answer are remembered too — a follow-up after a shallow
+        // answer used to have no context at all while the self-description promised the previous two turns
+        // were in view. reason() does the remembering now, with the gated text; this comment survives so
+        // the next reader knows why the window is not written here any more.
         val answer = if (offlineMemory.isNotBlank()) {
             "$deliberation\n\n$offlineMemory"
         } else if (evidence.isNotBlank()) {
@@ -177,8 +219,21 @@ class ToEReasoningEngine(
         } else {
             deliberation
         }
-        rememberTurn(input, answer)
-        return answer
+        // The council's evidence is the corpus text it was handed; naming corpus_search lets the gate see
+        // that a "By the ToE" answer really did read the corpus rather than inventing a citation.
+        val observed = evidence.lines().filter { it.isNotBlank() }
+        return OutputGate.gate(
+            goal = input,
+            draft = answer,
+            evidence = OutputGate.Evidence(
+                observations = observed,
+                toolIds = if (observed.isEmpty()) emptyList() else listOf(AnswerAudit.CORPUS_TOOL)
+            )
+            // No repair: the only thing that could re-ask the council is another model call, and a second
+            // paid round trip to rephrase a draft the gate already refused is not worth it. EMPTY and
+            // THIN are the only blockers here, and both are better answered by asking again than by
+            // having the same model pad its own paragraph.
+        )
     }
 
     /**
@@ -194,7 +249,11 @@ class ToEReasoningEngine(
         surface: Surface = Surface.UNKNOWN,
         confirmedTools: Set<String> = emptySet(),
         onStep: ((com.lucifer.mobile.cognition.StepRecord) -> Unit)? = null,
-        budget: com.lucifer.mobile.cognition.LoopBudget = com.lucifer.mobile.cognition.LoopBudget()
+        budget: com.lucifer.mobile.cognition.LoopBudget = com.lucifer.mobile.cognition.LoopBudget(),
+        // Whether this call writes the turn window. `reason` passes false and remembers the *shown* text
+        // itself; otherwise a deep turn would be recorded twice and the two-slot window would evict the
+        // real previous turn to make room for a duplicate.
+        remember: Boolean = true
     ): CognitionOutcome {
         val outcome = CognitionRunner.run(
             goal = input,
@@ -206,7 +265,7 @@ class ToEReasoningEngine(
             priorTurns = priorTurns()
         )
         lastCognition = outcome
-        rememberTurn(input, outcome.answer)
+        if (remember) rememberTurn(input, outcome.answer)
         // The loop's decisions are unauditable unless something writes them down. Names and counts only;
         // what a tool returned is never persisted.
         CognitionLedger.record(appContext, outcome, input)

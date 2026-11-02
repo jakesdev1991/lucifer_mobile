@@ -1,0 +1,247 @@
+package com.lucifer.mobile.cognition.harness
+
+import com.lucifer.mobile.cognition.AnswerAudit
+import com.lucifer.mobile.cognition.OutputGate
+import com.lucifer.mobile.cognition.SideEffect
+
+/**
+ * The output gate, executed.
+ *
+ * `OutputGate` is the one place every reply passes through before a person reads it, so the properties
+ * worth asserting are the ones that would be silent if they broke:
+ *
+ *  - a blocked draft **never** appears in the verdict's text, not even inside the refusal;
+ *  - the refusal names the objection rather than reproducing the prose;
+ *  - exactly one repair is attempted, and a repair that returns the same text or throws does not buy
+ *    another round;
+ *  - warnings are shown, not swallowed — an answer that ships with a caveat says so in its own text;
+ *  - the two bypasses ([OutputGate.deterministic] for text read out of the surface registry and
+ *    [OutputGate.carried] for a reply the loop already gated) stay honest: `carried` still refuses a
+ *    blocked audit, because a bypass that honours a blocked verdict is the only kind worth having.
+ *
+ * Pure Kotlin, no Android, no filesystem — it runs anywhere the other cognition harnesses run.
+ */
+private var failures = 0
+private var checks = 0
+
+private fun test(name: String, body: () -> Unit) {
+    checks++
+    try {
+        body()
+        println("  ok    $name")
+    } catch (error: Throwable) {
+        failures++
+        println("  FAIL  $name")
+        println("        ${error.message ?: error.javaClass.simpleName}")
+    }
+}
+
+private fun expect(condition: Boolean, what: String) {
+    if (!condition) throw AssertionError(what)
+}
+
+private fun expectEq(actual: Any?, expected: Any?, what: String) {
+    if (actual != expected) throw AssertionError("$what — expected <$expected>, got <$actual>")
+}
+
+/** A short question, so the THIN blocker cannot fire and mask what is being tested. */
+private const val SHORT_GOAL = "what is a monad?"
+
+/** A long question, so a one-word reply is judged thin. */
+private const val LONG_GOAL =
+    "explain in detail how the cross-profile launch path works on this device and what it cannot do"
+
+fun main() {
+    println("== the output gate ==")
+
+    test("an ordinary grounded answer passes unchanged") {
+        val draft = "A monad wraps a value and lets you chain operations over it without unwrapping first."
+        val verdict = OutputGate.gate(
+            goal = SHORT_GOAL,
+            draft = draft,
+            evidence = OutputGate.Evidence(observations = listOf("monad wraps a value, chained operations"))
+        )
+        expectEq(verdict.decision, OutputGate.Decision.PASS, "clean drafts pass")
+        expectEq(verdict.text, draft, "a passing draft is not rewritten")
+        expectEq(verdict.attempts, 1, "one audit")
+        expect(!verdict.blocked, "not blocked")
+    }
+
+    test("an empty draft is withheld, and the text is null") {
+        val verdict = OutputGate.gate(SHORT_GOAL, "")
+        expectEq(verdict.decision, OutputGate.Decision.BLOCKED, "nothing is not shippable")
+        expectEq(verdict.text, null, "a blocked verdict carries no text")
+        expect(verdict.audit.findings.any { it.code == "EMPTY" }, "the finding is EMPTY")
+    }
+
+    test("a one-word answer to a long question is withheld") {
+        val verdict = OutputGate.gate(LONG_GOAL, "yes")
+        expect(verdict.blocked, "THIN is a blocker")
+        expect(verdict.audit.findings.any { it.code == "THIN" }, "the finding is THIN")
+        expectEq(verdict.text, null, "no text")
+    }
+
+    test("the refusal names the objection and never quotes the draft") {
+        val draft = "yes"
+        val verdict = OutputGate.gate(LONG_GOAL, draft)
+        val refusal = OutputGate.refusal(verdict)
+        expect(refusal.isNotBlank(), "a refusal exists")
+        expect(refusal.contains("Why:"), "it says why")
+        expect(
+            !refusal.contains("yes —") && !refusal.lines().any { it.trim() == "yes" },
+            "the withheld draft is not reproduced in the refusal"
+        )
+        expect(!verdict.blocked.not(), "verdict really is blocked")
+    }
+
+    test("one repair is attempted, and a repaired draft passes as REPAIRED") {
+        var calls = 0
+        val verdict = OutputGate.gate(
+            goal = LONG_GOAL,
+            draft = "yes",
+            repair = OutputGate.Repair { _, findings ->
+                calls++
+                expect(findings.any { it.code == "THIN" }, "the repair is told why")
+                "Cross-profile launches go through CrossProfileApps; they carry no data access with them."
+            }
+        )
+        expectEq(calls, 1, "exactly one repair")
+        expectEq(verdict.decision, OutputGate.Decision.REPAIRED, "marked as repaired")
+        expectEq(verdict.attempts, 2, "two audits")
+        expect(verdict.text!!.startsWith("Cross-profile"), "the repair is what is shown")
+    }
+
+    test("a repair that returns the same draft does not buy another round") {
+        var calls = 0
+        val verdict = OutputGate.gate(
+            goal = LONG_GOAL,
+            draft = "yes",
+            repair = OutputGate.Repair { draft, _ -> calls++; draft }
+        )
+        expectEq(calls, 1, "the identical repair is not retried")
+        expect(verdict.blocked, "still blocked")
+        expectEq(verdict.text, null, "still no text")
+    }
+
+    test("a repair that throws leaves the draft blocked") {
+        val verdict = OutputGate.gate(
+            goal = LONG_GOAL,
+            draft = "yes",
+            repair = OutputGate.Repair { _, _ -> throw IllegalStateException("model down") }
+        )
+        expect(verdict.blocked, "an exception is not a pass")
+        expectEq(verdict.attempts, 1, "the failed repair consumed no audit")
+    }
+
+    test("a repair that repairs into another blocker is still withheld") {
+        val verdict = OutputGate.gate(
+            goal = LONG_GOAL,
+            draft = "yes",
+            repair = OutputGate.Repair { _, _ -> "no" }
+        )
+        expect(verdict.blocked, "a bad repair is still bad")
+        expectEq(verdict.attempts, 2, "two audits, then stop")
+        expectEq(verdict.text, null, "no text")
+    }
+
+    test("warnings are shown with the answer, not swallowed") {
+        // "your device" with no device read is a WARNING, not a blocker.
+        val draft = "Your device reports a 4000 mAh battery and the panel reads it every fifteen minutes."
+        val verdict = OutputGate.gate(SHORT_GOAL, draft)
+        expect(!verdict.blocked, "a warning does not block")
+        expectEq(verdict.decision, OutputGate.Decision.ANNOTATED, "it is annotated")
+        val text = verdict.text!!
+        expect(text.startsWith(draft), "the answer itself is untouched")
+        expect(text.contains("Gate: shown with"), "the caveat is in the text the user reads")
+        expect(text.contains("unverified_device_claim"), "and it names the check that failed")
+    }
+
+    test("a device read clears the device-claim warning") {
+        val draft = "Your device reports a 4000 mAh battery."
+        val verdict = OutputGate.gate(
+            SHORT_GOAL,
+            draft,
+            OutputGate.Evidence(toolEffects = listOf(SideEffect.DEVICE_READ))
+        )
+        expectEq(verdict.decision, OutputGate.Decision.PASS, "an observed claim is not a caveat")
+        expectEq(verdict.text, draft, "unchanged")
+    }
+
+    test("a citation without a corpus read is flagged, and with one is not") {
+        val draft = "By the corpus, [Vol 12] argues that the collapse is adiabatic."
+        val uncited = OutputGate.gate(SHORT_GOAL, draft)
+        expect(
+            uncited.audit.findings.any { it.code == "CITES_WITHOUT_SOURCE" },
+            "citing without reading is caught"
+        )
+        val cited = OutputGate.gate(
+            SHORT_GOAL,
+            draft,
+            OutputGate.Evidence(
+                observations = listOf("Vol 12 argues the collapse is adiabatic"),
+                toolIds = listOf(AnswerAudit.CORPUS_TOOL)
+            )
+        )
+        expect(
+            cited.audit.findings.none { it.code == "CITES_WITHOUT_SOURCE" },
+            "reading the corpus clears it"
+        )
+        expect(!cited.blocked, "and does not block")
+    }
+
+    test("deterministic text is passed through without being audited as model prose") {
+        // This sentence would normally draw an UNVERIFIED_DEVICE_CLAIM warning; it came from the surface
+        // registry, so a model did not guess it.
+        val fact = "This surface is the launcher, and your device shows it as the home app."
+        val verdict = OutputGate.deterministic(fact)
+        expectEq(verdict.decision, OutputGate.Decision.PASS, "deterministic text passes")
+        expectEq(verdict.text, fact, "verbatim")
+        expectEq(verdict.attempts, 0, "no model audit was run")
+        expect(
+            verdict.audit.findings.isEmpty(),
+            "and it does not carry fake findings that would annotate a registry read"
+        )
+    }
+
+    test("a carried verdict still refuses a blocked audit") {
+        val blocked = AnswerAudit.audit(LONG_GOAL, "yes")
+        expect(blocked.blocked, "the fixture really is blocked")
+        val verdict = OutputGate.carried("yes, I did it.", blocked)
+        expect(verdict.blocked, "the boundary refuses what the loop refused")
+        expectEq(verdict.text, null, "and attaches no text")
+    }
+
+    test("a carried clean verdict passes") {
+        val clean = AnswerAudit.audit(SHORT_GOAL, "A monad is a value with a chained bind operation.")
+        val verdict = OutputGate.carried("A monad is a value with a chained bind operation.", clean)
+        expect(!verdict.blocked, "a clean carried audit passes")
+        expectEq(verdict.text, "A monad is a value with a chained bind operation.", "verbatim")
+    }
+
+    test("the invariant is enforced by the type, not by a comment") {
+        var threw = false
+        try {
+            OutputGate.Verdict(
+                decision = OutputGate.Decision.BLOCKED,
+                text = "the draft someone forgot to withhold",
+                audit = AnswerAudit.audit(SHORT_GOAL, "x"),
+                attempts = 1,
+                note = "wrong on purpose"
+            )
+        } catch (_: IllegalArgumentException) {
+            threw = true
+        }
+        expect(threw, "constructing a blocked verdict with text must fail")
+    }
+
+    test("MAX_ATTEMPTS stays at two — one draft, one repair") {
+        expectEq(OutputGate.MAX_ATTEMPTS, 2, "the bound the loop also uses")
+    }
+
+    println()
+    if (failures > 0) {
+        println("OUTPUT GATE FAILED · $failures of $checks")
+        kotlin.system.exitProcess(1)
+    }
+    println("OUTPUT GATE OK · $checks checks")
+}

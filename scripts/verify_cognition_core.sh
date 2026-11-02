@@ -28,6 +28,7 @@ SCORES_HARNESS="$ROOT/tools/cognition-core/ScoresTests.kt"
 TOOLS_HARNESS="$ROOT/tools/cognition-core/ToolsTests.kt"
 PLANNER_HARNESS="$ROOT/tools/cognition-core/PlannerTests.kt"
 FUZZ_RUNNER="$ROOT/tools/cognition-core/RunnerFuzz.kt"
+GATE_HARNESS="$ROOT/tools/cognition-core/OutputGateTests.kt"
 STUBS="$ROOT/tools/cognition-core/android-stubs"
 # Two different uses of the same directory, and they must not be confused:
 #   FIXTURES — every stub, because the runnable harnesses subclass `android.content.Context` and give it
@@ -190,6 +191,27 @@ else
 fi
 
 echo
+echo "== 2h. every reply passes the output gate =="
+# The gate is the one thing every answer meets before a person reads it, including the single-pass
+# council path that used to ship whatever the model wrote. It is pure Kotlin, so unlike the Android
+# adapters it needs no SDK and no fixtures — it is simply executed.
+if [[ "$have_kotlin" -eq 1 ]]; then
+  if "$KOTLINC_BIN" "$CORE/OutputGate.kt" "$CORE/AnswerAudit.kt" "$CORE/CognitionCore.kt" \
+      "$GATE_HARNESS" -d "$OUT/gate-tests.jar" -nowarn; then
+    if [[ -f "$STDLIB" ]]; then
+      java -cp "$OUT/gate-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.OutputGateTestsKt || status=1
+    else
+      java -cp "$OUT/gate-tests.jar" com.lucifer.mobile.cognition.harness.OutputGateTestsKt || status=1
+    fi
+  else
+    echo "kotlinc failed to compile the output-gate harness" >&2
+    status=1
+  fi
+else
+  echo "  SKIPPED — kotlinc not found, so the gate has NOT been executed."
+fi
+
+echo
 echo "== 3. the shipped loop still cannot act without permission =="
 
 RUNNER="$CORE/CognitionRunner.kt"
@@ -220,8 +242,8 @@ require "$RUNNER" "LoopGuard.stopReason(" "the loop is bounded on every iteratio
 require "$RUNNER" 'raw.startsWith("[LLM]")' "an unavailable model is not turned into an answer"
 require "$RUNNER" "confirmedTools: Set<String> = emptySet()" "the default is: change nothing"
 require "$RUNNER" "ObservationFence.sanitize(" "tool output is defanged before it can speak the protocol"
-require "$ENGINE" "rememberTurn(input, answer)" \
-  "every answered turn is remembered, not only the deep ones — a follow-up after a shallow answer had no context"
+require "$ENGINE" "rememberTurn(input, shown)" \
+  "every *shown* turn is remembered, not only the deep ones — a follow-up after a shallow answer had no context, and a withheld one is not context"
 require "$ENGINE" "while (recentTurns.size > 2)" "the window is the two turns the self-description promises"
 require "$RUNNER" "withTimeout(remaining)" "one slow model call cannot overrun the wall-clock budget"
 require "$RUNNER" "withTimeout(toolRemaining)" "one slow tool cannot overrun it either"
@@ -232,6 +254,31 @@ require "$RUNNER" "parsed.answer ?: raw.trim().takeIf { parsed.unstructured" \
 require "$RUNNER" "thoughtsOnly >= 3" "and three in a row stops the loop instead of burning the budget"
 require "$RUNNER" "call a tool, or answer" "with one plain correction first"
 require "$CORE/CognitionCore.kt" "object Calculator" "the calculator lives in the testable core"
+
+# The funnel itself, pinned. `ToEReasoningEngine` cannot be type-checked on a host without rebuilding
+# the app's whole dependency graph out of stubs, so its shape is asserted here instead: three routes in,
+# one verdict out, and no fourth way to return a bare string.
+require "$ENGINE" "private suspend fun gateDraft(" \
+  "producing a reply and gating it must be one private step, so no caller can reach an ungated draft"
+require "$ENGINE" "val verdict = gateDraft(input, surface, onStep, budget)" \
+  "reason() asks the gate, and nothing else"
+require "$ENGINE" "val shown = verdict.text ?: OutputGate.refusal(verdict)" \
+  "only a verdict with text is shown; a blocked draft becomes a refusal"
+require "$ENGINE" "return OutputGate.deterministic(" \
+  "the deterministic surface answer is declared as such rather than audited as model prose"
+require "$ENGINE" "return OutputGate.carried(" \
+  "the loop's already-gated answer carries its verdict to the boundary"
+require "$ENGINE" "return OutputGate.gate(" \
+  "the single-pass council answer is audited at the boundary — this path shipped unchecked before"
+require "$ENGINE" "if (!verdict.blocked) rememberTurn(input, shown)" \
+  "a refusal is not remembered as an answer Lucifer established"
+if grep -qE "^[[:space:]]*return (answer|buildString)" "$ENGINE"; then
+  echo "  FAILED  a bare return in ToEReasoningEngine bypasses the gate" >&2
+  grep -nE "^[[:space:]]*return (answer|buildString)" "$ENGINE" | sed 's/^/        /' >&2
+  status=1
+else
+  echo "  ok    no bare return of an ungated string survives in the engine"
+fi
 
 echo
 echo "== 3b. the loop learns which tools actually work here =="

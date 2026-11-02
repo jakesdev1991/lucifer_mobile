@@ -190,6 +190,37 @@ its working instead of shipping it. Every deep answer ends with one line:
 
 > `Confidence: MEDIUM — 2 tool result(s), including a device read.`
 
+### 6.1 The gate on the way out
+
+The audit above lived *inside* the loop, which meant the loop was the only path that used it. The
+single-pass council — the path most chat turns actually take — returned the model's paragraph straight
+to the transcript, and the deterministic surface answers never met a check at all.
+
+`OutputGate` closes that. `ToEReasoningEngine.reason` now ends at one door: the routes return a
+`Verdict`, and only a verdict carrying text is shown.
+
+| Decision | What the user sees |
+|---|---|
+| `PASS` | the answer, unchanged |
+| `ANNOTATED` | the answer, with a `Gate: shown with N caveat(s) — …` block naming the checks that fired |
+| `REPAIRED` | the second draft, which passed |
+| `BLOCKED` | **nothing.** The draft is withheld; a refusal names the objection and never quotes the prose |
+
+Three properties are load-bearing, and the harness executes all three rather than describing them:
+
+- **`text == null` if and only if blocked.** The invariant is a `require` in `Verdict`'s constructor, so a
+  future edit that returns blocked text has to delete an assertion to do it.
+- **Warnings are shown, not swallowed.** A caveat nobody can see is the same as no caveat, so an annotated
+  answer carries its findings in its own text.
+- **The two bypasses are narrow and honest.** `deterministic(text)` is for text read out of the surface
+  registry, which is grounded by construction; `carried(text, audit)` is for a reply the loop already
+  gated. `carried` still refuses a blocked audit, so a bypass that honours a blocked verdict is the only
+  kind in the file.
+
+A withheld reply is not remembered: the turn window is written by `reason` with the text the user
+actually saw, so the next question cannot treat "I will not show you that" as something Lucifer
+established.
+
 ---
 
 ## 7. Triage: not every message deserves eight steps
@@ -438,7 +469,7 @@ in the export bundle.
 ```
 python3 tools/cognition-core/spec_check.py         PASS · 204 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
-./scripts/verify_cognition_core.sh                PASS · 176 + 21 + 11 + 9 + 13 + 9 Kotlin checks + 200-run loop fuzz + 49 static claims
+./scripts/verify_cognition_core.sh                PASS · 176 + 21 + 11 + 9 + 13 + 9 + 16 Kotlin checks + 200-run loop fuzz + static claims
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run
 ```
 
@@ -470,6 +501,18 @@ text. Seven invariants hold on every run: it always terminates within budget wit
 trace never exceed the step budget; a `DEVICE_CHANGE` tool never runs unconfirmed; the answer is never
 blank and never a transport error; "answered" never reads like a conclusion the audit blocked; confidence
 is never granted to a blocked answer; the confidence line is always well-formed.
+
+A seventh harness, `OutputGateTests` (16 checks), executes `OutputGate` — the object every reply now
+passes through on its way to a transcript. It asserts the properties that would be silent if they broke:
+a blocked draft never appears in a verdict's text, the refusal names the objection without quoting the
+prose, exactly one repair is attempted (and an identical or throwing repair buys no second round),
+warnings ride along in the text instead of being swallowed, a device read clears a device-claim caveat,
+`deterministic` text is not audited as model prose, `carried` still refuses a blocked audit, and
+constructing a blocked verdict *with* text throws. The engine's funnel is pinned separately by static
+claims — `gateDraft` is private, `reason` shows `verdict.text ?: OutputGate.refusal(verdict)`, and no
+bare `return answer` survives — because `ToEReasoningEngine` cannot be type-checked on the host without
+rebuilding the app's whole dependency graph out of stubs, which is how the stubs drifted in the first
+place.
 
 A sixth harness, `PlannerTests` (9 checks), executes `NemotronCognitionPlanner` — the prompt the model
 actually reads on every step. It proves that the system prompt carries the plan format, every tool, the
