@@ -68,6 +68,7 @@ import com.lucifer.mobile.security.SecretStore
 import com.lucifer.mobile.security.BiometricGate
 import com.lucifer.mobile.data.export.ExportBundle
 import com.lucifer.mobile.memory.DriveMemoryMcpClient
+import com.lucifer.mobile.verification.LeanAuditMcpClient
 import com.lucifer.mobile.memory.LocalConversationMemory
 import com.lucifer.mobile.skills.SkillLibrary
 import com.lucifer.mobile.skills.SkillSynthRuntime
@@ -430,6 +431,9 @@ class MainActivity : ComponentActivity() {
                 var savedMemoryMcpUrl by remember { mutableStateOf("") }
                 var memoryMcpTokenConfigured by remember { mutableStateOf(false) }
                 var memoryMcpStatus by remember { mutableStateOf("DISABLED") }
+                var savedLeanAuditMcpUrl by remember { mutableStateOf("") }
+                var leanAuditMcpTokenConfigured by remember { mutableStateOf(false) }
+                var leanAuditMcpStatus by remember { mutableStateOf("DISABLED") }
                 var savedVmHost by remember { mutableStateOf("") }
                 var savedVmUser by remember { mutableStateOf(DEFAULT_VM_USER) }
                 var savedVmPort by remember { mutableStateOf(DEFAULT_VM_PORT) }
@@ -441,6 +445,8 @@ class MainActivity : ComponentActivity() {
                             knowledgeUrl = loadKnowledgeUrl(),
                             memoryMcpUrl = loadMemoryMcpUrl(),
                             memoryMcpTokenSet = !SecretStore.read(this@MainActivity, AppConfig.MEMORY_MCP_TOKEN).isNullOrBlank(),
+                            leanAuditMcpUrl = loadLeanAuditMcpUrl(),
+                            leanAuditMcpTokenSet = !SecretStore.read(this@MainActivity, AppConfig.LEAN_AUDIT_MCP_TOKEN).isNullOrBlank(),
                             vmHost = loadVmHost(),
                             vmUser = loadVmUser(),
                             vmPort = loadVmPort(),
@@ -457,6 +463,13 @@ class MainActivity : ComponentActivity() {
                     memoryMcpStatus = when {
                         settings.memoryMcpUrl.isBlank() -> "DISABLED"
                         settings.memoryMcpTokenSet -> "CONFIGURED · NOT TESTED"
+                        else -> "TOKEN REQUIRED"
+                    }
+                    savedLeanAuditMcpUrl = settings.leanAuditMcpUrl
+                    leanAuditMcpTokenConfigured = settings.leanAuditMcpTokenSet
+                    leanAuditMcpStatus = when {
+                        settings.leanAuditMcpUrl.isBlank() -> "DISABLED"
+                        settings.leanAuditMcpTokenSet -> "CONFIGURED · NOT TESTED"
                         else -> "TOKEN REQUIRED"
                     }
                 }
@@ -1508,6 +1521,47 @@ class MainActivity : ComponentActivity() {
                                                 memoryMcpStatus = "DISABLED"
                                                 settingsToast = "Drive-memory retrieval disabled and its local bearer token removed."
                                             },
+                                            savedLeanAuditMcpUrl = savedLeanAuditMcpUrl,
+                                            leanAuditMcpStatus = leanAuditMcpStatus,
+                                            onLeanAuditMcpTest = {
+                                                scope.launch(Dispatchers.IO) {
+                                                    val status = LeanAuditMcpClient(this@MainActivity).testConnection()
+                                                    withContext(Dispatchers.Main) {
+                                                        leanAuditMcpStatus = if (status.startsWith("Connected")) "CONNECTED · READ ONLY" else "NOT CONNECTED · $status"
+                                                        settingsToast = status.take(500)
+                                                    }
+                                                }
+                                            },
+                                            leanAuditMcpTokenConfigured = leanAuditMcpTokenConfigured,
+                                            onLeanAuditMcpSave = { url, token ->
+                                                val client = LeanAuditMcpClient(this@MainActivity)
+                                                val normalized = client.validateLoopbackEndpoint(url.trim())
+                                                when {
+                                                    url.isBlank() -> settingsToast = "Enter the local Termux lean-audit MCP URL, or use Remove to disable it."
+                                                    normalized == null -> settingsToast = "Lean-audit MCP URL must be http://127.0.0.1:8931/mcp or http://localhost:8931/mcp."
+                                                    token.isNotBlank() && token.length < 24 -> settingsToast = "MCP token must contain at least 24 characters."
+                                                    token.isNotBlank() && !SecretStore.write(this@MainActivity, AppConfig.LEAN_AUDIT_MCP_TOKEN, token.trim()) -> settingsToast = "Could not encrypt the MCP token in Android Keystore storage."
+                                                    !token.isNotBlank() && !leanAuditMcpTokenConfigured -> settingsToast = "Paste the bearer token for the Termux lean-audit server."
+                                                    else -> {
+                                                        if (!saveLeanAuditMcpUrl(normalized)) {
+                                                            settingsToast = "Could not save the MCP endpoint in app-private storage."
+                                                        } else {
+                                                            savedLeanAuditMcpUrl = normalized
+                                                            if (token.isNotBlank()) leanAuditMcpTokenConfigured = true
+                                                            leanAuditMcpStatus = "CONFIGURED · NOT TESTED"
+                                                            settingsToast = "Lean-audit MCP configured for the same-device Termux server. The cognition loop can now call lean_audit.* tools; calls fail open if unavailable."
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            onLeanAuditMcpRemove = {
+                                                saveLeanAuditMcpUrl("")
+                                                SecretStore.delete(this@MainActivity, AppConfig.LEAN_AUDIT_MCP_TOKEN)
+                                                savedLeanAuditMcpUrl = ""
+                                                leanAuditMcpTokenConfigured = false
+                                                leanAuditMcpStatus = "DISABLED"
+                                                settingsToast = "Lean-audit MCP disabled and its local bearer token removed."
+                                            },
                                             localMemoryEnabled = localMemoryEnabled,
                                             localMemoryCount = localMemoryCount,
                                             localMemoryBytes = localMemoryBytes,
@@ -2253,11 +2307,17 @@ class MainActivity : ComponentActivity() {
 
     private fun saveMemoryMcpUrl(url: String): Boolean = AppConfig.write(this, AppConfig.MEMORY_MCP_URL, url)
 
+    private fun loadLeanAuditMcpUrl(): String = AppConfig.readText(this, AppConfig.LEAN_AUDIT_MCP_URL).orEmpty()
+
+    private fun saveLeanAuditMcpUrl(url: String): Boolean = AppConfig.write(this, AppConfig.LEAN_AUDIT_MCP_URL, url)
+
     /** One IO pass for the settings screen, so it builds state once instead of seven times. */
     private data class SettingsSnapshot(
         val knowledgeUrl: String,
         val memoryMcpUrl: String,
         val memoryMcpTokenSet: Boolean,
+        val leanAuditMcpUrl: String,
+        val leanAuditMcpTokenSet: Boolean,
         val vmHost: String,
         val vmUser: String,
         val vmPort: Int,

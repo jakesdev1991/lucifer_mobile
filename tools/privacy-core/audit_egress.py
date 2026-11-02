@@ -50,6 +50,8 @@ LOCAL_CLIENTS = {
                  "DriveMemoryMcpClient.kt"),
     os.path.join("composeApp", "src", "androidMain", "kotlin", "com", "lucifer", "mobile",
                  "omni_bridge", "knowledge", "OmegaKnowledgeClient.kt"),
+    os.path.join("composeApp", "src", "androidMain", "kotlin", "com", "lucifer", "mobile",
+                 "verification", "LeanAuditMcpClient.kt"),
 }
 SOCKET_TOKENS = ("Socket(", "SSLSocketFactory", "DatagramSocket(", "openConnection()")
 # Listening sockets are inbound, not egress, but they are still a door into the process. Allowed only
