@@ -13,7 +13,6 @@ import com.lucifer.mobile.surface.Surface
 import com.lucifer.mobile.surface.SurfaceFacts
 import com.lucifer.mobile.surface.SurfaceKnowledge
 import com.lucifer.mobile.surface.SurfaceRuntime
-import com.lucifer.mobile.verification.LeanAuditMcpClient
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -96,15 +95,33 @@ data class StepRecord(
         return "$call $mark$detail"
     }
 
+    /**
+     * The line a person reads. It says **what ran and whether it worked** — never the model's own
+     * reasoning.
+     *
+     * That is a deliberate narrowing. `thought` is unverified prose: the model's account of why it is
+     * about to do something, written before the thing was done and never checked. It was being printed
+     * into "What I established" and into the blocked-answer text, which meant a turn whose final draft the
+     * gate had *withheld* still showed the reader paragraphs of the model talking to itself. The gate
+     * covers the answer; it was never going to cover a thought that leaked through the trace.
+     *
+     * [reasoning] keeps it for the diagnostics panel, where it is labelled as the model's own account and
+     * is not mistaken for a finding.
+     */
     fun render(): String = buildString {
         append("${index + 1}. ")
-        append(if (thought.isBlank()) "(no stated reason)" else thought)
-        if (call != null) {
-            append(" → ").append(call.render())
-            append(if (result?.ok == true) " ✓" else " ✗")
+        if (call == null) {
+            append("answered from ")
+            append(if (result == null) "the draft" else (result.detail.ifBlank { "what was collected" }).take(120))
+        } else {
+            append(call.render())
+            append(if (result?.ok == true) " ✓" else if (result == null) " …" else " ✗")
             if (result?.ok == false && result.detail.isNotBlank()) append(" (").append(result.detail.take(80)).append(")")
         }
     }
+
+    /** The model's own account of its reasoning, for the trace panel only. Never part of an answer. */
+    fun reasoning(): String? = thought.takeIf { it.isNotBlank() }
 }
 
 /** Everything the caller needs to render an answer, a trace, and the truth about how it was reached. */
@@ -329,14 +346,18 @@ object CognitionRunner {
 
         // ── the draft, or an honest account of why there is not one ──
         var answer = draft?.trim().orEmpty()
-        val deviceRead = trace.any { record ->
+        // A tool that *ran* is not a tool that *succeeded*. This used to count every attempt, so a failed
+        // `device_info` call suppressed `UNVERIFIED_DEVICE_CLAIM` and made the footer claim "including a
+        // device read" — the loop granted itself the grounding it had just watched fail to arrive.
+        val succeeded = trace.filter { it.result?.ok == true }
+        val deviceRead = succeeded.any { record ->
             tools.firstOrNull { it.id == record.call?.tool }?.effect == SideEffect.DEVICE_READ
         }
         var effectiveObservations = observations
 
         if (answer.isNotBlank()) {
-            val effects = trace.mapNotNull { rec -> tools.firstOrNull { it.id == rec.call?.tool }?.effect }
-            val usedTools = trace.mapNotNull { it.call?.tool }
+            val effects = succeeded.mapNotNull { rec -> tools.firstOrNull { it.id == rec.call?.tool }?.effect }
+            val usedTools = succeeded.mapNotNull { it.call?.tool }
             var check = AnswerAudit.audit(goal, answer, effectiveObservations, effects, usedTools)
             if (check.blocked) {
                 val repaired = try {
@@ -449,6 +470,28 @@ object CognitionRunner {
 // Android adapters
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * The Lean-audit MCP, as the loop needs it: six server tool names and one call.
+ *
+ * It is an interface rather than a direct call for a reason worth naming. The client is an Android
+ * adapter — `Context`, `AppConfig`, the egress ledger, the secret store — so calling the concrete class
+ * from here made the loop's own harness depend on half the app. When main wired the client in, the host
+ * harness stopped compiling, and the honest fix was not a stub of our own class (the stubs of Lucifer's
+ * packages have drifted twice) but the seam that should have been there: the loop asks for a bridge, the
+ * app supplies the real one, and a test can supply a fake and finally exercise the argument parsing that
+ * nothing had ever reached.
+ *
+ * A missing bridge is **refused**, not silently skipped, so a mis-wiring is visible in the trace instead
+ * of looking like a tool that the model never needed.
+ */
+interface LeanAuditBridge {
+    /** Server tool names, without the `lean_audit.` prefix. */
+    val toolNames: List<String>
+
+    /** Invoke one tool. Implementations fail open: an error string, never a throw. */
+    suspend fun call(serverTool: String, arguments: JSONObject): String
+}
+
 /** The tools Lucifer can actually use mid-thought. Each one is real; nothing here is aspirational. */
 object AndroidCognitionTools {
 
@@ -472,7 +515,7 @@ object AndroidCognitionTools {
         1_200
     )
 
-    fun toolbox(context: Context): CognitionToolbox {
+    fun toolbox(context: Context, leanAudit: LeanAuditBridge? = null): CognitionToolbox {
         val app = context.applicationContext
         val embedded = EmbeddedToE(app)
         val memory = LocalConversationMemory(app)
@@ -563,24 +606,37 @@ object AndroidCognitionTools {
                     }
 
                     LEAN_AUDIT -> {
-                        // The model names the server tool in the argument: lean_audit.lean_check {"code": "..."}
+                        val bridge = leanAudit ?: return@withContext ToolResult.refused(
+                            "the Lean audit bridge was not configured in this build"
+                        )
+                        // The prompt tells the model to write `lean_audit.<tool> {json}`. The previous
+                        // parse took `substring(0, firstDot)` — which is `"lean_audit"` — and compared it
+                        // to `"lean_audit.lean_check"`, so **no** call could ever resolve and every one was
+                        // refused as an unknown tool. The head is now matched with or without the prefix,
+                        // which is what the format promises.
                         val raw = call.argument.trim()
-                        val dot = raw.indexOf('.')
-                        val mcpTool = if (dot > 0) raw.substring(0, dot) else null
-                        val serverTool = mcpTool?.let { LeanAuditMcpClient.TOOL_NAMES.firstOrNull { name -> "lean_audit.$name" == it } }
+                        val head = raw.takeWhile { !it.isWhitespace() }
+                        val short = head.removePrefix("lean_audit.").removePrefix("lean_audit")
+                        val serverTool = bridge.toolNames.firstOrNull { it == short }
                         if (serverTool == null) {
                             return@withContext ToolResult.refused(
                                 "unknown lean_audit tool; use one of: " +
-                                    LeanAuditMcpClient.TOOL_NAMES.joinToString(", ") { "lean_audit.$it" }
+                                    bridge.toolNames.joinToString(", ") { "lean_audit.$it" }
                             )
                         }
-                        val jsonPart = raw.substring(dot + 1).trim()
-                        val args = try {
-                            if (jsonPart.startsWith("{")) JSONObject(jsonPart) else JSONObject()
+                        val jsonPart = raw.drop(head.length).trim()
+                        // Blank arguments are legitimate — `lean_audit.lean_audit_report` takes none. Anything
+                        // else must be the object the format promises: silently substituting `{}` would send
+                        // an empty request and let the server's error stand in for the model's mistake.
+                        val args = if (jsonPart.isBlank()) JSONObject() else try {
+                            if (!jsonPart.startsWith("{")) return@withContext ToolResult.failed(
+                                "arguments must be a JSON object, e.g. lean_audit.lean_check {\"code\":\"...\"}"
+                            )
+                            JSONObject(jsonPart)
                         } catch (error: Exception) {
                             return@withContext ToolResult.failed("arguments must be a JSON object (${error.javaClass.simpleName})")
                         }
-                        val result = LeanAuditMcpClient(app).callTool(serverTool, args)
+                        val result = bridge.call(serverTool, args)
                         ToolResult.ok(result.take(8_000), "via lean-audit MCP (egress ledger)")
                     }
 

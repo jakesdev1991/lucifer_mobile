@@ -2,6 +2,7 @@ package com.lucifer.mobile.workflows
 
 import android.content.Context
 import android.util.AtomicFile
+import com.lucifer.mobile.cognition.OutputBoundary
 import com.lucifer.mobile.launcher.CommandTarget
 import com.lucifer.mobile.omni_bridge.llm.NemotronClient
 import com.lucifer.mobile.skills.SkillLibrary
@@ -313,7 +314,15 @@ class WorkflowAgent(context: Context) {
         val parsed = parseObject(raw)
         val steps = parsed?.optJSONArray("steps")?.let(::decodeSpecs)
         return if (parsed != null && steps != null && steps.isNotEmpty()) {
-            WorkflowPlan(parsed.optString("summary").take(1_000), steps, "MODEL")
+            // The summary is a paragraph about the user's goal, shown above the steps, so it is prose like
+            // any other and crosses the gate. The steps themselves are *instructions the loop will act on*,
+            // not claims — gating them would be gating a command's wording — so they stay as they are and
+            // keep their `MODEL` origin label, which the UI shows.
+            WorkflowPlan(
+                OutputBoundary.planSummary(parsed.optString("summary").take(1_000), goal),
+                steps,
+                "MODEL"
+            )
         } else {
             WorkflowPlan("Using the bounded starter plan; model planning was unavailable or malformed.", blueprint.steps, "TEMPLATE")
         }
@@ -356,7 +365,15 @@ class WorkflowAgent(context: Context) {
             val next = parsed.optJSONObject("next_step")?.let(::decodeSpec)
             val complete = parsed.optBoolean("task_complete", false)
             if (complete || next != null) {
-                return WorkflowReflection(parsed.optString("assessment").take(1_000), next, complete, "MODEL")
+                // Same rule as the plan summary: the assessment is what the user reads, so it is gated; the
+                // proposed step is an instruction and keeps its origin label.
+                return WorkflowReflection(
+                    OutputBoundary.planSummary(
+                        parsed.optString("assessment").take(1_000),
+                        "assess progress on ${task.goal} after ${current.title}"
+                    ),
+                    next, complete, "MODEL"
+                )
             }
         }
         val blueprint = WorkflowBlueprints.get(task.blueprintId)

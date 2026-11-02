@@ -6,8 +6,8 @@ next.
 
 Status: **implemented, host-verified, not compiled with Gradle or run on a device.** The pure core
 (parsing, validation, composition, observation ledger, detectors, budget, tactician loop) is covered
-by 50 assertions in `./scripts/verify_agents_core.sh`; the Android adapters type-check against
-stubs. The Compose panel and the foreground service have **not** been compiled by AGP or executed on
+by 50 assertions in `./scripts/verify_agents_core.sh`; the Android adapters type-check against the real
+`android.jar` when the host has an SDK, and against stubs when it does not. The Compose panel and the foreground service have **not** been compiled by AGP or executed on
 device.
 
 ## The three files

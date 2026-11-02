@@ -263,8 +263,20 @@ object BrowserPolicy {
         return parts.all { p -> p.isNotEmpty() && p.length <= 3 && p.all(Char::isDigit) && p.toInt() <= 255 }
     }
 
-    fun isIpv6Literal(host: String): Boolean =
-        host.contains(':') && host.all { it.isDigit() || it.isLetter() || it == ':' || it == '.' }
+    /**
+     * True when [host] is a bare or bracketed IPv6 literal.
+     *
+     * The brackets matter: `navigationRefusal` deliberately keeps them on a bracketed URL so the range
+     * check sees the address, and this test used to reject `"[::1]"` for containing `[`. That made
+     * `if (isIpv4Literal(host) || isIpv6Literal(host))` skip the private-range check entirely, so
+     * `https://[::1]/`, `https://[fc00::1]/` and `https://[fe80::1]/` were navigable — a loopback or
+     * link-local target the WebView would happily fetch. The Python mirror in `tools/browser-core`
+     * tested `":" in host` instead, so it never saw the hole; the Kotlin harness did.
+     */
+    fun isIpv6Literal(host: String): Boolean {
+        val h = host.trim('[', ']')
+        return h.contains(':') && h.all { it.isDigit() || it.isLetter() || it == ':' || it == '.' }
+    }
 
     /**
      * Decide whether a WebView navigation target is acceptable. Only http/https with a public-looking

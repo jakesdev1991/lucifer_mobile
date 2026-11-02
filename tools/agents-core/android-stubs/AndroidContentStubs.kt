@@ -18,6 +18,7 @@ open class Context {
     fun getSharedPreferences(name: String, mode: Int): SharedPreferences = SharedPreferences()
     fun registerReceiver(receiver: BroadcastReceiver?, filter: IntentFilter): Intent? = null
     fun <T> getSystemService(clazz: Class<T>): T = throw UnsupportedOperationException("stub")
+    val contentResolver: ContentResolver get() = ContentResolver()
     fun startService(intent: Intent) {}
 
     companion object {
@@ -67,3 +68,9 @@ class Intent {
 }
 
 class IntentFilter(action: String? = null)
+
+/** The two stream doors the lesson-transfer adapter uses; see AndroidNetStubs.kt for the Uri it takes. */
+class ContentResolver {
+    fun openOutputStream(uri: android.net.Uri): java.io.OutputStream? = null
+    fun openInputStream(uri: android.net.Uri): java.io.InputStream? = null
+}

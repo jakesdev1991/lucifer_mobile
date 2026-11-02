@@ -394,13 +394,14 @@ Run in this workspace, just now:
 | `python3 tools/cognition-core/spec_check.py` | **PASS · 204 checks** |
 | `python3 tools/cognition-core/fuzz.py` | **FUZZ OK · 13 invariants** |
 | `python3 tools/cognition-core/loop_sim.py` | **LOOP SIM OK · 7 invariants, scripted runs** |
-| `./scripts/verify_all.sh --quiet` | **PASS 18 · SKIP 0 · FAIL 0** |
-| `./scripts/verify_cognition_core.sh` | **PASS · 176 + 21 + 11 + 9 + 13 + 9 Kotlin checks + 200-run loop fuzz** + 49 static claims |
+| `./scripts/verify_all.sh --quiet` | **PASS 19 · SKIP 0 · FAIL 0** (Kotlin 1.9.24, JDK 17, real API 35 `android.jar`) |
+| `./scripts/verify_cognition_core.sh` | **PASS · 176 + 21 + 11 + 9 + 13 + 9 + 16 Kotlin checks + 200-run loop fuzz** + static claims |
 | `./scripts/verify_synth_core.sh` | **PASS · 128 spec checks + 28 Kotlin checks** |
 | `./scripts/verify_verification_core.sh` | **PASS · 32 + 23 Kotlin checks** + adapter type-check |
 | `./gradlew :composeApp:assembleDebug --no-daemon` | **BUILD SUCCESSFUL · 2m31s** — CMake builds `liblucifer_native.so` (arm64-v8a, x86_64) into the APK; `adb install` on `emulator-5554` (API 35) succeeds and the app launches |
 
-**Compiled, packaged, and launched on an emulator in this workspace.** JDK 21 (`jdk-21.0.12.1`),
+**Compiled, packaged, and launched on an emulator in this workspace** (main's buildout; this branch
+inherits it). JDK 21 (`jdk-21.0.12.1`),
 Android SDK + NDK 29.0.14206865 and CMake 3.22.1 are installed under
 `/home/jake/android-build-tools/android-sdk`. `./gradlew :composeApp:assembleDebug --no-daemon`
 **BUILD SUCCESSFUL** (commit 88af5a9 plus the native wiring): CMake compiles
@@ -409,6 +410,25 @@ and the APK contains both `.so` files. `adb install -r` on `emulator-5554` (Andr
 x86_64) reports **Success** and `am start` launches `LauncherActivity`; the JNI library loads via the
 try/catch in `LuciferApplication` (`nativeLibraryLoaded`). The host-side harness counts above are
 executed checks; the five defects they surfaced were real compile/runtime bugs.
+
+The suite also type-checks every Android adapter against the `android.jar` from an API 35 platform, not
+only against the hand-written stubs — which is how the stubs' drift was caught. `scripts/android_surface.sh`
+prefers the SDK whenever one is present, prints which surface it used, and `LUCIFER_REQUIRE_ANDROID_JAR=1`
+turns a missing jar into a failure instead of a quiet downgrade.
+
+**Every reply now passes a gate before it is shown.** `cognition/OutputGate.kt` is enforced inside
+`ToEReasoningEngine.reason`, so the single-pass council path — which used to ship whatever the model wrote
+with no check at all — is audited at the boundary like the deep loop always was. A blocked draft is
+withheld and replaced by a refusal that names the objection; warnings ride along in the text as a
+`Gate: shown with N caveat(s)` block. The heartbeat's self-initiated drafts, which call the model
+directly, pass the same gate as a **whole document** before anything is written — and a blocked one is not
+filed at all: no artifact, no memory row, no ledger prose, just a `WITHHELD` session record. Router
+clarifications (including the one the launcher speaks), confirmation explanations, workflow summaries and
+recovery diagnoses cross the same boundary; COGNITION.md §6.1 states every sink and what it degrades to. **This is heuristic grounding, not verification of
+truth**: it can tell whether an answer was built on something the loop observed, not whether it is
+correct, and the structured Lean verifier in `verification/` judges formal statements rather than English
+prose — it cannot be pointed at a chat reply and made to answer that question. See
+[COGNITION.md](COGNITION.md) §6.1 and §6.1 "What the gate does not do".
 
 **Still not verified anywhere:** no physical Pixel 8a is attached in this workspace, so on-device
 behaviour (Shizuku ADB-shell vs root, Dhizuku owner calls, the VM SSH pinning path, the overlay chat

@@ -329,7 +329,12 @@ fun main() {
              "next_moves":[{"kind":"DIAGNOSE_ENVIRONMENT","title":"Recheck DNS","instruction":"Re-run DNS probe","rationale":"cheap"},
                            {"kind":"DELETE_EVERYTHING","title":"nuke","instruction":"wipe"}]}
         """.trimIndent()
-        val diagnosis = runSuspend { DiagnosisEngine(FakeThinker(reply)).diagnose(EvidenceBundle(signal(), emptyList())) }
+        // With evidence that shares wording with the diagnosis, because a model diagnosis with nothing
+        // behind it is no longer shown at all (see the withheld-diagnosis test below).
+        val bundle = EvidenceBundle(signal(), listOf(
+            ProbeResult(DiagnosticCatalog.byId("vm-dns")!!, listOf("hostnames unresolved: getent failed"), 0)
+        ))
+        val diagnosis = runSuspend { DiagnosisEngine(FakeThinker(reply)).diagnose(bundle) }
         eq(diagnosis.source, DiagnosisSource.MODEL, "source")
         eq(diagnosis.nextMoves.size, 1, "unknown tactic dropped")
         eq(diagnosis.nextMoves.first().kind, RecoveryKind.DIAGNOSE_ENVIRONMENT, "kind")
@@ -339,8 +344,68 @@ fun main() {
     test("diagnosis rejects a model move that claims unsafe permissions") {
         val reply = """{"root_cause":"needs root","confidence":"low","next_moves":[
             {"kind":"RECONFIGURE","title":"fix perms","instruction":"chmod 777 everything"}]}"""
-        val diagnosis = runSuspend { DiagnosisEngine(FakeThinker(reply)).diagnose(EvidenceBundle(signal(), emptyList())) }
+        val bundle = EvidenceBundle(signal(), listOf(
+            ProbeResult(DiagnosticCatalog.byId("vm-path")!!, listOf("everything under /opt is mode 700"), 0)
+        ))
+        val diagnosis = runSuspend { DiagnosisEngine(FakeThinker(reply)).diagnose(bundle) }
         eq(diagnosis.nextMoves.first().safety, MoveSafety.REQUIRES_CONFIRMATION, "safety derived from tactic")
+    }
+
+    test("a model diagnosis that ignores the evidence is replaced by the deterministic one") {
+        // Diagnostics are a *struct* whose fields are rendered into the transcript, which made them look
+        // like data rather than prose. This is the sink test for the fix: the real `DiagnosisEngine` is
+        // driven by a scripted thinker, and what comes back must be the deterministic diagnosis, not the
+        // model's paragraph, when the paragraph has nothing to do with what was observed.
+        val sig = signal(failureClass = FailureClass.DISK_FULL)
+        val bundle = EvidenceBundle(sig, listOf(
+            ProbeResult(DiagnosticCatalog.byId("vm-disk")!!, listOf("Filesystem /dev/sda1 20G 20G 0 100% /"), 0)
+        ))
+        val invention = """
+            {"root_cause":"The kernel scheduler is starving every process, so reinstall the operating system",
+             "confidence":"high","hypotheses":[{"statement":"a scheduler bug","confidence":0.9,"check":"reboot"}],
+             "next_moves":[{"kind":"RECONFIGURE","title":"reinstall","instruction":"reinstall everything"}]}
+        """.trimIndent()
+        val diagnosis = runSuspend { DiagnosisEngine(FakeThinker(invention)).diagnose(bundle) }
+        eq(diagnosis.source, DiagnosisSource.HEURISTIC, "the deterministic diagnosis is used instead")
+        eq(diagnosis.presented, null, "and no model presentation is attached")
+        expect(
+            !diagnosis.render().contains("kernel scheduler", ignoreCase = true),
+            "the invented root cause is not in the text: ${diagnosis.render()}"
+        )
+        expect(
+            diagnosis.render().contains("full", ignoreCase = true),
+            "what the evidence says is: ${diagnosis.render()}"
+        )
+    }
+
+    test("a model diagnosis that is built on the evidence is shown, gated") {
+        val sig = signal(failureClass = FailureClass.DISK_FULL)
+        val bundle = EvidenceBundle(sig, listOf(
+            ProbeResult(DiagnosticCatalog.byId("vm-disk")!!, listOf("Filesystem /dev/sda1 20G 20G 0 100% /"), 0)
+        ))
+        val grounded = """
+            {"root_cause":"The filesystem is 100% used, so the write failed for lack of space",
+             "confidence":"high","evidence":["vm-disk"],
+             "hypotheses":[{"statement":"logs filled the filesystem","confidence":0.7,"check":"du -sh /var/log"}],
+             "next_moves":[{"kind":"DIAGNOSE_ENVIRONMENT","title":"find the largest files","instruction":"du -x -d1 /"}]}
+        """.trimIndent()
+        val diagnosis = runSuspend { DiagnosisEngine(FakeThinker(grounded)).diagnose(bundle) }
+        eq(diagnosis.source, DiagnosisSource.MODEL, "the model diagnosis is kept")
+        expect(diagnosis.presented != null, "and it carries a gated presentation")
+        expect(
+            diagnosis.render().contains("100% used", ignoreCase = true),
+            "the shown text is the model's, reviewed: ${diagnosis.render()}"
+        )
+    }
+
+    test("the heuristic diagnosis is not itself gated, because it is derived from the evidence") {
+        val sig = signal(failureClass = FailureClass.DISK_FULL)
+        val bundle = EvidenceBundle(sig, listOf(
+            ProbeResult(DiagnosticCatalog.byId("vm-disk")!!, listOf("Filesystem 100% full"), 0)
+        ))
+        val diagnosis = runSuspend { DiagnosisEngine(null).diagnose(bundle) }
+        eq(diagnosis.source, DiagnosisSource.HEURISTIC, "source")
+        expect(diagnosis.render().isNotBlank(), "and it renders without needing a model")
     }
 
     // ── robots + search parsing ──────────────────────────────────────

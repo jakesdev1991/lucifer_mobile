@@ -16,6 +16,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/android_surface.sh
+source "$ROOT/scripts/android_surface.sh"
+android_surface_guard
 CORE="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/cognition"
 ENGINE="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/omni_bridge/knowledge/ToEReasoningEngine.kt"
 HARNESS="$ROOT/tools/cognition-core/CognitionCoreTests.kt"
@@ -25,7 +28,15 @@ SCORES_HARNESS="$ROOT/tools/cognition-core/ScoresTests.kt"
 TOOLS_HARNESS="$ROOT/tools/cognition-core/ToolsTests.kt"
 PLANNER_HARNESS="$ROOT/tools/cognition-core/PlannerTests.kt"
 FUZZ_RUNNER="$ROOT/tools/cognition-core/RunnerFuzz.kt"
+GATE_HARNESS="$ROOT/tools/cognition-core/OutputGateTests.kt"
 STUBS="$ROOT/tools/cognition-core/android-stubs"
+# Two different uses of the same directory, and they must not be confused:
+#   FIXTURES — every stub, because the runnable harnesses subclass `android.content.Context` and give it
+#              a temp dir. The real jar's Context is abstract, so it cannot stand in here.
+#   SURFACE  — the non-Android stubs plus the real android.jar, for the adapter compile at the end.
+mapfile -t FIXTURES < <(android_surface_fixture_files "$STUBS")
+mapfile -t SURFACE < <(android_surface_stub_files "$STUBS")
+mapfile -t JAR_ARGS < <(android_surface_classpath)
 SPEC="$ROOT/tools/cognition-core/spec_check.py"
 OUT="${TMPDIR:-/tmp}/lucifer-cognition-build"
 
@@ -78,7 +89,7 @@ echo "== 2b. the loop itself, executed (scripted model, recording toolbox) =="
 if [[ "$have_kotlin" -eq 1 ]]; then
   # The whole package: the loop, the ledger and the tally reference each other, and every one of them
   # is real code compiled from source.
-  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$RUNNER_HARNESS" -d "$OUT/runner-tests.jar" -nowarn; then
+  if "$KOTLINC_BIN" "${FIXTURES[@]}" "$CORE"/*.kt "$RUNNER_HARNESS" -d "$OUT/runner-tests.jar" -nowarn; then
     if [[ -f "$STDLIB" ]]; then
       java -cp "$OUT/runner-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.RunnerTestsKt || status=1
     else
@@ -95,7 +106,7 @@ fi
 echo
 echo "== 2c. the ledger a run leaves behind =="
 if [[ "$have_kotlin" -eq 1 ]]; then
-  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$LEDGER_HARNESS" -d "$OUT/ledger-tests.jar" -nowarn; then
+  if "$KOTLINC_BIN" "${FIXTURES[@]}" "$CORE"/*.kt "$LEDGER_HARNESS" -d "$OUT/ledger-tests.jar" -nowarn; then
     if [[ -f "$STDLIB" ]]; then
       java -cp "$OUT/ledger-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.LedgerTestsKt || status=1
     else
@@ -112,7 +123,7 @@ fi
 echo
 echo "== 2d. the tool tally the loop learns from =="
 if [[ "$have_kotlin" -eq 1 ]]; then
-  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$SCORES_HARNESS" -d "$OUT/scores-tests.jar" -nowarn; then
+  if "$KOTLINC_BIN" "${FIXTURES[@]}" "$CORE"/*.kt "$SCORES_HARNESS" -d "$OUT/scores-tests.jar" -nowarn; then
     if [[ -f "$STDLIB" ]]; then
       java -cp "$OUT/scores-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.ScoresTestsKt || status=1
     else
@@ -129,7 +140,7 @@ fi
 echo
 echo "== 2e. the six tools the app actually ships =="
 if [[ "$have_kotlin" -eq 1 ]]; then
-  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$TOOLS_HARNESS" -d "$OUT/tools-tests.jar" -nowarn; then
+  if "$KOTLINC_BIN" "${FIXTURES[@]}" "$CORE"/*.kt "$TOOLS_HARNESS" -d "$OUT/tools-tests.jar" -nowarn; then
     if [[ -f "$STDLIB" ]]; then
       java -cp "$OUT/tools-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.ToolsTestsKt || status=1
     else
@@ -146,7 +157,7 @@ fi
 echo
 echo "== 2f. the prompt the model actually reads =="
 if [[ "$have_kotlin" -eq 1 ]]; then
-  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$PLANNER_HARNESS" -d "$OUT/planner-tests.jar" -nowarn; then
+  if "$KOTLINC_BIN" "${FIXTURES[@]}" "$CORE"/*.kt "$PLANNER_HARNESS" -d "$OUT/planner-tests.jar" -nowarn; then
     if [[ -f "$STDLIB" ]]; then
       java -cp "$OUT/planner-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.PlannerTestsKt || status=1
     else
@@ -163,7 +174,7 @@ fi
 echo
 echo "== 2g. the loop under a hostile model (property test) =="
 if [[ "$have_kotlin" -eq 1 ]]; then
-  if "$KOTLINC_BIN" "$STUBS"/*.kt "$CORE"/*.kt "$FUZZ_RUNNER" -d "$OUT/runner-fuzz.jar" -nowarn; then
+  if "$KOTLINC_BIN" "${FIXTURES[@]}" "$CORE"/*.kt "$FUZZ_RUNNER" -d "$OUT/runner-fuzz.jar" -nowarn; then
     if [[ -f "$STDLIB" ]]; then
       java -cp "$OUT/runner-fuzz.jar:$STDLIB" com.lucifer.mobile.cognition.harness.RunnerFuzzKt \
         "${RUNNER_FUZZ_RUNS:-200}" "${RUNNER_FUZZ_SEED:-20261030}" || status=1
@@ -177,6 +188,27 @@ if [[ "$have_kotlin" -eq 1 ]]; then
   fi
 else
   echo "SKIPPED — kotlinc and/or java not found, so the loop has NOT been fuzzed."
+fi
+
+echo
+echo "== 2h. every reply passes the output gate =="
+# The gate is the one thing every answer meets before a person reads it, including the single-pass
+# council path that used to ship whatever the model wrote. It is pure Kotlin, so unlike the Android
+# adapters it needs no SDK and no fixtures — it is simply executed.
+if [[ "$have_kotlin" -eq 1 ]]; then
+  if "$KOTLINC_BIN" "$CORE/OutputGate.kt" "$CORE/AnswerAudit.kt" "$CORE/OutputBoundary.kt" \
+      "$CORE/CognitionCore.kt" "$GATE_HARNESS" -d "$OUT/gate-tests.jar" -nowarn; then
+    if [[ -f "$STDLIB" ]]; then
+      java -cp "$OUT/gate-tests.jar:$STDLIB" com.lucifer.mobile.cognition.harness.OutputGateTestsKt || status=1
+    else
+      java -cp "$OUT/gate-tests.jar" com.lucifer.mobile.cognition.harness.OutputGateTestsKt || status=1
+    fi
+  else
+    echo "kotlinc failed to compile the output-gate harness" >&2
+    status=1
+  fi
+else
+  echo "  SKIPPED — kotlinc not found, so the gate has NOT been executed."
 fi
 
 echo
@@ -210,8 +242,8 @@ require "$RUNNER" "LoopGuard.stopReason(" "the loop is bounded on every iteratio
 require "$RUNNER" 'raw.startsWith("[LLM]")' "an unavailable model is not turned into an answer"
 require "$RUNNER" "confirmedTools: Set<String> = emptySet()" "the default is: change nothing"
 require "$RUNNER" "ObservationFence.sanitize(" "tool output is defanged before it can speak the protocol"
-require "$ENGINE" "rememberTurn(input, answer)" \
-  "every answered turn is remembered, not only the deep ones — a follow-up after a shallow answer had no context"
+require "$ENGINE" "rememberTurn(input, shown)" \
+  "every *shown* turn is remembered, not only the deep ones — a follow-up after a shallow answer had no context, and a withheld one is not context"
 require "$ENGINE" "while (recentTurns.size > 2)" "the window is the two turns the self-description promises"
 require "$RUNNER" "withTimeout(remaining)" "one slow model call cannot overrun the wall-clock budget"
 require "$RUNNER" "withTimeout(toolRemaining)" "one slow tool cannot overrun it either"
@@ -222,6 +254,82 @@ require "$RUNNER" "parsed.answer ?: raw.trim().takeIf { parsed.unstructured" \
 require "$RUNNER" "thoughtsOnly >= 3" "and three in a row stops the loop instead of burning the budget"
 require "$RUNNER" "call a tool, or answer" "with one plain correction first"
 require "$CORE/CognitionCore.kt" "object Calculator" "the calculator lives in the testable core"
+
+# The funnel itself, pinned. `ToEReasoningEngine` cannot be type-checked on a host without rebuilding
+# the app's whole dependency graph out of stubs, so its shape is asserted here instead: three routes in,
+# one verdict out, and no fourth way to return a bare string.
+require "$ENGINE" "private suspend fun gateDraft(" \
+  "producing a reply and gating it must be one private step, so no caller can reach an ungated draft"
+require "$ENGINE" "val verdict = gateDraft(input, surface, onStep, budget)" \
+  "reason() asks the gate, and nothing else"
+require "$ENGINE" "val shown = verdict.text ?: OutputGate.refusal(verdict)" \
+  "only a verdict with text is shown; a blocked draft becomes a refusal"
+require "$ENGINE" "return OutputGate.deterministic(" \
+  "the deterministic surface answer is declared as such rather than audited as model prose"
+require "$ENGINE" "return OutputGate.carried(" \
+  "the loop's already-gated answer carries its verdict to the boundary"
+require "$ENGINE" "return OutputGate.gate(" \
+  "the single-pass council answer is audited at the boundary — this path shipped unchecked before"
+require "$ENGINE" "if (!verdict.blocked) rememberTurn(input, shown)" \
+  "a refusal is not remembered as an answer Lucifer established"
+# The heartbeat is the only other route that writes model prose a person reads, and it calls the model
+# directly. It is gated by the same object rather than by a copy of the rules.
+HEARTBEAT="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/omni_bridge/heartbeat/HeartbeatService.kt"
+require "$HEARTBEAT" "OutputGate.gate(" \
+  "a self-initiated heartbeat draft passes the gate before it is filed for the owner to read"
+require "$HEARTBEAT" "if (gate.blocked) {" \
+  "a blocked heartbeat draft takes a different path from a shown one"
+require "$HEARTBEAT" "HeartbeatSessionState.WITHHELD" \
+  "the blocked path is a withholding state, not a file containing a refusal"
+require "$HEARTBEAT" "val approved = gate.text ?:" \
+  "what is written is the text the gate approved, not the fields reassembled"
+require "$HEARTBEAT" "put(\"gateBlocked\", false)" \
+  "the verdict is recorded, so a withheld draft is auditable instead of invisible"
+# The refusal must not become an artifact: `readRecentSessions` feeds prior artifacts back into the next
+# prompt, so a filed refusal would be read as a prior idea by the following session.
+if awk '/if \(gate.blocked\)/,/^        }$/' "$HEARTBEAT" | grep -q "writeText(markdown)\|\.writeText(approved"; then
+  echo "  FAILED  the withheld branch still writes the draft to disk" >&2
+  status=1
+else
+  echo "  ok    nothing is written to the heartbeat directory when the gate blocks"
+fi
+# Every other sink that shows model prose has to go through the boundary, and these are the pins that say so.
+BOUNDARY="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/cognition/OutputBoundary.kt"
+ROUTER="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/launcher/NaturalLanguageRouter.kt"
+WORKFLOW="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/workflows/WorkflowEngine.kt"
+DIAGNOSTICS="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile/resilience/Diagnostics.kt"
+require "$ROUTER" "OutputBoundary.clarification(" \
+  "a model-written clarifying question is gated at the router, where all four of its sinks read it"
+require "$ROUTER" "OutputBoundary.actionExplanation(" \
+  "the line above a command awaiting confirmation is gated too"
+require "$WORKFLOW" "OutputBoundary.planSummary(" \
+  "a model-written plan summary and reflection go through the boundary"
+require "$DIAGNOSTICS" "OutputBoundary.diagnosis(" \
+  "a model diagnosis is gated, because a diagnosis is prose even when it arrives as a struct"
+require "$BOUNDARY" "fun clarification(" "the boundary is one object, not a rule copied per caller"
+# Point 5 of the review: the trace must not print the model talking to itself.
+# The Lean-audit tool is refused when no bridge is supplied, so a mis-wiring must be visible here rather
+# than looking like a tool the model chose not to use.
+require "$ENGINE" "LeanAuditMcpClient(appContext)" \
+  "the engine wires the real Lean-audit client into the toolbox"
+require "$RUNNER" "the Lean audit bridge was not configured in this build" \
+  "an unwired bridge is refused by name, not silently skipped"
+require "$RUNNER" "fun reasoning(): String?" \
+  "model reasoning is retained for the trace panel and kept out of the rendered trace"
+if grep -qE 'append\(if \(thought\.isBlank\(\)\)' "$RUNNER"; then
+  echo "  FAILED  CognitionRunner.render() still prints the model's private thought" >&2
+  status=1
+else
+  echo "  ok    a rendered step shows what ran, not what the model was thinking"
+fi
+
+if grep -qE "^[[:space:]]*return (answer|buildString)" "$ENGINE"; then
+  echo "  FAILED  a bare return in ToEReasoningEngine bypasses the gate" >&2
+  grep -nE "^[[:space:]]*return (answer|buildString)" "$ENGINE" | sed 's/^/        /' >&2
+  status=1
+else
+  echo "  ok    no bare return of an ungated string survives in the engine"
+fi
 
 echo
 echo "== 3b. the loop learns which tools actually work here =="
@@ -314,6 +422,24 @@ if [[ "$(grep -c "ToolSpec(" "$CORE/CognitionCore.kt")" -ge 7 ]]; then
 else
   echo "  FAILED  the catalogue lost tools" >&2
   status=1
+fi
+
+echo
+echo "== 5. the cognition adapters compile against the Android surface =="
+# The runnable parts above use fixtures (the harness subclasses Context). This part is the other check:
+# Lucifer's own cognition sources, compiled with no fixtures at all, against the real android.jar when
+# there is one. A call the platform does not have fails here rather than in the APK build nobody runs.
+if [[ "$have_kotlin" -eq 1 ]]; then
+  android_surface_report "$STUBS"
+  if "$KOTLINC_BIN" ${JAR_ARGS[@]+"${JAR_ARGS[@]}"} "${SURFACE[@]}" "$CORE"/*.kt \
+      -d "$OUT/adapter-check" -nowarn; then
+    echo "  ok    the cognition adapters type-check"
+  else
+    echo "  FAILED  the cognition adapters do not type-check" >&2
+    status=1
+  fi
+else
+  echo "  SKIPPED — kotlinc not found, so the adapters were not type-checked."
 fi
 
 echo

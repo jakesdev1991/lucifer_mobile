@@ -1,5 +1,7 @@
 package com.lucifer.mobile.resilience
 
+import com.lucifer.mobile.cognition.OutputBoundary
+
 /**
  * Read-only environment investigation - the "stop and look at the machine" step.
  *
@@ -209,15 +211,25 @@ data class Hypothesis(val statement: String, val confidence: Double, val check: 
 
 enum class DiagnosisSource { MODEL, HEURISTIC }
 
+/**
+ * @param presented what the gate approved for display, or null when this diagnosis was assembled
+ *        deterministically. The structured fields stay what the engine reasons and acts on; this field is
+ *        the only thing a person sees. Keeping them separate is the point: a hypothesis has to be
+ *        actionable in the recovery loop even when its wording was softened for the transcript.
+ */
 data class Diagnosis(
     val rootCause: String,
     val confidence: String,
     val evidenceRefs: List<String>,
     val hypotheses: List<Hypothesis>,
     val nextMoves: List<RecoveryMove>,
-    val source: DiagnosisSource
+    val source: DiagnosisSource,
+    val presented: String? = null
 ) {
-    fun render(): String = buildString {
+    /** What to show. Model prose comes back already gated; the heuristic is composed here. */
+    fun render(): String = presented ?: compose()
+
+    private fun compose(): String = buildString {
         append("Diagnosis (").append(source.name.lowercase()).append(", confidence ").append(confidence).append("): ")
         append(rootCause).append('\n')
         if (evidenceRefs.isNotEmpty()) append("Evidence: ").append(evidenceRefs.joinToString(", ")).append('\n')
@@ -269,8 +281,23 @@ class DiagnosisEngine(
         val raw = runCatching {
             thinker?.complete(DIAGNOSIS_SYSTEM, prompt, maxTokens = 900, temperature = 0.25)
         }.getOrNull()
-        parse(raw, bundle, maxMoves)?.let { return it }
-        return heuristic(bundle, maxMoves)
+        val model = parse(raw, bundle, maxMoves) ?: return heuristic(bundle, maxMoves)
+
+        // A diagnosis is shown to the user, so it is model prose even though it arrives as a structure. The
+        // gate judges the **rendered** text — root cause, hypotheses, moves — because that is the unit a
+        // reader meets; auditing the fields would leave the glue around them (percentages, "check:" lines)
+        // unexamined and would let a blocked root cause still be framed by an approved heading.
+        //
+        // Unlike the other sinks this one has evidence, and the honest fallback is not a refusal: the
+        // heuristic is derived from the observations, so declining to show the model's version costs the
+        // user nothing but fluency.
+        val shown = OutputBoundary.diagnosis(
+            draft = model.render(),
+            goal = "diagnose why ${signal.tool} failed against ${signal.target.displayName} " +
+                "(${signal.failureClass.name})",
+            observations = bundle.results.map { it.text }
+        ) ?: return heuristic(bundle, maxMoves)
+        return model.copy(presented = shown)
     }
 
     private fun parse(raw: String?, bundle: EvidenceBundle, maxMoves: Int): Diagnosis? {

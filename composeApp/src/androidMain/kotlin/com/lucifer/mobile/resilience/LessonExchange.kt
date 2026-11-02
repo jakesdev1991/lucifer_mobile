@@ -1,6 +1,9 @@
 package com.lucifer.mobile.resilience
 
-import android.util.Log
+// No Android import here on purpose: this is signing, redaction and dedupe over JSON — pure logic, and
+// pure logic has to stay compilable and executable on a host or the harness cannot check it. It carried
+// an unused `android.util.Log` import, which moved it out of the pure-core compile and broke
+// AgentCoreTests, which tests exactly this file.
 import com.lucifer.mobile.resilience.arr
 import com.lucifer.mobile.resilience.bool
 import com.lucifer.mobile.resilience.int

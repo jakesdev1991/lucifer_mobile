@@ -408,6 +408,70 @@ fun main() {
         expect(outcome.audit.confidence != Confidence.HIGH, "and it did not grant HIGH")
     }
 
+    test("a failed device read does not count as having read the device") {
+        // The loop used to derive `deviceRead` from every *attempted* call. A `device` read that failed
+        // therefore suppressed the very caveat that exists for exactly that situation, and the footer went
+        // on to claim "including a device read" — the loop awarding itself grounding it had watched fail.
+        val toolbox = RecordingToolbox(
+            ToolCatalogue.specs(),
+            results = mapOf("device_facts" to ToolResult.failed("the device surface is unavailable"))
+        )
+        val (outcome, _) = run(
+            listOf(
+                "THOUGHT: check the device\nTOOL: device_facts(\"build\")",
+                "THOUGHT: answer\nANSWER: Your phone is definitely running Android 15 and your battery is fine."
+            ),
+            toolbox
+        )
+        expect(toolbox.ran.any { it.tool == "device_facts" }, "the read was attempted")
+        expect(
+            outcome.audit.findings.any { it.code == "UNVERIFIED_DEVICE_CLAIM" },
+            "a failed read leaves the device claim unverified: ${outcome.audit.findings.map { it.code }}"
+        )
+        expectAbsent(outcome.confidenceLine, "including a device read", "the footer must not claim a device read")
+    }
+
+    test("a successful device read does count") {
+        val toolbox = RecordingToolbox(
+            ToolCatalogue.specs(),
+            results = mapOf("device_facts" to ToolResult.ok("build: Android 15, sdk 35", "device"))
+        )
+        val (outcome, _) = run(
+            listOf(
+                "THOUGHT: check the device\nTOOL: device_facts(\"build\")",
+                "THOUGHT: answer\nANSWER: Your phone is running Android 15 per the build information I just read."
+            ),
+            toolbox
+        )
+        expect(
+            outcome.audit.findings.none { it.code == "UNVERIFIED_DEVICE_CLAIM" },
+            "a real read grounds the claim: ${outcome.audit.findings.map { it.code }}"
+        )
+        expectContains(outcome.confidenceLine, "including a device read", "and the footer says so")
+    }
+
+    test("the model's private reasoning is not printed as part of the answer") {
+        // Thoughts reach the reader through the trace lists. They are the model talking to itself before
+        // acting, and they used to be rendered into "What I established" — including on a turn whose final
+        // draft had been withheld, so a blocked answer still showed paragraphs of speculation.
+        val toolbox = RecordingToolbox(ToolCatalogue.specs())
+        val (outcome, _) = run(
+            listOf(
+                "THOUGHT: I suspect the secret token is in the config, let me imagine it\nTOOL: clock(\"now\")",
+                "THOUGHT: the answer is obvious\nANSWER: The clock reports the current time for this device."
+            ),
+            toolbox
+        )
+        val rendered = outcome.trace.joinToString("\n") { it.render() }
+        expectAbsent(rendered, "secret token", "reasoning must not leak into the rendered trace")
+        expectAbsent(rendered, "the answer is obvious", "nor into any later step line")
+        expect(rendered.contains("clock"), "but what ran is still shown: $rendered")
+        expect(
+            outcome.trace.any { it.reasoning() != null },
+            "the reasoning is retained for the trace panel rather than discarded"
+        )
+    }
+
     // ── what the owner sees ─────────────────────────────────────────────
     test("the trace renders one line per step and no line is blank") {
         val toolbox = RecordingToolbox(ToolCatalogue.specs())

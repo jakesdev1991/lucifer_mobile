@@ -3,12 +3,30 @@
 # The repo had twelve verify harnesses and four audit scripts and nothing that ran them. This runs all
 # of them through `scripts/verify_all.sh`, which is the same command a person runs locally.
 #
-# The Kotlin half of each harness needs kotlinc and a JDK. It is not installed here by default, so those
-# steps report SKIPPED rather than pretending to pass — `verify_all.sh` counts SKIPPED separately for
-# exactly that reason. Enable the second job (set the repository variable RUN_KOTLIN_HARNESSES=true) once
-# the harnesses are known to compile in CI; it then runs them in strict mode, where a missing toolchain
-# is a failure instead of a skip.
+# Two toolchains are pinned here on purpose:
+#
+#   * kotlinc 1.9.24 — the version `org.jetbrains.kotlin.android` is pinned to in build.gradle.kts. The
+#     ubuntu runner image ships a much newer Kotlin (2.4.x at the time of writing), and a harness that
+#     compiles under 2.4 has not proved anything about the APK, which is built with 1.9.24.
+#   * the Android SDK's `platforms/android-35/android.jar` — the harnesses type-check Lucifer's Android
+#     adapters, and `scripts/android_surface.sh` compiles them against the real SDK surface whenever one
+#     is present, falling back to the hand-written stubs in `tools/*-core/android-stubs` otherwise.
+#     That fallback is how `verify_privilege_core.sh` stayed red: its stubs invented
+#     `UserManager.getUserInfo`, put `CrossProfileApps` in the wrong package and gave `logoutUser` an
+#     argument the platform does not have. The adapter code was right; the check was wrong. So CI
+#     demands the real jar (`LUCIFER_REQUIRE_ANDROID_JAR=1`) instead of quietly passing on stubs.
+#
+# The Kotlin half of each harness needs kotlinc and a JDK; without them a harness reports SKIPPED rather
+# than pretending to pass, and `verify_all.sh` counts SKIPPED separately for exactly that reason. Both
+# jobs below install the toolchain, so on CI nothing should skip: a SKIP here means the setup step broke.
 name: verify
+
+env:
+  # Keep in step with the Kotlin plugin version in build.gradle.kts.
+  # Not named KOTLIN_COMPILER: the kotlinc launcher script reads that variable as the compiler's main
+  # class name, so setting it to a version string makes every kotlinc call die with
+  # "ClassNotFoundException: 1.9.24" before it compiles anything.
+  LUCIFER_KOTLIN_VERSION: "1.9.24"
 
 on:
   push:
@@ -24,8 +42,53 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install the pinned Kotlin compiler
+        run: |
+          curl -sSLo /tmp/kotlinc.zip \
+            "https://github.com/JetBrains/kotlin/releases/download/v${LUCIFER_KOTLIN_VERSION}/kotlin-compiler-${LUCIFER_KOTLIN_VERSION}.zip"
+          unzip -q /tmp/kotlinc.zip -d /opt
+          echo "/opt/kotlinc/bin" >> "$GITHUB_PATH"
       - name: Run every host-side check
-        run: ./scripts/verify_all.sh --quiet
+        env:
+          # A missing kotlinc or android.jar is a failure here, not a silent skip or a downgrade to stubs.
+          LUCIFER_REQUIRE_KOTLIN: "1"
+          # The runner exports ANDROID_HOME; scripts/android_surface.sh finds
+          # $ANDROID_HOME/platforms/android-<compileSdk>/android.jar from it.
+          LUCIFER_REQUIRE_ANDROID_JAR: "1"
+        # `--quiet` prints one line per harness, which is the right amount for a passing run and not
+        # enough for a failing one: the reason is inside a harness's own output, and reading it means
+        # downloading a log. So the totals and the tail go to the step summary (visible in the UI without a
+        # download), and the failing lines are republished as annotations.
+        run: |
+          set -o pipefail
+          status=0
+          ./scripts/verify_all.sh --quiet 2>&1 | tee /tmp/verify.log || status=$?
+          {
+            echo "### verify_all.sh"
+            echo ""
+            echo '```'
+            tail -n 30 /tmp/verify.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # The totals as a notice, not just in the summary: a review could not confirm the pass/skip
+          # numbers because they lived in a downloadable log. An annotation is part of the API.
+          totals="$(grep -E '^PASS [0-9]+ ' /tmp/verify.log | tail -n 1)"
+          [[ -n "$totals" ]] && echo "::notice title=verify_all.sh::$totals"
+          if [[ $status -eq 0 ]]; then
+            exit 0
+          fi
+          echo "::group::verify_all.sh output"
+          cat /tmp/verify.log
+          echo "::endgroup::"
+          # One annotation per failing harness or compiler error, capped so a broken build cannot produce
+          # thousands of them.
+          grep -E "^(FAILED|failed:|PASS [0-9]+ .*FAIL [1-9])|error:" /tmp/verify.log | head -25 | \
+            while IFS= read -r line; do echo "::error::$line"; done
+          exit $status
 
   kotlin-harnesses:
     name: kotlin harnesses (opt-in)
@@ -40,12 +103,32 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Install kotlinc
+      - name: Install the pinned Kotlin compiler
         run: |
-          curl -sSLo /tmp/kotlinc.zip https://github.com/JetBrains/kotlin/releases/download/v2.0.21/kotlin-compiler-2.0.21.zip
+          curl -sSLo /tmp/kotlinc.zip \
+            "https://github.com/JetBrains/kotlin/releases/download/v${LUCIFER_KOTLIN_VERSION}/kotlin-compiler-${LUCIFER_KOTLIN_VERSION}.zip"
           unzip -q /tmp/kotlinc.zip -d /opt
           echo "/opt/kotlinc/bin" >> "$GITHUB_PATH"
       - name: Run every host-side check, strict
         env:
           LUCIFER_REQUIRE_KOTLIN: "1"
-        run: ./scripts/verify_all.sh --quiet
+          # The runner exports ANDROID_HOME; scripts/android_surface.sh finds
+          # $ANDROID_HOME/platforms/android-<compileSdk>/android.jar from it.
+          LUCIFER_REQUIRE_ANDROID_JAR: "1"
+        # Same totals-on-the-summary treatment as the required job, so an opt-in run is as readable.
+        run: |
+          set -o pipefail
+          status=0
+          ./scripts/verify_all.sh --quiet 2>&1 | tee /tmp/verify.log || status=$?
+          {
+            echo "### verify_all.sh (opt-in, strict)"
+            echo ""
+            echo '```'
+            tail -n 30 /tmp/verify.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          totals="$(grep -E '^PASS [0-9]+ ' /tmp/verify.log | tail -n 1)"
+          [[ -n "$totals" ]] && echo "::notice title=verify_all.sh (opt-in)::$totals"
+          [[ $status -eq 0 ]] || grep -E "^(FAILED|failed:)|error:" /tmp/verify.log | head -25 | \
+            while IFS= read -r line; do echo "::error::$line"; done
+          exit $status

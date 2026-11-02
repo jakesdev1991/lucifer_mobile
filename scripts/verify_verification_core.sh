@@ -11,9 +11,15 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/android_surface.sh
+source "$ROOT/scripts/android_surface.sh"
+android_surface_guard
 SRC="$ROOT/composeApp/src/androidMain/kotlin/com/lucifer/mobile"
 HARNESS="$ROOT/tools/verification-core/VerificationCoreTests.kt"
 HARNESS_SERVER="$ROOT/tools/verification-core/VerificationServerTests.kt"
+STUBS="$ROOT/tools/verification-core/android-stubs"
+mapfile -t SURFACE < <(android_surface_stub_files "$STUBS")
+mapfile -t JAR_ARGS < <(android_surface_classpath)
 OUT="${TMPDIR:-/tmp}/lucifer-verification-build"
 
 KOTLINC_BIN="${KOTLINC:-kotlinc}"
@@ -36,7 +42,7 @@ echo "== compile + run verification control-plane checks =="
 # AuditVaultContract/AuditVaultExecutor live in the same file as the HTTP transport that reaches the
 # vault, so the egress door is stubbed here too. The harness never opens it: it checks the contract
 # (canonical body, HMAC, headers), which is pure.
-"$KOTLINC_BIN" "$ROOT/tools/verification-core/android-stubs/EgressStubs.kt" \
+"$KOTLINC_BIN" "$STUBS/EgressStubs.kt" \
   "$SRC/resilience/JsonLite.kt" \
   "$SRC/verification/VerificationCore.kt" "$SRC/verification/VerificationRuntime.kt" \
   "$SRC/verification/VerificationServer.kt" "$SRC/verification/AuditVault.kt" \
@@ -45,15 +51,16 @@ echo "== compile + run verification control-plane checks =="
   -d "$OUT/verification-tests.jar" -nowarn
 
 echo
-echo "== type-check the Android adapters against stubs =="
-"$KOTLINC_BIN" "$ROOT/tools/verification-core/android-stubs"/*.kt \
+echo "== type-check the Android adapters =="
+android_surface_report "$STUBS"
+"$KOTLINC_BIN" ${JAR_ARGS[@]+"${JAR_ARGS[@]}"} "${SURFACE[@]}" \
   "$SRC/resilience/JsonLite.kt" \
   "$SRC/verification/VerificationCore.kt" "$SRC/verification/VerificationRuntime.kt" \
   "$SRC/verification/VerificationServer.kt" "$SRC/verification/AuditVault.kt" \
   "$SRC/verification/StatementGates.kt" "$SRC/verification/VmJobExecutor.kt" \
   "$SRC/verification/VerifierController.kt" "$SRC/verification/VerificationService.kt" \
   -d "$OUT/adapters-check" -nowarn
-echo "adapter type-check passed (stubs cover the Android surface only; the SSH transport, the socket and the panel are unverified)"
+echo "adapter type-check passed (the Android surface only; the SSH transport, the socket and the panel are unverified)"
 
 STDLIB="$(dirname "$(command -v "$KOTLINC_BIN")")/../lib/kotlin-stdlib.jar"
 if [[ -f "$STDLIB" ]]; then

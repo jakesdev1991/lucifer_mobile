@@ -1,5 +1,11 @@
 // Minimal Android/JVM surface used by Lucifer's privilege + world adapters.
 // Compile-only: these are NOT the real framework classes and never ship.
+//
+// Every signature here mirrors `android.jar` for the compileSdk in composeApp/build.gradle.kts
+// (API 35, verified with javap/reflection against the real SDK jar). A stub that drifts is worse than
+// no stub: it checks Lucifer's code against a fiction. `scripts/android_surface.sh` compiles these
+// adapters against the real android.jar whenever one is on the host and drops these files entirely,
+// which is the only way to be sure the surface below is still true.
 @file:Suppress("unused", "UNUSED_PARAMETER")
 
 package android.content
@@ -41,12 +47,5 @@ open class SharedPreferences {
     }
 }
 
-class CrossProfileApps {
-    fun canInteractAcrossProfiles(): Boolean = false
-    fun canRequestInteractAcrossProfiles(): Boolean = false
-    fun requestInteractAcrossProfiles() {}
-    fun startMainActivity(component: ComponentName, user: UserHandle) {}
-    fun getTargetUserProfiles(): List<UserHandle> = emptyList()
-}
-
-
+// CrossProfileApps lives in android.content.pm, not android.content — the stub used to put it here,
+// which is why the adapter type-check failed while the adapter was right.

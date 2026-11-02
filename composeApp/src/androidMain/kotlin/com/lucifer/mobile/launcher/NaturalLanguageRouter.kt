@@ -1,6 +1,7 @@
 package com.lucifer.mobile.launcher
 
 import android.content.Context
+import com.lucifer.mobile.cognition.OutputBoundary
 import com.lucifer.mobile.omni_bridge.llm.NemotronClient
 import com.lucifer.mobile.resilience.ResilienceIntentKind
 import com.lucifer.mobile.resilience.ResilienceIntents
@@ -77,11 +78,24 @@ class NaturalLanguageRouter(context: Context) {
         } catch (_: Exception) {
             ""
         }
-        val modelRoute = parseRoute(nlu, selectedTarget)
+        val modelRoute = parseRoute(nlu, selectedTarget, asked = text)
         return modelRoute ?: ChatRoute.Conversation
     }
 
-    private fun parseRoute(raw: String, selectedTarget: CommandTarget): ChatRoute? {
+    /**
+     * The one place model text becomes a [ChatRoute], and therefore the one place to gate it.
+     *
+     * Three of these routes carry prose a person will read: `Clarify.message` (printed by the launcher,
+     * the floating chat and both chat screens, and *spoken* by the launcher), and
+     * `Execute.explanation` (the line above a command awaiting confirmation). All four sinks take their
+     * text from here, so gating here covers them together rather than four times over — and a fifth
+     * caller cannot forget, which is the same reason the answer path ends at `OutputGate`.
+     *
+     * The action itself is never held back: `Execute` still reaches the confirmation dialog with its exact
+     * command and target, because that dialog is the safety control and a bad sentence must not be able to
+     * suppress it. What changes is only *whose words describe it*.
+     */
+    private fun parseRoute(raw: String, selectedTarget: CommandTarget, asked: String): ChatRoute? {
         val start = raw.indexOf('{')
         val end = raw.lastIndexOf('}')
         if (start < 0 || end <= start) return null
@@ -90,7 +104,10 @@ class NaturalLanguageRouter(context: Context) {
             when (json.optString("intent").lowercase()) {
                 "chat" -> ChatRoute.Conversation
                 "clarify" -> ChatRoute.Clarify(
-                    json.optString("message").ifBlank { "Do you want an answer, or should I run something?" }
+                    OutputBoundary.clarification(
+                        json.optString("message").ifBlank { "Do you want an answer, or should I run something?" },
+                        goal = asked
+                    )
                 )
                 "open_app" -> json.optString("app").trim().takeIf { it.isNotBlank() && it.length <= 120 }
                     ?.let { ChatRoute.OpenApp(it) }
@@ -121,7 +138,11 @@ class NaturalLanguageRouter(context: Context) {
                         "selected", "active", "" -> selectedTarget
                         else -> return null
                     }
-                    val explanation = json.optString("message").ifBlank { "I understood this as a terminal request." }
+                    val explanation = OutputBoundary.actionExplanation(
+                        json.optString("message").ifBlank { "I understood this as a terminal request." },
+                        command = command,
+                        target = target.displayName
+                    )
                     ChatRoute.Execute(TerminalAction(command, target, explanation, !isSafeAutomaticCommand(command)))
                 }
                 else -> null

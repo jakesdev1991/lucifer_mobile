@@ -190,6 +190,90 @@ its working instead of shipping it. Every deep answer ends with one line:
 
 > `Confidence: MEDIUM — 2 tool result(s), including a device read.`
 
+### 6.1 The gate on the way out
+
+The audit above lived *inside* the loop, which meant the loop was the only path that used it. The
+single-pass council — the path most chat turns actually take — returned the model's paragraph straight
+to the transcript, and the deterministic surface answers never met a check at all.
+
+`OutputGate` closes that. `ToEReasoningEngine.reason` now ends at one door: the routes return a
+`Verdict`, and only a verdict carrying text is shown.
+
+| Decision | What the user sees |
+|---|---|
+| `PASS` | the answer, unchanged |
+| `ANNOTATED` | the answer, with a `Gate: shown with N caveat(s) — …` block naming the checks that fired |
+| `REPAIRED` | the second draft, which passed |
+| `BLOCKED` | **nothing.** The draft is withheld; a refusal names the objection and never quotes the prose |
+
+Three properties are load-bearing, and the harness executes all three rather than describing them:
+
+- **`text == null` if and only if blocked.** The invariant is a `require` in `Verdict`'s constructor, so a
+  future edit that returns blocked text has to delete an assertion to do it.
+- **Warnings are shown, not swallowed.** A caveat nobody can see is the same as no caveat, so an annotated
+  answer carries its findings in its own text.
+- **The two bypasses are narrow and honest.** `deterministic(text)` is for text read out of the surface
+  registry, which is grounded by construction; `carried(text, audit)` is for a reply the loop already
+  gated. `carried` still refuses a blocked audit, so a bypass that honours a blocked verdict is the only
+  kind in the file.
+
+A withheld reply is not remembered: the turn window is written by `reason` with the text the user
+actually saw, so the next question cannot treat "I will not show you that" as something Lucifer
+established.
+
+#### Every sink, named
+
+`reason()` was never the whole boundary. A reply funnel covers the answers and misses everything that is
+model prose without being an answer, and each of those was individually argued to be "just a field" — which
+is true of how it is *used* and false of how it is *read*. The boundary is therefore stated once, as a
+table, so a new sink has to be added to it deliberately rather than discovered later by someone reading a
+file it leaks through.
+
+| Sink | Reaches a person as | Crosses the boundary? | What happens when it cannot be shown |
+|---|---|---|---|
+| `reason()` final answer (chat, launcher, overlay, workflow step) | an answer | **yes**, `OutputGate.gate` | refusal; the draft is not quoted |
+| Deep-loop reply returned to the boundary | an answer | **yes**, `OutputGate.carried` — warnings are appended, not promised | refusal |
+| Heartbeat artifact (`files/heartbeat/*.md`) | a document read later | **yes**, the **whole document** in one call | nothing is written: no file, no memory row, no ledger prose; the session records `WITHHELD` |
+| Heartbeat title / summary / next step, as they enter `sessions.jsonl` and long-term memory | context for the next session, and a memory the user can recall | **only through the gate's output** — the record and the memory entry are built from the approved text | — |
+| Router clarification (`ChatRoute.Clarify.message`) — launcher (printed **and spoken**), floating chat, both chat screens | a question | **yes**, `OutputBoundary.clarification` | a neutral question written by us |
+| `TerminalAction.explanation` (confirmation dialog, "[UNDERSTOOD]" line) | the description of an action | **yes**, `OutputBoundary.actionExplanation` | neutral description — the **action is still offered for confirmation**, because the dialog is the safety control and must not be capturable by a bad sentence |
+| Workflow plan summary and reflection assessment | a paragraph above a plan | **yes**, `OutputBoundary.planSummary` | neutral summary; the steps are listed as before |
+| Resilience diagnosis (root cause, hypotheses, moves) | the explanation of a failure | **yes**, `OutputBoundary.diagnosis`, judged *against the observations* | the deterministic diagnosis, which is derived from the evidence and so cannot be ungrounded |
+| Trace lines (`StepRecord.render`/`brief`) | what ran, and whether it worked | **no prose** — the rendering was narrowed to tool, status and result detail; the model's `thought` is no longer printed anywhere in a transcript | reasoning is kept as `StepRecord.reasoning()` for the diagnostics panel only |
+| Workflow steps, recovery moves, skill mandates | an instruction the loop will act on, origin-labelled `MODEL` | **not gated**, deliberately: gating the wording of a command is not a truth check, and a step is executed through the confirmation boundary rather than believed | — |
+| Web research briefs | fetched evidence, cited and redacted | **not gated**: nothing in it is model-generated | — |
+| Deterministic capability answers (`Surface` records) | an answer | bypass, `OutputGate.deterministic` — and the harness pins which call sites may use it | — |
+
+Two consequences worth stating plainly. First, `SessionOutcome` exists because the service used to infer
+"committed" from the *shape of the message*: it recorded `COMMITTED` for any run that did not throw,
+including a skipped session and a withheld draft, so the transition log claimed work had been filed when
+nothing had. Second, a blocked heartbeat no longer leaves a file at all. The earlier revision wrote the
+refusal into the artifact, which sounds harmless and was not: `readRecentSessions` feeds prior artifacts
+back into the next prompt, so a filed refusal would have been read by the next session as a prior idea.
+
+#### What the gate does not do
+
+It is **heuristic**. It does not establish factual correctness, and no host-side check does. What it
+establishes is narrower and still worth having: that the reply is not empty or a stub, that it was built
+on something the run actually observed when observations exist, and that it does not claim certainty or
+device knowledge it has not earned.
+
+Its blind spot was narrower than that and is now closed by labelling rather than by pretending to more
+power: a substantive answer written with **nothing consulted** used to pass silently whenever none of the
+keyword rules happened to fire. It now carries `UNSOURCED` — "this is recollection, nothing here checked
+it" — with thresholds (>40-character question, >160-character answer) so that small talk is not
+interrogated. That is a disclosure, not a check. The reply may still be wrong; the reader is told nobody
+looked.
+
+The audit engine's *structured* verifier in `verification/` is a different instrument aimed at a different
+object: `StatementGates` judges formal Lean declarations (placeholders, vacuity, name-versus-statement,
+parity) and the MCP server around it can only check what has been elaborated on a Lean host, with a key.
+It cannot read an English paragraph and decide whether it is true, and wiring it to the reply path would
+not make it able to. What it *can* do is the thing this gate deliberately leaves alone: take a claim the
+owner wants proved, check the proof, and report `GATED — awaiting human validation` rather than an answer.
+Connecting the two would mean asking the model for a formal statement instead of prose, which is a
+feature to design on purpose, not a gate to bolt on.
+
 ---
 
 ## 7. Triage: not every message deserves eight steps
@@ -438,7 +522,7 @@ in the export bundle.
 ```
 python3 tools/cognition-core/spec_check.py         PASS · 204 checks
 python3 tools/cognition-core/fuzz.py 4000          FUZZ OK · 28 400 cases · 11 invariants
-./scripts/verify_cognition_core.sh                PASS · 176 + 21 + 11 + 9 + 13 + 9 Kotlin checks + 200-run loop fuzz + 49 static claims
+./scripts/verify_cognition_core.sh                PASS · 176 + 21 + 11 + 9 + 13 + 9 + 16 Kotlin checks + 200-run loop fuzz + static claims
 ./scripts/cognition_sweep.sh --loop 0 --interval 90   the looping run
 ```
 
@@ -470,6 +554,18 @@ text. Seven invariants hold on every run: it always terminates within budget wit
 trace never exceed the step budget; a `DEVICE_CHANGE` tool never runs unconfirmed; the answer is never
 blank and never a transport error; "answered" never reads like a conclusion the audit blocked; confidence
 is never granted to a blocked answer; the confidence line is always well-formed.
+
+A seventh harness, `OutputGateTests` (16 checks), executes `OutputGate` — the object every reply now
+passes through on its way to a transcript. It asserts the properties that would be silent if they broke:
+a blocked draft never appears in a verdict's text, the refusal names the objection without quoting the
+prose, exactly one repair is attempted (and an identical or throwing repair buys no second round),
+warnings ride along in the text instead of being swallowed, a device read clears a device-claim caveat,
+`deterministic` text is not audited as model prose, `carried` still refuses a blocked audit, and
+constructing a blocked verdict *with* text throws. The engine's funnel is pinned separately by static
+claims — `gateDraft` is private, `reason` shows `verdict.text ?: OutputGate.refusal(verdict)`, and no
+bare `return answer` survives — because `ToEReasoningEngine` cannot be type-checked on the host without
+rebuilding the app's whole dependency graph out of stubs, which is how the stubs drifted in the first
+place.
 
 A sixth harness, `PlannerTests` (9 checks), executes `NemotronCognitionPlanner` — the prompt the model
 actually reads on every step. It proves that the system prompt carries the plan format, every tool, the

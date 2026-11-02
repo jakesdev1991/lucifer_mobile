@@ -93,10 +93,14 @@ class LuciferHeartbeatService : Service() {
                         } finally {
                             cameraJpeg?.fill(0)
                         }
-                        Log.i(TAG, result)
-                        updateNotification(result.take(160))
+                        Log.i(TAG, result.message)
+                        updateNotification(result.message.take(160))
+                        // The state comes from the session, not from the fact that it returned. This used to
+                        // record COMMITTED for every non-throwing run — including a skipped one, and a draft
+                        // the output gate had withheld — so the transition log claimed work was filed when
+                        // nothing had been written.
                         recordTransition(
-                            HeartbeatSessionState.OBSERVED, HeartbeatSessionState.COMMITTED, result.take(140)
+                            HeartbeatSessionState.OBSERVED, result.state, result.message.take(140)
                         )
                         // One offline self-benchmark step per heartbeat pass: runs at most weekly,
                         // never records a MODEL observation, so it does not count against the

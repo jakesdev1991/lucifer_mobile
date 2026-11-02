@@ -24,7 +24,7 @@ import kotlinx.coroutines.withContext
  *
  * The containment is Android's, not Lucifer's: a managed profile is a separate user with its own
  * package data, its own accounts and its own processes. Lucifer can be handed that user, launch into
- * it through the sanctioned [android.content.CrossProfileApps] API, and start the VM there — and when
+ * it through the sanctioned [android.content.pm.CrossProfileApps] API, and start the VM there — and when
  * the profile is stopped, everything inside it is frozen with it.
  *
  * Two things he cannot do, and says so: read the owner's data (cross-profile launches do not grant
@@ -61,9 +61,12 @@ class WorldManager(private val context: Context) {
         return try {
             manager.userProfiles.mapNotNull { handle ->
                 val userId = userIdOf(handle) ?: return@mapNotNull null
-                val isManaged = crossProfileApps?.isManagedProfile(handle)
-                    ?: manager.isManagedProfile()
-                if (!isManaged || userId == currentUserId()) return@mapNotNull null
+                // CrossProfileApps.isManagedProfile(handle) is the only public way to ask about *that*
+                // handle. UserManager.isManagedProfile() answers a different question — whether this
+                // process's own user is a managed profile — so it is not a stand-in for it; with no
+                // channel to ask, skip the handle rather than describe it wrongly.
+                val isManaged = crossProfileApps?.isManagedProfile(handle) ?: return@mapNotNull null
+                if (userId == currentUserId()) return@mapNotNull null
                 AndroidUser(
                     id = userId,
                     name = "profile $userId",

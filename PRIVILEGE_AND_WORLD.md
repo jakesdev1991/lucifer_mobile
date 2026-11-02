@@ -122,7 +122,19 @@ identifiers / traversal / user 0 / protected packages, the read-only inspection 
 smuggling attempts, the owner-call allowlist, risk classification, the bounded ledger, `pm list users`
 parsing (including managed-profile flags and garbage), world resolution with a stale remembered id, the
 charter, and the honest snapshot text. Then it type-checks `DhizukuBridge`, `LocalOwnerOps`,
-`PrivilegeRouter` and `WorldManager` against Android stubs.
+`PrivilegeRouter` and `WorldManager` against the real `platforms/android-<compileSdk>/android.jar` when
+the host has an SDK, and against `tools/privilege-core/android-stubs` only when it does not — the run
+prints which one it used.
+
+That distinction is not decoration. This harness was red in CI for days because its stubs, not the
+adapters, were wrong: they put `CrossProfileApps` in `android.content` instead of `android.content.pm`,
+gave `DevicePolicyManager.logoutUser` a `UserHandle` argument the platform does not have, typed
+`createAndManageUser`'s extras as `Bundle` instead of `PersistableBundle`, invented
+`UserManager.getUserInfo` (every overload is `@hide`, so `android.jar` has none) and
+`android.content.pm.UserInfo` (the whole class is `@hide`), and used `16`/`0` for
+`PERMISSION_GRANT_STATE_DENIED`/`GRANTED` where the SDK has `2`/`1`. Every one of those is fixed in the
+stub now, and `scripts/android_surface.sh` prefers the SDK so the next drift shows up as a real failure
+instead of a passing stub check.
 
 Not verified: whether a real Dhizuku install answers the Binder, whether `pm create-user --managed`
 succeeds on a given OEM, whether Android grants the cross-profile relationship on a particular build,

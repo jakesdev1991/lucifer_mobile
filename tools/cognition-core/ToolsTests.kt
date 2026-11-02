@@ -81,11 +81,48 @@ fun main() {
     fun run(id: String, argument: String) = runBlocking { toolbox.run(ToolCall(id, argument)) }
 
     test("the toolbox offers exactly the catalogue, and nothing else") {
-        expectEq(toolbox.specs().map { it.id }, ToolCatalogue.specs().map { it.id }, "specs")
+        // The catalogue plus the one tool that is not in it: `lean_audit` is an adapter — it needs the MCP
+        // client, the egress ledger and a configured token — so it is declared next to the toolbox that can
+        // actually reach it rather than in the pure catalogue the prompt is generated from. Main added it
+        // without updating this assertion, which is why it was failing here and on main.
+        val expected = ToolCatalogue.specs().map { it.id } + AndroidCognitionTools.LEAN_AUDIT
+        expectEq(toolbox.specs().map { it.id }, expected, "specs")
         reset()
         val unknown = run("rm_rf", "/")
         expectEq(unknown.ok, false, "an unknown tool is refused")
         expectContains(unknown.detail, "no tool named", "and says so")
+    }
+
+    test("the Lean audit tool is refused when no bridge is wired, and reachable when one is") {
+        // The tool is an external process behind a token; the loop must not pretend it ran. With no bridge
+        // the call is refused *by name*, so a mis-wiring shows up in the trace instead of looking like a
+        // tool the model chose not to use.
+        val unwired = AndroidCognitionTools.toolbox(context())
+        val refused = runBlocking { unwired.run(ToolCall(AndroidCognitionTools.LEAN_AUDIT, "lean_check {}")) }
+        expectEq(refused.ok, false, "an unwired bridge refuses")
+        expectContains(refused.detail, "not configured", "and says which part is missing")
+
+        // With a bridge, the argument is parsed rather than trusted: the tool name must be one the bridge
+        // knows, and the arguments must be a JSON object.
+        val calls = mutableListOf<Pair<String, String>>()
+        val bridge = object : com.lucifer.mobile.cognition.LeanAuditBridge {
+            override val toolNames: List<String> = listOf("lean_check")
+            override suspend fun call(serverTool: String, arguments: org.json.JSONObject): String {
+                calls += serverTool to arguments.toString()
+                return "audited: $serverTool"
+            }
+        }
+        val wired = AndroidCognitionTools.toolbox(context(), bridge)
+        expectEq(runBlocking { wired.run(ToolCall(AndroidCognitionTools.LEAN_AUDIT, "lean_audit.lean_check {\"code\":\"x\"}")) }.ok, true, "wired call")
+        expectEq(calls.firstOrNull()?.first, "lean_check", "the server tool was resolved")
+        expectContains(calls.firstOrNull()?.second ?: "", "code", "the JSON arguments were passed through")
+
+        val unknown = runBlocking { wired.run(ToolCall(AndroidCognitionTools.LEAN_AUDIT, "lean_audit.lean_rm_rf {}")) }
+        expectEq(unknown.ok, false, "a tool the bridge does not know is refused")
+        expectContains(unknown.detail, "unknown lean_audit tool", "and names the ones that exist")
+
+        val badJson = runBlocking { wired.run(ToolCall(AndroidCognitionTools.LEAN_AUDIT, "lean_audit.lean_check not-json")) }
+        expectEq(badJson.ok, false, "non-JSON arguments are refused before anything is called")
     }
 
     test("arithmetic is computed, not guessed") {
